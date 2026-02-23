@@ -1,6 +1,7 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Animated } from 'react-native';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Animated, ActivityIndicator, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import {
   Search,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { AdminService } from '@/services/admin';
 
 // Temporary mock data until ChatService is implemented
 export type AdminChatThread = {
@@ -95,35 +97,73 @@ function ThreadItem({ thread, isSelected, onPress }: { thread: AdminChatThread; 
 
 function ChatView({ thread }: { thread: AdminChatThread }) {
   const [message, setMessage] = useState<string>('');
-  const [messages, setMessages] = useState<{ id: string; text: string; sender: 'admin' | 'client'; time: string }[]>([
-    { id: '1', text: thread.lastMessage, sender: 'client', time: thread.timestamp },
-  ]);
+  const [messages, setMessages] = useState<{ id: string; text: string; sender: 'admin' | 'client'; time: string }[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleSend = useCallback(() => {
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+
+    const loadMessages = async () => {
+      try {
+        setLoading(true);
+        const data = await AdminService.chat.getMessages(thread.clientId);
+        setMessages(data.map((m: any) => ({
+          id: m.id,
+          text: m.content,
+          sender: m.sender_role,
+          time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        })));
+      } catch (error) {
+        console.error('Error loading messages:', error);
+        Alert.alert('Error', 'Failed to load messages');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMessages();
+
+    unsubscribe = AdminService.chat.subscribeToMessages(thread.clientId, (payload) => {
+       if (payload.eventType === 'INSERT') {
+          const newMsg = payload.new;
+          setMessages(prev => [...prev, {
+            id: newMsg.id,
+            text: newMsg.content,
+            sender: newMsg.sender_role,
+            time: new Date(newMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }]);
+       }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [thread.clientId]);
+
+  const handleSend = useCallback(async () => {
     if (!message.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const newMsg = {
-      id: Date.now().toString(),
-      text: message.trim(),
-      sender: 'admin' as const,
-      time: 'Just now',
-    };
-    setMessages(prev => [...prev, newMsg]);
-    setMessage('');
-    console.log('[AdminChat] Sent message to', thread.clientName, ':', message.trim());
-  }, [message, thread.clientName]);
+    
+    try {
+      await AdminService.chat.sendMessage(thread.clientId, message.trim());
+      setMessage('');
+      // Message will be added via subscription
+    } catch (error) {
+      console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message');
+    }
+  }, [message, thread.clientId]);
 
-  const handleQuickReply = useCallback((reply: string) => {
+  const handleQuickReply = useCallback(async (reply: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const newMsg = {
-      id: Date.now().toString(),
-      text: reply,
-      sender: 'admin' as const,
-      time: 'Just now',
-    };
-    setMessages(prev => [...prev, newMsg]);
-    console.log('[AdminChat] Quick reply to', thread.clientName);
-  }, [thread.clientName]);
+    try {
+      await AdminService.chat.sendMessage(thread.clientId, reply);
+      console.log('[AdminChat] Quick reply to', thread.clientName);
+    } catch (error) {
+      console.error('Error sending quick reply:', error);
+      Alert.alert('Error', 'Failed to send quick reply');
+    }
+  }, [thread.clientId, thread.clientName]);
 
   return (
     <View style={styles.chatView}>
@@ -144,12 +184,18 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
       </View>
 
       <ScrollView style={styles.messagesContainer} contentContainerStyle={styles.messagesContent}>
-        {messages.map((msg) => (
-          <View key={msg.id} style={[styles.messageBubble, msg.sender === 'admin' ? styles.adminBubble : styles.clientBubble]}>
-            <Text style={[styles.messageText, msg.sender === 'admin' && styles.adminMessageText]}>{msg.text}</Text>
-            <Text style={[styles.messageTime, msg.sender === 'admin' && styles.adminMessageTime]}>{msg.time}</Text>
-          </View>
-        ))}
+        {loading ? (
+          <ActivityIndicator size="small" color={Colors.gold} style={{ marginTop: 20 }} />
+        ) : messages.length === 0 ? (
+          <Text style={{ color: Colors.textMuted, textAlign: 'center', marginTop: 20 }}>No messages yet</Text>
+        ) : (
+          messages.map((msg) => (
+            <View key={msg.id} style={[styles.messageBubble, msg.sender === 'admin' ? styles.adminBubble : styles.clientBubble]}>
+              <Text style={[styles.messageText, msg.sender === 'admin' && styles.adminMessageText]}>{msg.text}</Text>
+              <Text style={[styles.messageTime, msg.sender === 'admin' && styles.adminMessageTime]}>{msg.time}</Text>
+            </View>
+          ))
+        )}
       </ScrollView>
 
       <View style={styles.quickRepliesSection}>
@@ -186,18 +232,83 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
 
 export default function AdminInboxScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedThread, setSelectedThread] = useState<AdminChatThread | null>(null);
+  const [threads, setThreads] = useState<AdminChatThread[]>([]);
+  const [loading, setLoading] = useState(true);
+  const classifyError = useCallback((error: any) => {
+    const message =
+      error?.message ||
+      error?.details ||
+      error?.hint ||
+      String(error || '');
+    const lowerMessage = message.toLowerCase();
+    const status = error?.status || error?.code;
+    if (
+      lowerMessage.includes('not authenticated') ||
+      lowerMessage.includes('auth session missing') ||
+      lowerMessage.includes('jwt') ||
+      lowerMessage.includes('unauthorized') ||
+      lowerMessage.includes('forbidden') ||
+      lowerMessage.includes('permission') ||
+      lowerMessage.includes('row level security') ||
+      status === 401 ||
+      status === 403
+    ) {
+      return { title: 'Session Expired', body: 'Please log in again to load inbox messages.', type: 'auth' };
+    }
+    if (
+      (lowerMessage.includes('table') && lowerMessage.includes('not found')) ||
+      lowerMessage.includes('schema cache') ||
+      lowerMessage.includes('relation') && lowerMessage.includes('does not exist')
+    ) {
+      return { title: 'Database Setup Required', body: `Missing required table: ${message}. Please apply all Supabase migrations.`, type: 'schema' };
+    }
+    return { title: 'Connection Error', body: 'Failed to load threads. Please check your connection and try again.', type: 'generic' };
+  }, []);
+
+  useEffect(() => {
+    const loadThreads = async () => {
+      try {
+        setLoading(true);
+        const data = await AdminService.chat.listThreads();
+        setThreads(data);
+      } catch (error) {
+        console.error('Error loading threads:', error);
+        const info = classifyError(error);
+        if (info.type === 'auth') {
+          Alert.alert(info.title, info.body, [{ text: 'Login', onPress: () => router.replace('/admin-login') }]);
+        } else if (info.type === 'schema') {
+          Alert.alert(info.title, info.body, [{ text: 'OK' }]);
+        } else {
+          Alert.alert(info.title, info.body, [{ text: 'Retry', onPress: () => loadThreads() }]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadThreads();
+    
+    const unsubscribe = AdminService.chat.subscribeToThreads(() => {
+      loadThreads(); 
+    });
+
+    return () => {
+      unsubscribe();
+    }
+  }, []);
 
   const filteredThreads = useMemo(() => {
-    if (!searchQuery.trim()) return adminChatThreads;
+    if (!searchQuery.trim()) return threads;
     const q = searchQuery.toLowerCase();
-    return adminChatThreads.filter(
-      t => t.clientName.toLowerCase().includes(q) || t.clientPhone.includes(q)
+    return threads.filter(
+      t => t.clientName.toLowerCase().includes(q) || t.clientPhone?.includes(q)
     );
-  }, [searchQuery]);
+  }, [searchQuery, threads]);
 
-  const totalUnread = useMemo(() => adminChatThreads.reduce((sum, t) => sum + t.unread, 0), []);
+  const totalUnread = useMemo(() => threads.reduce((sum, t) => sum + t.unread, 0), [threads]);
 
   if (selectedThread) {
     return (
@@ -242,7 +353,9 @@ export default function AdminInboxScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {filteredThreads.length > 0 ? (
+        {loading ? (
+           <ActivityIndicator size="large" color={Colors.gold} style={{ marginTop: 40 }} />
+        ) : filteredThreads.length > 0 ? (
           filteredThreads.map((thread) => (
             <ThreadItem
               key={thread.id}

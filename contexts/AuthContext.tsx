@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
+import { ClientService } from '@/services/client';
 
 interface UserProfile {
   id: string;
@@ -453,6 +454,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await clearPinLock();
   }, [clearPinLock]);
 
+  const syncTemporaryUploads = useCallback(async () => {
+    try {
+      await ClientService.tempUploads.syncForCurrentUser();
+    } catch (error) {
+      console.warn('Temporary upload sync failed:', error);
+    }
+  }, []);
+
   // Check authentication status on app launch
   const checkAuthOnLaunch = useCallback(async () => {
     setState(prev => ({ ...prev, isLoading: true }));
@@ -577,13 +586,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               requiresSecuritySetup: !profile.profile_complete,
               requiresAuthOnLaunch: profile.pin_hash !== null || profile.biometric_enabled === true,
             }));
+            if (profile.role === 'client') {
+              await syncTemporaryUploads();
+            }
           }
         }
       }
     );
 
     return () => subscription.unsubscribe();
-  }, [checkAuthOnLaunch]);
+  }, [checkAuthOnLaunch, syncTemporaryUploads]);
 
   const value: AuthContextType = {
     ...state,

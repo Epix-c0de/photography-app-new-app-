@@ -102,13 +102,13 @@ export default function AdminSettingsScreen() {
   const { logout, user, adminSecurity, updateAdminSecurity, verifyAdminGuard } = useAuth();
   const { settings: brandSettings, isLoading: brandingLoading, error: brandingError, update: updateBranding } = useBranding();
 
-  const [brandNameDraft, setBrandNameDraft] = useState<string>('LenzArt Studio');
+  const [brandNameDraft, setBrandNameDraft] = useState<string>('Epix Visuals Studios.co');
   const [taglineDraft, setTaglineDraft] = useState<string>('');
-  const [appDisplayNameDraft, setAppDisplayNameDraft] = useState<string>('LenzArt');
+  const [appDisplayNameDraft, setAppDisplayNameDraft] = useState<string>('Epix Visuals Studios.co');
   const [watermarkEnabled, setWatermarkEnabled] = useState<boolean>(true);
   const [watermarkOpacity, setWatermarkOpacity] = useState<string>('30');
   const [watermarkRotation, setWatermarkRotation] = useState<string>('45');
-  const [watermarkText, setWatermarkText] = useState<string>('LenzArt');
+  const [watermarkText, setWatermarkText] = useState<string>('Epix Visuals Studios.co');
   const [watermarkSize, setWatermarkSize] = useState<'small' | 'medium' | 'large'>('medium');
   const [watermarkPosition, setWatermarkPosition] = useState<'center' | 'grid' | 'randomized'>('center');
   const [autoSmsOnUpload, setAutoSmsOnUpload] = useState<boolean>(true);
@@ -128,21 +128,21 @@ export default function AdminSettingsScreen() {
   const [confirmNextPassword, setConfirmNextPassword] = useState<string>('');
   const [invalidateSessions, setInvalidateSessions] = useState<boolean>(false);
 
-  const adminEmail = user?.role === 'admin' ? user.email : 'admin@lenzart.com';
+  const adminEmail = user?.role === 'admin' ? user.email : 'admin@epixvisualsstudios.co';
   const adminPhone = user?.role === 'admin' ? user.phone : '+254711111111';
 
   useEffect(() => {
     if (!brandSettings) return;
 
-    setBrandNameDraft(brandSettings.brand_name ?? 'LenzArt Studio');
+    setBrandNameDraft(brandSettings.brand_name ?? 'Epix Visuals Studios.co');
     setTaglineDraft(brandSettings.tagline ?? '');
-    setAppDisplayNameDraft(brandSettings.app_display_name ?? 'LenzArt');
+    setAppDisplayNameDraft(brandSettings.app_display_name ?? 'Epix Visuals Studios.co');
 
     const opacity = brandSettings.watermark_opacity ?? 30;
     setWatermarkEnabled(opacity > 0);
     setWatermarkOpacity(String(opacity));
     setWatermarkRotation(String(brandSettings.watermark_rotation ?? 45));
-    setWatermarkText(brandSettings.watermark_text ?? 'LenzArt');
+    setWatermarkText(brandSettings.watermark_text ?? 'Epix Visuals Studios.co');
     setWatermarkSize((brandSettings.watermark_size ?? 'medium') as any);
     setWatermarkPosition((brandSettings.watermark_position ?? 'center') as any);
     setScreenshotProtection(!!brandSettings.block_screenshots);
@@ -314,9 +314,9 @@ export default function AdminSettingsScreen() {
               />
               <SettingsRow
                 icon={<Smartphone size={18} color="#6C9AED" />}
-                label="SMS Management"
-                description="Bundles, balance & automated logs"
-                onPress={() => router.push('/(admin)/settings/sms-management')}
+                label="Delivery System"
+                description="Gateways, credits & access codes"
+                onPress={() => router.push('/(admin)/settings/delivery')}
                 showArrow
               />
               <SettingsRow
@@ -888,7 +888,7 @@ export default function AdminSettingsScreen() {
         </SettingsSection>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>LenzArt Admin v1.0.0</Text>
+          <Text style={styles.footerText}>Epix Visuals Studios.co Admin v1.0.0</Text>
           <Text style={styles.footerSub}>Luxury Photography Suite</Text>
         </View>
       </ScrollView>

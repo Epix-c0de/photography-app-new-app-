@@ -256,7 +256,7 @@ export default function ProfileScreen() {
      if (!user) return;
      const referralCode = user.id.substring(0, 8).toUpperCase();
      const url = `https://rork.app/refer/${referralCode}`;
-     const message = `Hey! Use my code ${referralCode} to get KES 2,000 off your next booking with LenzArt! ${url}`;
+     const message = `Hey! Use my code ${referralCode} to get KES 2,000 off your next booking with Epix Visuals Studios.co! ${url}`;
      
      try {
        const result = await Share.share({

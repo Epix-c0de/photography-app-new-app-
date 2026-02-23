@@ -24,7 +24,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: gallery, error: galleryError } = await supabase
       .from('galleries')
-      .select('id, owner_admin_id, client_id, price, access_code, name')
+      .select('id, owner_admin_id, client_id, price, access_code, name, is_paid')
       .eq('id', gallery_id)
       .single();
 
@@ -32,10 +32,34 @@ Deno.serve(async (req: Request) => {
       throw new Error('Gallery not found');
     }
 
+    if (gallery.is_paid) {
+      throw new Error('Gallery already paid. Download unlocked.');
+    }
+
     const ownerAdminId = gallery.owner_admin_id as string;
     const clientId = gallery.client_id as string;
     const amountToCharge = Number.isFinite(Number(amount)) ? Number(amount) : Number(gallery.price);
     const accountReference = reference || gallery.access_code || gallery.name || 'Gallery';
+
+    const { data: reserved, error: reserveError } = await supabase.rpc('reserve_gallery_payment', {
+      p_gallery_id: gallery_id,
+      p_client_id: clientId,
+      p_client_phone: String(phone_number),
+      p_amount: amountToCharge,
+    });
+    if (reserveError) {
+      if (reserveError.message?.includes('GALLERY_ALREADY_PAID')) {
+        throw new Error('Gallery already paid. Download unlocked.');
+      }
+      if (reserveError.message?.includes('PAYMENT_IN_PROGRESS')) {
+        throw new Error('Payment already in progress. Please complete it.');
+      }
+      throw new Error('Unable to reserve payment');
+    }
+    const paymentId = typeof reserved === 'string' ? reserved : Array.isArray(reserved) ? reserved[0] : reserved;
+    if (!paymentId) {
+      throw new Error('Unable to reserve payment');
+    }
 
     // 1. Get Payment Config (scoped to the gallery owner admin)
     const { data: config, error: configError } = await supabase
@@ -61,22 +85,18 @@ Deno.serve(async (req: Request) => {
       
       const mockCheckoutRequestID = `ws_CO_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       
-      // Create pending payment record
       const { error: paymentError } = await supabase
         .from('payments')
-        .insert({
-          owner_admin_id: ownerAdminId,
-          client_id: clientId,
-          gallery_id,
-          amount: amountToCharge,
-          currency: 'KES',
-          status: 'pending',
+        .update({
+          checkout_request_id: mockCheckoutRequestID,
           mpesa_checkout_request_id: mockCheckoutRequestID,
           phone_number: phone_number,
-        });
+          client_phone: phone_number,
+        })
+        .eq('id', paymentId);
 
       if (paymentError) {
-        console.error('Failed to create payment record:', paymentError);
+        console.error('Failed to update payment record:', paymentError);
         throw new Error('Failed to record payment');
       }
 
@@ -107,6 +127,7 @@ Deno.serve(async (req: Request) => {
     const accessToken = tokenData.access_token;
 
     if (!accessToken) {
+      await supabase.from('payments').update({ status: 'failed' }).eq('id', paymentId);
       throw new Error('Failed to generate M-Pesa access token');
     }
 
@@ -139,22 +160,20 @@ Deno.serve(async (req: Request) => {
     const stkData = await stkRes.json();
 
     if (stkData.ResponseCode !== "0") {
+      await supabase.from('payments').update({ status: 'failed' }).eq('id', paymentId);
       throw new Error(stkData.ResponseDescription || 'STK Push failed');
     }
 
-    // 4. Record Payment
     await supabase
       .from('payments')
-      .insert({
-        owner_admin_id: ownerAdminId,
-        client_id: clientId,
-        gallery_id,
-        amount: amountToCharge,
-        currency: 'KES',
-        status: 'pending',
+      .update({
+        checkout_request_id: stkData.CheckoutRequestID,
+        merchant_request_id: stkData.MerchantRequestID,
         mpesa_checkout_request_id: stkData.CheckoutRequestID,
         phone_number: phone_number,
-      });
+        client_phone: phone_number,
+      })
+      .eq('id', paymentId);
 
     return new Response(
       JSON.stringify({

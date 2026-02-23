@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Animated, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Animated, Alert, ActivityIndicator, RefreshControl, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,8 +17,10 @@ import {
   Crown,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import Colors from '@/constants/colors';
 import { AdminService } from '@/services/admin';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Types for UI
 type AdminClient = {
@@ -75,7 +77,13 @@ function ClientCard({ client, onPress }: { client: AdminClient; onPress: () => v
       onPress={onPress}
     >
       <Animated.View style={[styles.clientCard, { transform: [{ scale: scaleAnim }] }]}>
-        <Image source={{ uri: client.avatar }} style={styles.clientAvatar} />
+        <Image 
+          source={{ uri: client.avatar }} 
+          style={styles.clientAvatar} 
+          contentFit="cover"
+          transition={200}
+          cachePolicy="memory-disk"
+        />
         <View style={styles.clientInfo}>
           <View style={styles.clientNameRow}>
             <Text style={styles.clientName}>{client.name}</Text>
@@ -100,17 +108,33 @@ function ClientCard({ client, onPress }: { client: AdminClient; onPress: () => v
 function GalleryCard({ gallery }: { gallery: AdminGallery }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  const handleResendCode = useCallback(() => {
+  const handleResendCode = useCallback(async () => {
+    await Clipboard.setStringAsync(gallery.accessCode);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert('SMS Sent', `Access code ${gallery.accessCode} sent to ${gallery.clientName}`);
+    Alert.alert('Copied', `Access code ${gallery.accessCode} copied to clipboard`);
   }, [gallery]);
 
-  const handleToggleLock = useCallback(() => {
+  const handleToggleLock = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Alert.alert(
       gallery.isLocked ? 'Unlock Gallery' : 'Lock Gallery',
       `Are you sure you want to ${gallery.isLocked ? 'unlock' : 'lock'} "${gallery.title}"?`,
-      [{ text: 'Cancel', style: 'cancel' }, { text: 'Confirm', style: 'destructive' }]
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Confirm', 
+          style: 'destructive',
+          onPress: async () => {
+             try {
+               const { error } = await AdminService.gallery.update(gallery.id, { is_locked: !gallery.isLocked });
+               if (error) throw error;
+               // State will update via subscription
+             } catch (e) {
+               Alert.alert('Error', 'Failed to update gallery status');
+             }
+          }
+        }
+      ]
     );
   }, [gallery]);
 
@@ -120,7 +144,13 @@ function GalleryCard({ gallery }: { gallery: AdminGallery }) {
       onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
     >
       <Animated.View style={[styles.galleryCard, { transform: [{ scale: scaleAnim }] }]}>
-        <Image source={{ uri: gallery.coverImage }} style={styles.galleryCover} contentFit="cover" />
+        <Image 
+          source={{ uri: gallery.coverImage }} 
+          style={styles.galleryCover} 
+          contentFit="cover" 
+          transition={200}
+          cachePolicy="memory-disk"
+        />
         <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.galleryOverlay} />
 
         <View style={styles.galleryBadges}>
@@ -217,7 +247,13 @@ function ClientDetailModal({ client, galleries, onClose }: { client: AdminClient
               <Text style={styles.modalGalleriesTitle}>Galleries ({clientGalleries.length})</Text>
               {clientGalleries.map((g) => (
                 <View key={g.id} style={styles.modalGalleryItem}>
-                  <Image source={{ uri: g.coverImage }} style={styles.modalGalleryThumb} contentFit="cover" />
+                  <Image 
+                    source={{ uri: g.coverImage }} 
+                    style={styles.modalGalleryThumb} 
+                    contentFit="cover" 
+                    transition={200}
+                    cachePolicy="memory-disk"
+                  />
                   <View style={styles.modalGalleryInfo}>
                     <Text style={styles.modalGalleryTitle}>{g.title}</Text>
                     <Text style={styles.modalGallerySub}>{g.photoCount} photos · {g.accessCode}</Text>
@@ -271,60 +307,184 @@ function ClientDetailModal({ client, galleries, onClose }: { client: AdminClient
 
 export default function AdminClientsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { verifyAdminGuard } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>('clients');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedClient, setSelectedClient] = useState<AdminClient | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showCreateClientModal, setShowCreateClientModal] = useState(false);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientPhone, setNewClientPhone] = useState('');
+  const [newClientEmail, setNewClientEmail] = useState('');
+  const [newClientNotes, setNewClientNotes] = useState('');
   
   const [clients, setClients] = useState<AdminClient[]>([]);
   const [galleries, setGalleries] = useState<AdminGallery[]>([]);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [dbClients, dbGalleries] = await Promise.all([
-          AdminService.clients.list(),
-          AdminService.gallery.list()
-        ]);
-
-        // Transform Clients
-        const transformedClients: AdminClient[] = (dbClients || []).map((c: any) => ({
-          id: c.id,
-          name: c.name,
-          avatar: 'https://via.placeholder.com/150', // Placeholder as DB doesn't have avatar yet
-          phone: c.phone || 'No phone',
-          email: c.email || '',
-          loyaltyLevel: c.total_paid > 50000 ? 'Gold' : c.total_paid > 10000 ? 'Silver' : 'Bronze',
-          totalSpent: c.total_paid || 0,
-          totalGalleries: dbGalleries.filter((g: any) => g.client_id === c.id).length,
-          preferredPackage: c.preferred_package,
-          notes: c.notes
-        }));
-
-        // Transform Galleries
-        const transformedGalleries: AdminGallery[] = (dbGalleries || []).map((g: any) => ({
-          id: g.id,
-          clientId: g.client_id,
-          clientName: g.clients?.name || 'Unknown',
-          title: g.name,
-          coverImage: g.cover_photo_url || 'https://via.placeholder.com/400x300',
-          photoCount: 0, // TODO: Count photos
-          accessCode: g.access_code,
-          isLocked: g.is_locked,
-          isPaid: g.is_paid,
-          price: g.price,
-          status: g.scheduled_release ? 'scheduled' : 'active'
-        }));
-
-        setClients(transformedClients);
-        setGalleries(transformedGalleries);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
+  const loadData = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
       }
-    })();
+
+      const [dbClients, dbGalleries] = await Promise.all([
+        AdminService.clients.list(),
+        AdminService.gallery.list()
+      ]);
+
+      // Transform Clients
+      const transformedClients: AdminClient[] = (dbClients || []).map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        avatar: c.user_profiles?.avatar_url || 'https://via.placeholder.com/150',
+        phone: c.phone || 'No phone',
+        email: c.email || '',
+        loyaltyLevel: c.total_paid > 50000 ? 'Gold' : c.total_paid > 10000 ? 'Silver' : 'Bronze',
+        totalSpent: c.total_paid || 0,
+        totalGalleries: dbGalleries.filter((g: any) => g.client_id === c.id).length,
+        preferredPackage: c.preferred_package,
+        notes: c.notes
+      }));
+
+      // Transform Galleries
+      const transformedGalleries: AdminGallery[] = (dbGalleries || []).map((g: any) => ({
+        id: g.id,
+        clientId: g.client_id,
+        clientName: g.clients?.name || 'Unknown',
+        title: g.name,
+        coverImage: g.cover_photo_url || 'https://via.placeholder.com/400x300',
+        photoCount: 0, // TODO: Count photos
+        accessCode: g.access_code,
+        isLocked: g.is_locked,
+        isPaid: g.is_paid,
+        price: g.price || 0,
+        status: g.scheduled_release ? 'scheduled' : 'active'
+      }));
+
+      setClients(transformedClients);
+      setGalleries(transformedGalleries);
+    } catch (error) {
+      console.error('Failed to load admin data:', error);
+      const rawMessage =
+        (error as any)?.message ||
+        (error as any)?.details ||
+        (error as any)?.hint ||
+        String(error || '');
+      const lowerMessage = rawMessage.toLowerCase();
+      const status = (error as any)?.status || (error as any)?.code;
+      if (
+        lowerMessage.includes('not authenticated') ||
+        lowerMessage.includes('auth session missing') ||
+        lowerMessage.includes('jwt') ||
+        lowerMessage.includes('unauthorized') ||
+        lowerMessage.includes('forbidden') ||
+        lowerMessage.includes('permission') ||
+        lowerMessage.includes('row level security') ||
+        status === 401 ||
+        status === 403
+      ) {
+        Alert.alert(
+          'Session Expired',
+          'Please log in again to load clients and galleries.',
+          [{ text: 'Login', onPress: () => router.replace('/admin-login') }]
+        );
+        return;
+      }
+      if (
+        lowerMessage.includes('schema cache') ||
+        lowerMessage.includes('does not exist') ||
+        lowerMessage.includes('relation') ||
+        lowerMessage.includes('missing')
+      ) {
+        Alert.alert(
+          'Database Setup Required',
+          `Some required tables or policies are missing. ${rawMessage}`
+        );
+        return;
+      }
+      if (
+        lowerMessage.includes('failed to fetch') ||
+        lowerMessage.includes('network') ||
+        lowerMessage.includes('timeout')
+      ) {
+        Alert.alert(
+          'Connection Error',
+          'Unable to load clients and galleries. Please check your internet connection and try again.',
+          [{ text: 'Retry', onPress: () => loadData() }]
+        );
+        return;
+      }
+      Alert.alert(
+        'Load Failed',
+        rawMessage || 'Unable to load clients and galleries.',
+        [{ text: 'Retry', onPress: () => loadData() }]
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [router]);
+
+  const resetCreateClientForm = useCallback(() => {
+    setNewClientName('');
+    setNewClientPhone('');
+    setNewClientEmail('');
+    setNewClientNotes('');
   }, []);
+
+  const handleCreateClient = useCallback(async () => {
+    if (!newClientName.trim()) {
+      Alert.alert('Missing Info', 'Please enter the client name.');
+      return;
+    }
+    if (!newClientPhone.trim()) {
+      Alert.alert('Missing Info', 'Please enter the client phone number.');
+      return;
+    }
+    try {
+      setCreatingClient(true);
+      await AdminService.clients.create({
+        name: newClientName.trim(),
+        phone: newClientPhone.trim(),
+        email: newClientEmail.trim() || undefined,
+        notes: newClientNotes.trim() || undefined
+      } as any);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowCreateClientModal(false);
+      resetCreateClientForm();
+      loadData(true);
+    } catch (error: any) {
+      Alert.alert('Client Creation Failed', error?.message || 'Unable to create client.');
+    } finally {
+      setCreatingClient(false);
+    }
+  }, [newClientName, newClientPhone, newClientEmail, newClientNotes, loadData, resetCreateClientForm]);
+
+  useEffect(() => {
+    let unsubClients: (() => void) | undefined;
+    let mounted = true;
+
+    (async () => {
+      const ok = await verifyAdminGuard('open_dashboard');
+      if (!ok) {
+        router.replace('/admin-login');
+        return;
+      }
+      if (!mounted) return;
+      loadData();
+      unsubClients = AdminService.clients.subscribe(() => loadData(true));
+    })();
+
+    return () => {
+      mounted = false;
+      if (unsubClients) unsubClients();
+    };
+  }, [loadData, router, verifyAdminGuard]);
 
   const filteredClients = useMemo(() => {
     if (!searchQuery.trim()) return clients;
@@ -397,6 +557,9 @@ export default function AdminClientsScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => loadData(true)} tintColor={Colors.gold} />
+        }
       >
         {viewMode === 'clients' ? (
           filteredClients.length > 0 ? (
@@ -434,7 +597,7 @@ export default function AdminClientsScreen() {
         style={styles.fab}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-          Alert.alert('Add Client', 'Create a new outdoor client entry.');
+          setShowCreateClientModal(true);
         }}
       >
         <LinearGradient colors={[Colors.gold, Colors.goldDark]} style={styles.fabGradient}>
@@ -445,6 +608,79 @@ export default function AdminClientsScreen() {
       {selectedClient && (
         <ClientDetailModal client={selectedClient} galleries={galleries} onClose={() => setSelectedClient(null)} />
       )}
+
+      <Modal
+        visible={showCreateClientModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCreateClientModal(false)}
+      >
+        <View style={styles.createModalBackdrop}>
+          <View style={styles.createModalCard}>
+            <View style={styles.createModalHeader}>
+              <Text style={styles.createModalTitle}>Create Client</Text>
+              <Pressable onPress={() => setShowCreateClientModal(false)}>
+                <X size={20} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+            <View style={styles.createModalBody}>
+              <View style={styles.createModalInputRow}>
+                <UserPlus size={18} color={Colors.textMuted} />
+                <TextInput
+                  style={styles.createModalInput}
+                  placeholder="Client Name"
+                  placeholderTextColor={Colors.textMuted}
+                  value={newClientName}
+                  onChangeText={setNewClientName}
+                />
+              </View>
+              <View style={styles.createModalInputRow}>
+                <Phone size={18} color={Colors.textMuted} />
+                <TextInput
+                  style={styles.createModalInput}
+                  placeholder="Phone Number"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="phone-pad"
+                  value={newClientPhone}
+                  onChangeText={setNewClientPhone}
+                />
+              </View>
+              <View style={styles.createModalInputRow}>
+                <Send size={18} color={Colors.textMuted} />
+                <TextInput
+                  style={styles.createModalInput}
+                  placeholder="Email (optional)"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="email-address"
+                  value={newClientEmail}
+                  onChangeText={setNewClientEmail}
+                />
+              </View>
+              <View style={styles.createModalInputRow}>
+                <TextInput
+                  style={styles.createModalInput}
+                  placeholder="Notes (optional)"
+                  placeholderTextColor={Colors.textMuted}
+                  value={newClientNotes}
+                  onChangeText={setNewClientNotes}
+                />
+              </View>
+            </View>
+            <View style={styles.createModalActions}>
+              <Pressable style={styles.createModalButton} onPress={() => setShowCreateClientModal(false)}>
+                <Text style={styles.createModalButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.createModalButton, styles.createModalPrimaryButton, creatingClient && styles.createModalButtonDisabled]}
+                onPress={handleCreateClient}
+                disabled={creatingClient}
+              >
+                <Text style={styles.createModalPrimaryButtonText}>{creatingClient ? 'Creating...' : 'Create'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -891,5 +1127,79 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600' as const,
     color: Colors.gold,
+  },
+  createModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  createModalCard: {
+    width: '100%',
+    borderRadius: 16,
+    backgroundColor: Colors.card,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  createModalHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  createModalTitle: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: Colors.white,
+  },
+  createModalBody: {
+    gap: 10,
+  },
+  createModalInputRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: Colors.inputBg,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+  },
+  createModalInput: {
+    flex: 1,
+    color: Colors.white,
+    fontSize: 14,
+  },
+  createModalActions: {
+    flexDirection: 'row' as const,
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 16,
+  },
+  createModalButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: Colors.inputBg,
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+  },
+  createModalButtonText: {
+    color: Colors.textMuted,
+    fontWeight: '600' as const,
+  },
+  createModalPrimaryButton: {
+    backgroundColor: Colors.gold,
+    borderColor: Colors.gold,
+  },
+  createModalPrimaryButtonText: {
+    color: Colors.background,
+    fontWeight: '700' as const,
+  },
+  createModalButtonDisabled: {
+    opacity: 0.6,
   },
 });

@@ -111,7 +111,7 @@ export default function SplashScreen() {
           <View style={styles.logoFrame}>
             <Animated.Text style={[styles.logoIcon, { opacity: shimmerOpacity }]}>◈</Animated.Text>
           </View>
-          <Text style={styles.logoText}>LENZ<Text style={styles.logoAccent}>ART</Text></Text>
+          <Text style={styles.logoText}>EPIX<Text style={styles.logoAccent}>VISUALS</Text></Text>
         </Animated.View>
       </Pressable>
 

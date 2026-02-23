@@ -7,6 +7,7 @@ returns trigger as $$
 declare
   new_phone text;
   phone_exists boolean;
+  existing_client_id uuid;
 begin
   -- Get the phone number from metadata or auth record
   new_phone := coalesce(new.phone, new.raw_user_meta_data->>'phone');
@@ -17,6 +18,11 @@ begin
     select exists(select 1 from public.user_profiles where phone = new_phone) into phone_exists;
     if phone_exists then
       new_phone := null; -- Clear it to avoid unique constraint violation
+    else
+      select id into existing_client_id from public.clients where phone = new_phone limit 1;
+      if existing_client_id is not null then
+        update public.clients set user_id = new.id where id = existing_client_id and user_id is null;
+      end if;
     end if;
   end if;
 

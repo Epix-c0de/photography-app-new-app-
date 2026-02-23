@@ -22,7 +22,7 @@ interface Slide {
 const slides: Slide[] = [
   {
     id: '1',
-    title: 'Welcome to LenzArt',
+    title: 'Welcome to Epix Visuals Studios.co',
     subtitle: 'Premium Photography',
     description: 'Experience photography like never before. Your moments, captured with artistry and delivered with luxury.',
     image: 'https://images.unsplash.com/photo-1606216794074-735e91aa2c92?w=800&h=1200&fit=crop',

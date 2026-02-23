@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated, Dimensions, Alert, Share, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated, Dimensions, Alert, Share, ActivityIndicator, Platform, PermissionsAndroid } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,6 +13,7 @@ import { ClientService, type Photo as ClientPhoto } from '@/services/client';
 import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
 import PaymentModal from '@/components/PaymentModal';
+import { LocalSmsGateway } from '@lenzart/local-sms-gateway';
 
 const { width } = Dimensions.get('window');
 const COL_GAP = 8;
@@ -168,6 +169,7 @@ export default function GalleryScreen() {
   const { brandName, blockScreenshots, setActiveAdminId } = useBranding();
   const [activeTab, setActiveTab] = useState<TabType>('my-galleries');
   const [accessCode, setAccessCode] = useState<string>('');
+  const smsAutofillLastTriedAt = useRef<number>(0);
   const [selectedGallery, setSelectedGallery] = useState<GalleryRow | null>(null);
   const [likedPhotos, setLikedPhotos] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -185,6 +187,34 @@ export default function GalleryScreen() {
 
   const favoritesCount = likedPhotos.size;
 
+  const maybeAutofillAccessCodeFromSms = useCallback(async () => {
+    if (Platform.OS !== 'android') return;
+    if (accessCode.trim().length > 0) return;
+
+    const now = Date.now();
+    if (now - smsAutofillLastTriedAt.current < 15_000) return;
+    smsAutofillLastTriedAt.current = now;
+
+    try {
+      const hasReadSms = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS);
+      const granted = hasReadSms
+        ? PermissionsAndroid.RESULTS.GRANTED
+        : await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS);
+      if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
+
+      const found = await LocalSmsGateway.findLatestAccessCode({
+        regex: '(?:use\\s*code|access\\s*code\\s*(?:is)?)[^A-Z0-9-]*([A-Z0-9-]{4,64})',
+        maxMessages: 40,
+      });
+
+      const code = found?.code?.trim();
+      if (!code) return;
+      setAccessCode(code.toUpperCase());
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {
+    }
+  }, [accessCode]);
+
   const handleLikePhoto = useCallback((id: string) => {
     setLikedPhotos(prev => {
       const next = new Set(prev);
@@ -196,6 +226,11 @@ export default function GalleryScreen() {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'unlock' || selectedGallery) return;
+    maybeAutofillAccessCodeFromSms();
+  }, [activeTab, selectedGallery, maybeAutofillAccessCodeFromSms]);
 
   const fetchClientId = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -275,10 +310,16 @@ export default function GalleryScreen() {
       Animated.timing(unlockAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
       Animated.timing(unlockAnim, { toValue: 0, duration: 300, delay: 1500, useNativeDriver: true }),
     ]).start();
+    const normalizedCode = accessCode.trim().toUpperCase();
+    try {
+      await ClientService.tempUploads.syncByAccessCode(normalizedCode);
+    } catch (syncError) {
+      console.warn('Temporary upload sync failed:', syncError);
+    }
     const { data, error } = await supabase
       .from('galleries')
       .select('*')
-      .eq('access_code', accessCode.trim())
+      .eq('access_code', normalizedCode)
       .limit(1)
       .maybeSingle();
 
@@ -289,7 +330,8 @@ export default function GalleryScreen() {
 
     setAccessCode('');
     setSelectedGallery(data);
-  }, [accessCode, unlockAnim]);
+    fetchPhotosForGallery(data.id);
+  }, [accessCode, unlockAnim, fetchPhotosForGallery]);
 
   const handlePayGallery = useCallback((gallery: GalleryRow) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -326,6 +368,32 @@ export default function GalleryScreen() {
   }, [fetchClientId, fetchGalleries]);
 
   useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let cancelled = false;
+
+    (async () => {
+      const activeClientId = clientId ?? (await fetchClientId());
+      if (!activeClientId || cancelled) return;
+
+      channel = supabase
+        .channel(`client-galleries-${activeClientId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'galleries', filter: `client_id=eq.${activeClientId}` },
+          () => {
+            fetchGalleries();
+          }
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [clientId, fetchClientId, fetchGalleries]);
+
+  useEffect(() => {
     setActiveAdminId(selectedGallery?.owner_admin_id ?? null);
   }, [selectedGallery?.owner_admin_id, setActiveAdminId]);
 
@@ -353,6 +421,25 @@ export default function GalleryScreen() {
       return;
     }
     fetchPhotosForGallery(selectedGallery.id);
+  }, [fetchPhotosForGallery, selectedGallery]);
+
+  useEffect(() => {
+    if (!selectedGallery) return;
+
+    const channel = supabase
+      .channel(`client-photos-${selectedGallery.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'gallery_photos', filter: `gallery_id=eq.${selectedGallery.id}` },
+        () => {
+          fetchPhotosForGallery(selectedGallery.id);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [fetchPhotosForGallery, selectedGallery]);
 
   const myGalleries = useMemo(() => {

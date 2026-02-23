@@ -15,36 +15,197 @@ export interface Database {
         Update: Record<string, any>
         Relationships: any[]
       }
+      delivery_gateways: {
+        Row: {
+          id: string
+          name: string
+          type: 'http' | 'smpp' | 'whatsapp_cloud' | 'local_modem'
+          config: Json
+          priority: number
+          active: boolean
+          cost_per_msg: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          type: 'http' | 'smpp' | 'whatsapp_cloud' | 'local_modem'
+          config?: Json
+          priority?: number
+          active?: boolean
+          cost_per_msg?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          type?: 'http' | 'smpp' | 'whatsapp_cloud' | 'local_modem'
+          config?: Json
+          priority?: number
+          active?: boolean
+          cost_per_msg?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      delivery_credits: {
+        Row: {
+          id: string
+          balance: number
+          warning_threshold: number
+          critical_threshold: number
+          auto_refill_enabled: boolean
+          auto_refill_amount: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          balance?: number
+          warning_threshold?: number
+          critical_threshold?: number
+          auto_refill_enabled?: boolean
+          auto_refill_amount?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          balance?: number
+          warning_threshold?: number
+          critical_threshold?: number
+          auto_refill_enabled?: boolean
+          auto_refill_amount?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      access_codes: {
+        Row: {
+          id: string
+          client_id: string
+          code_hash: string
+          status: 'active' | 'used' | 'expired'
+          expires_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          code_hash: string
+          status?: 'active' | 'used' | 'expired'
+          expires_at: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          code_hash?: string
+          status?: 'active' | 'used' | 'expired'
+          expires_at?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "access_codes_client_id_fkey"
+            columns: ["client_id"]
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      delivery_logs: {
+        Row: {
+          id: string
+          recipient: string
+          message_type: 'sms' | 'whatsapp'
+          gateway_id: string | null
+          status: 'pending' | 'sent' | 'delivered' | 'failed' | 'blocked'
+          attempts: number
+          cost: number
+          external_id: string | null
+          error_code: string | null
+          error_message: string | null
+          metadata: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          recipient: string
+          message_type: 'sms' | 'whatsapp'
+          gateway_id?: string | null
+          status?: 'pending' | 'sent' | 'delivered' | 'failed' | 'blocked'
+          attempts?: number
+          cost?: number
+          external_id?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          recipient?: string
+          message_type?: 'sms' | 'whatsapp'
+          gateway_id?: string | null
+          status?: 'pending' | 'sent' | 'delivered' | 'failed' | 'blocked'
+          attempts?: number
+          cost?: number
+          external_id?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "delivery_logs_gateway_id_fkey"
+            columns: ["gateway_id"]
+            referencedRelation: "delivery_gateways"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       sms_logs: {
         Row: {
           id: string
-          admin_id: string
+          owner_admin_id: string
           client_id: string | null
           phone_number: string
-          message_body: string
-          status: 'sent' | 'failed' | 'pending'
+          message: string
+          status: 'queued' | 'sent' | 'failed'
+          cost: number | null
           sent_at: string | null
           error_message: string | null
           created_at: string
         }
         Insert: {
           id?: string
-          admin_id: string
+          owner_admin_id: string
           client_id?: string | null
           phone_number: string
-          message_body: string
-          status?: 'sent' | 'failed' | 'pending'
+          message: string
+          status?: 'queued' | 'sent' | 'failed'
+          cost?: number | null
           sent_at?: string | null
           error_message?: string | null
           created_at?: string
         }
         Update: {
           id?: string
-          admin_id?: string
+          owner_admin_id?: string
           client_id?: string | null
           phone_number?: string
-          message_body?: string
-          status?: 'sent' | 'failed' | 'pending'
+          message?: string
+          status?: 'queued' | 'sent' | 'failed'
+          cost?: number | null
           sent_at?: string | null
           error_message?: string | null
           created_at?: string
@@ -61,7 +222,7 @@ export interface Database {
       sms_templates: {
         Row: {
           id: string
-          admin_id: string
+          owner_admin_id: string
           name: string
           body: string
           is_default: boolean
@@ -70,7 +231,7 @@ export interface Database {
         }
         Insert: {
           id?: string
-          admin_id: string
+          owner_admin_id: string
           name: string
           body: string
           is_default?: boolean
@@ -79,7 +240,7 @@ export interface Database {
         }
         Update: {
           id?: string
-          admin_id?: string
+          owner_admin_id?: string
           name?: string
           body?: string
           is_default?: boolean
@@ -91,40 +252,76 @@ export interface Database {
       sms_drafts: {
         Row: {
           id: string
-          admin_id: string
+          owner_admin_id: string
           client_id: string | null
           phone_number: string
-          message_body: string
+          message: string
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
-          admin_id: string
+          owner_admin_id: string
           client_id?: string | null
           phone_number: string
-          message_body: string
+          message: string
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
-          admin_id?: string
+          owner_admin_id?: string
           client_id?: string | null
           phone_number?: string
-          message_body?: string
+          message?: string
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
+      },
+      messages: {
+        Row: {
+          id: string
+          owner_admin_id: string
+          client_id: string
+          sender_role: 'admin' | 'client'
+          content: string
+          is_read: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          owner_admin_id: string
+          client_id: string
+          sender_role: 'admin' | 'client'
+          content: string
+          is_read?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          owner_admin_id?: string
+          client_id?: string
+          sender_role?: 'admin' | 'client'
+          content?: string
+          is_read?: boolean
+          created_at?: string
+        }
         Relationships: [
-           {
-            foreignKeyName: "sms_drafts_client_id_fkey"
+          {
+            foreignKeyName: "messages_client_id_fkey"
             columns: ["client_id"]
             referencedRelation: "clients"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_owner_admin_id_fkey"
+            columns: ["owner_admin_id"]
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
           }
         ]
-      }
+      },
       brand_settings: {
         Row: {
           id: string
@@ -427,6 +624,140 @@ export interface Database {
             foreignKeyName: "galleries_owner_admin_id_fkey"
             columns: ["owner_admin_id"]
             referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      gallery_photos: {
+        Row: {
+          id: string
+          gallery_id: string
+          photo_url: string
+          file_name: string
+          file_size: number
+          mime_type: string
+          width: number | null
+          height: number | null
+          is_watermarked: boolean
+          upload_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          gallery_id: string
+          photo_url: string
+          file_name: string
+          file_size: number
+          mime_type: string
+          width?: number | null
+          height?: number | null
+          is_watermarked?: boolean
+          upload_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          gallery_id?: string
+          photo_url?: string
+          file_name?: string
+          file_size?: number
+          mime_type?: string
+          width?: number | null
+          height?: number | null
+          is_watermarked?: boolean
+          upload_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gallery_photos_gallery_id_fkey"
+            columns: ["gallery_id"]
+            referencedRelation: "galleries"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      temporary_client_uploads: {
+        Row: {
+          id: string
+          admin_id: string | null
+          temporary_name: string
+          temporary_identifier: string | null
+          access_code: string
+          photo_path: string
+          file_name: string
+          file_size: number
+          mime_type: string
+          width: number | null
+          height: number | null
+          upload_order: number
+          upload_timestamp: string
+          sync_status: 'pending' | 'synced' | 'failed'
+          synced_at: string | null
+          client_id: string | null
+          gallery_id: string | null
+          error_message: string | null
+        }
+        Insert: {
+          id?: string
+          admin_id?: string | null
+          temporary_name: string
+          temporary_identifier?: string | null
+          access_code: string
+          photo_path: string
+          file_name: string
+          file_size?: number
+          mime_type?: string
+          width?: number | null
+          height?: number | null
+          upload_order?: number
+          upload_timestamp?: string
+          sync_status?: 'pending' | 'synced' | 'failed'
+          synced_at?: string | null
+          client_id?: string | null
+          gallery_id?: string | null
+          error_message?: string | null
+        }
+        Update: {
+          id?: string
+          admin_id?: string | null
+          temporary_name?: string
+          temporary_identifier?: string | null
+          access_code?: string
+          photo_path?: string
+          file_name?: string
+          file_size?: number
+          mime_type?: string
+          width?: number | null
+          height?: number | null
+          upload_order?: number
+          upload_timestamp?: string
+          sync_status?: 'pending' | 'synced' | 'failed'
+          synced_at?: string | null
+          client_id?: string | null
+          gallery_id?: string | null
+          error_message?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "temporary_client_uploads_admin_id_fkey"
+            columns: ["admin_id"]
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "temporary_client_uploads_client_id_fkey"
+            columns: ["client_id"]
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "temporary_client_uploads_gallery_id_fkey"
+            columns: ["gallery_id"]
+            referencedRelation: "galleries"
             referencedColumns: ["id"]
           }
         ]
@@ -881,13 +1212,22 @@ export interface Database {
             referencedColumns: ["id"]
           }
         ]
-      }
+      },
+
+
+
+
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      sync_temp_uploads_for_user: {
+        Args: {
+          p_access_code?: string | null
+        }
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never

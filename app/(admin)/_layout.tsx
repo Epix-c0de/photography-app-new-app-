@@ -91,23 +91,24 @@ export default function AdminTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="upload"
-        options={{
-          title: 'Upload',
-          tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIcon : undefined}>
-              <Upload size={20} color={color} />
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, focused }) => (
             <View style={focused ? styles.activeIcon : undefined}>
               <Settings size={20} color={color} />
+            </View>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="upload"
+        options={{
+          href: null,
+          title: 'Upload',
+          tabBarIcon: ({ color, focused }) => (
+            <View style={focused ? styles.activeIcon : undefined}>
+              <Upload size={20} color={color} />
             </View>
           ),
         }}

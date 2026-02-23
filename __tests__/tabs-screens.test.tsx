@@ -131,6 +131,6 @@ describe('Tabs screens', () => {
 
   it('renders Chat screen', async () => {
     const { findByText } = renderWithProviders(<ChatScreen />);
-    expect(await findByText('LenzArt Studio')).toBeTruthy();
+    expect(await findByText('Epix Visuals Studios.co')).toBeTruthy();
   });
 });

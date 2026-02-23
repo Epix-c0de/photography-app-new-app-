@@ -5,8 +5,8 @@ const path = require('path');
 // Configuration
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 2000;
-const COMMAND = 'npm';
-const ARGS = ['start'];
+const COMMAND = 'npx';
+const ARGS = ['expo', 'start', '--web', '--clear', '--offline', '--port', '8082'];
 
 function log(message) {
   console.log(`[TunnelRetry] ${message}`);
@@ -28,9 +28,24 @@ async function startWithRetry(attempt = 1) {
     // Spawn the process
     // We use shell: true for Windows compatibility with bunx/npm
     const child = spawn(COMMAND, ARGS, {
-      stdio: 'inherit',
       shell: true,
-      env: { ...process.env, FORCE_COLOR: '1' }
+      env: {
+        ...process.env,
+        FORCE_COLOR: '1',
+        EXPO_HOME: path.join(process.cwd(), '.expo-home'),
+        EXPO_OFFLINE: '1',
+        EXPO_DOCTOR: '0',
+        RCT_METRO_PORT: '8082',
+        EXPO_DEV_SERVER_PORT: '8082',
+      }
+    });
+
+    child.stdout.on('data', (data) => {
+      process.stdout.write(data);
+    });
+
+    child.stderr.on('data', (data) => {
+      process.stderr.write(data);
     });
 
     child.on('error', (err) => {

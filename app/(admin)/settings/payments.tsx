@@ -185,7 +185,7 @@ export default function PaymentConfigurationScreen() {
                       style={styles.input}
                       value={recipientName}
                       onChangeText={setRecipientName}
-                      placeholder="e.g. LenzArt Studio"
+                      placeholder="e.g. Epix Visuals Studios.co"
                       placeholderTextColor={Colors.textMuted}
                     />
                   </View>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, Alert, ActivityIndicator, Switch, Image, KeyboardAvoidingView, Platform, SectionList } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -350,7 +351,12 @@ export default function AdminBtsAnnouncementsScreen() {
             style={[styles.typeButton, contentType === 'bts' && styles.typeButtonActive]}
             onPress={() => setContentType('bts')}
           >
-            <Camera size={16} color={contentType === 'bts' ? Colors.gold : Colors.textMuted} />
+            <ExpoImage
+              source={require('@/assets/icons/bts-announcements/bts.svg')}
+              style={{ width: 20, height: 20 }}
+              tintColor={contentType === 'bts' ? Colors.gold : Colors.textMuted}
+              contentFit="contain"
+            />
             <Text style={[styles.typeButtonText, contentType === 'bts' && styles.typeButtonTextActive]}>
               BTS Posts
             </Text>
@@ -359,7 +365,12 @@ export default function AdminBtsAnnouncementsScreen() {
             style={[styles.typeButton, contentType === 'announcement' && styles.typeButtonActive]}
             onPress={() => setContentType('announcement')}
           >
-            <Megaphone size={16} color={contentType === 'announcement' ? Colors.gold : Colors.textMuted} />
+            <ExpoImage
+              source={require('@/assets/icons/bts-announcements/announcements.svg')}
+              style={{ width: 20, height: 20 }}
+              tintColor={contentType === 'announcement' ? Colors.gold : Colors.textMuted}
+              contentFit="contain"
+            />
             <Text style={[styles.typeButtonText, contentType === 'announcement' && styles.typeButtonTextActive]}>
               Announcements
             </Text>

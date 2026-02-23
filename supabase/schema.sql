@@ -25,7 +25,12 @@ alter table public.user_profiles enable row level security;
 -- Admins can view all profiles
 create policy "Admins can view all profiles" 
   on public.user_profiles for select 
-  using (exists (select 1 from public.user_profiles where id = auth.uid() and role = 'admin'));
+  using (
+    coalesce(
+      auth.jwt() -> 'app_metadata' ->> 'role',
+      auth.jwt() -> 'user_metadata' ->> 'role'
+    ) in ('admin', 'super_admin')
+  );
 
 -- Users can view and update their own profile
 create policy "Users can view own profile" 

@@ -36,9 +36,9 @@ interface BrandingState {
 }
 
 const DEFAULTS = {
-  brandName: 'LenzArt Studio',
-  appDisplayName: 'LenzArt',
-  watermarkText: 'LenzArt',
+  brandName: 'Epix Visuals Studios.co',
+  appDisplayName: 'Epix Visuals Studios.co',
+  watermarkText: 'Epix Visuals Studios.co',
   watermarkOpacity: 30,
   watermarkRotation: 45,
   watermarkSize: 'medium' as WatermarkSize,

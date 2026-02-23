@@ -135,7 +135,7 @@ export const bookings: Booking[] = [
 ];
 
 export const chatConversations: ChatConversation[] = [
-  { id: '1', name: 'LenzArt Studio', avatar: 'https://images.unsplash.com/photo-1552642986-ccb41e7059e7?w=100&h=100&fit=crop', lastMessage: 'Your gallery is ready! Check it out 📸', timestamp: '2 min ago', unread: 2, isOnline: true },
+  { id: '1', name: 'Epix Visuals Studios.co', avatar: 'https://images.unsplash.com/photo-1552642986-ccb41e7059e7?w=100&h=100&fit=crop', lastMessage: 'Your gallery is ready! Check it out 📸', timestamp: '2 min ago', unread: 2, isOnline: true },
 ];
 
 export const chatMessages: ChatMessage[] = [
@@ -170,7 +170,7 @@ export const notifications: Notification[] = [
   { id: '3', type: 'booking', title: 'Booking Confirmed', body: 'Your engagement shoot on Feb 14 at Karura Forest is confirmed.', timestamp: '3 hours ago', read: true, actionLabel: 'View Booking' },
   { id: '4', type: 'promo', title: "Valentine's Special 💕", body: 'Book a couples shoot and get 20% off. Limited slots available!', timestamp: '1 day ago', read: true, actionLabel: 'Book Now' },
   { id: '5', type: 'gallery', title: 'New Photos Added', body: '25 new edited photos have been added to your "Sarah Portrait Session" gallery.', timestamp: '2 days ago', read: true, galleryId: '2' },
-  { id: '6', type: 'system', title: 'Welcome to LenzArt', body: 'Thank you for joining! Explore our portfolio and book your first session.', timestamp: '1 week ago', read: true },
+  { id: '6', type: 'system', title: 'Welcome to Epix Visuals Studios.co', body: 'Thank you for joining! Explore our portfolio and book your first session.', timestamp: '1 week ago', read: true },
 ];
 
 export interface Invoice {

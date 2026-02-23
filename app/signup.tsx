@@ -325,7 +325,7 @@ export default function SignupScreen() {
             <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
                 <View style={styles.header}>
                     <Text style={styles.title}>Create Account</Text>
-                    <Text style={styles.subtitle}>Join LenzArt Photography today</Text>
+                    <Text style={styles.subtitle}>Join Epix Visuals Studios.co today</Text>
                 </View>
 
                 <View style={styles.form}>

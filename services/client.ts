@@ -6,8 +6,9 @@ export type Gallery = Database['public']['Tables']['galleries']['Row'] & {
   photo_count?: number;
 };
 
-export type Photo = Database['public']['Tables']['photos']['Row'] & {
+export type Photo = Database['public']['Tables']['gallery_photos']['Row'] & {
   url: string; // Signed URL
+  variant: 'clean' | 'watermarked';
 };
 
 export type Notification = Database['public']['Tables']['notifications']['Row'];
@@ -57,9 +58,22 @@ export const ClientService = {
    */
   gallery: {
     list: async (): Promise<Gallery[]> => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data: client, error: clientError } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (clientError) throw clientError;
+      if (!client?.id) return [];
+
       const { data, error } = await supabase
         .from('galleries')
         .select('*')
+        .eq('client_id', client.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -99,33 +113,45 @@ export const ClientService = {
       // 2. Determine Variant
       // If locked, show watermarked. If unlocked/paid, show clean.
       const canViewClean = gallery.is_paid && !gallery.is_locked;
-      const variant = canViewClean ? 'clean' : 'watermarked';
+      const variant: 'clean' | 'watermarked' = canViewClean ? 'clean' : 'watermarked';
 
-      // 3. Fetch Photos
       const { data: photos, error: pError } = await supabase
-        .from('photos')
+        .from('gallery_photos')
         .select('*')
         .eq('gallery_id', galleryId)
-        .eq('variant', variant);
+        .order('upload_order', { ascending: true })
+        .order('created_at', { ascending: false });
 
       if (pError) throw pError;
 
       // 4. Generate Signed URLs
       const photosWithUrls = await Promise.all(photos.map(async (p) => {
-        // Bucket name logic
-        const bucket = variant === 'clean' ? 'photos-clean' : 'photos-watermarked';
         const { data, error } = await supabase.storage
-          .from(bucket)
-          .createSignedUrl(p.storage_path, 3600); // 1 hour expiry
-          
+          .from('client-photos')
+          .createSignedUrl(p.photo_url, 3600);
+
         if (error) {
-          console.warn(`Failed to sign URL for ${p.storage_path}`, error);
-          return { ...p, url: '' };
+          console.warn(`Failed to sign URL for ${p.photo_url}`, error);
+          return { ...p, url: '', variant };
         }
-        return { ...p, url: data?.signedUrl || '' };
+        return { ...p, url: data?.signedUrl || '', variant };
       }));
 
-      return photosWithUrls;
+      return photosWithUrls as Photo[];
+    }
+  },
+
+  tempUploads: {
+    syncForCurrentUser: async () => {
+      const { data, error } = await supabase.rpc('sync_temp_uploads_for_user', { p_access_code: null });
+      if (error) throw error;
+      return data;
+    },
+    syncByAccessCode: async (accessCode: string) => {
+      const normalizedCode = accessCode.trim().toUpperCase();
+      const { data, error } = await supabase.rpc('sync_temp_uploads_for_user', { p_access_code: normalizedCode });
+      if (error) throw error;
+      return data;
     }
   },
 

@@ -1,31 +1,37 @@
 {
   "expo": {
-    "name": "LenzArt Photography App",
-    "slug": "lenzart-photography-app",
+    "name": "Epix Visuals Studios.co",
+    "slug": "epix-visuals-studios-co",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "rork-app",
+    "icon": "./assets/images/adaptive-icon.png",
+    "scheme": "epix-visuals",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/splash-icon.png",
+      "image": "./assets/images/adaptive-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.lenzart-photography-app"
+      "bundleIdentifier": "app.rork.epix-visuals-studios-co"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "app.rork.lenzart_photography_app"
+      "permissions": [
+        "SEND_SMS",
+        "READ_SMS",
+        "RECEIVE_SMS",
+        "READ_PHONE_STATE"
+      ],
+      "package": "app.rork.epix_visuals_studios_co"
     },
     "web": {
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/adaptive-icon.png"
     },
     "plugins": [
       [

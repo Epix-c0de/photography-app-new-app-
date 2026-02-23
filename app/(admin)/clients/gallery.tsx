@@ -1,18 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator, Image, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator, FlatList, Modal, Dimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Image } from 'expo-image';
 import { 
-  ArrowLeft, Trash2, Send, Lock, CreditCard, CheckCircle, XCircle 
+  ArrowLeft, Trash2, Send, Lock, CreditCard, CheckCircle, XCircle, Eye, X
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { AdminService } from '@/services/admin';
+import { DeliveryService } from '@/services/delivery';
+import { supabase } from '@/lib/supabase';
 
 type GalleryPhoto = {
   id: string;
+  gallery_id: string;
+  storage_path: string;
   url: string;
+  thumbnailUrl: string;
   filename: string;
   size: number;
   uploaded_at: string;
@@ -33,55 +40,137 @@ export default function ClientGalleryScreen() {
   const [loading, setLoading] = useState(true);
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
+  const [clientPhone, setClientPhone] = useState<string | null>(null);
+  
+  // Pagination state
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<GalleryPhoto | null>(null);
+  const PAGE_SIZE = 50;
 
-  const loadClientPhotos = useCallback(async () => {
+  const loadClientPhotos = useCallback(async (reset = false) => {
     try {
-      // In a real implementation, this would query your database
-      // For now, we'll use mock data
-      const mockPhotos: GalleryPhoto[] = [
-        {
-          id: '1',
-          url: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400',
-          filename: 'wedding-portrait-1.jpg',
-          size: 2457600,
-          uploaded_at: '2024-01-15T10:30:00Z',
-          is_paid: true,
-          access_code: 'WED123',
-          client_name: clientName,
-          gallery_title: 'Wedding Day'
-        },
-        {
-          id: '2',
-          url: 'https://images.unsplash.com/photo-1519741497674-611481863552?w=400',
-          filename: 'wedding-ceremony-1.jpg',
-          size: 3670016,
-          uploaded_at: '2024-01-15T10:35:00Z',
-          is_paid: false,
-          access_code: 'WED123',
-          client_name: clientName,
-          gallery_title: 'Wedding Day'
-        },
-        {
-          id: '3',
-          url: 'https://images.unsplash.com/photo-1551836026-dac5bfc985f3?w=400',
-          filename: 'reception-1.jpg',
-          size: 4194304,
-          uploaded_at: '2024-01-15T10:40:00Z',
-          is_paid: true,
-          access_code: 'WED123',
-          client_name: clientName,
-          gallery_title: 'Wedding Day'
-        },
-      ];
+      if (reset) {
+        setLoading(true);
+        setPage(0);
+        setHasMore(true);
+      } else {
+        if (!hasMore || loadingMore) return;
+        setLoadingMore(true);
+      }
+      
+      const currentPage = reset ? 0 : page;
 
-      setPhotos(mockPhotos);
+      // 0. Fetch client details (phone) - only on initial load
+      if (reset) {
+        const { data: client } = await supabase
+          .from('clients')
+          .select('phone')
+          .eq('id', clientId)
+          .single();
+          
+        if (client) setClientPhone(client.phone);
+      }
+
+      // 1. Fetch galleries for this client
+      // We need gallery info for every page to map IDs, but we can cache it or just re-fetch (it's small)
+      // Optimization: Fetch galleries once and store in ref or state if needed, but for now re-fetching is fine as it's fast
+      const galleries = await AdminService.gallery.getByClient(clientId);
+      
+      if (!galleries || galleries.length === 0) {
+        setPhotos([]);
+        setLoading(false);
+        setLoadingMore(false);
+        setHasMore(false);
+        return;
+      }
+
+      const galleryIds = galleries.map(g => g.id);
+      const galleryMap = new Map(galleries.map(g => [g.id, g]));
+
+      // 2. Fetch photos with pagination
+      const { data: galleryPhotos, count } = await AdminService.gallery.getPhotos(
+        galleryIds, 
+        currentPage, 
+        PAGE_SIZE
+      );
+      
+      if (!galleryPhotos || galleryPhotos.length === 0) {
+        if (reset) setPhotos([]);
+        setHasMore(false);
+        setLoading(false);
+        setLoadingMore(false);
+        return;
+      }
+
+      // 3. Sign URLs for this batch (Thumbnails + Full)
+      const paths = galleryPhotos.map((p: any) => p.photo_url).filter(p => !!p);
+      
+      if (paths.length === 0) {
+        if (reset) setPhotos([]);
+        setHasMore(false);
+        setLoading(false);
+        setLoadingMore(false);
+        return;
+      }
+
+      // 3. Sign URLs for this batch
+      // Note: createSignedUrls (plural) does not support transform options in the current Supabase JS SDK.
+      // We will use the full watermarked image for both thumbnail and full view.
+      const { data: signedUrls, error: signError } = await supabase.storage
+          .from('client-photos')
+          .createSignedUrls(paths, 3600);
+
+      if (signError) {
+        console.error('Error signing URLs:', signError);
+        if ((signError as any).message?.includes('Bucket not found')) {
+             Alert.alert('Configuration Error', 'Storage bucket "client-photos" is missing.');
+        }
+        throw signError;
+      }
+
+      const urlMap = new Map(signedUrls?.map(s => [s.path, s.signedUrl]) || []);
+
+      const mappedPhotos = galleryPhotos.map((photo: any) => {
+        const gallery = galleryMap.get(photo.gallery_id);
+        const url = urlMap.get(photo.photo_url) || '';
+        
+        return {
+          id: photo.id,
+          gallery_id: photo.gallery_id,
+          storage_path: photo.photo_url,
+          url: url,
+          thumbnailUrl: url, // Fallback to full URL since batch transform is not supported
+          filename: photo.file_name || photo.photo_url.split('/').pop() || 'photo.jpg',
+          size: photo.file_size || 0,
+          uploaded_at: photo.created_at,
+          is_paid: gallery?.is_paid ?? false,
+          access_code: gallery?.access_code ?? '',
+          client_name: clientName,
+          gallery_title: gallery?.name ?? 'Unknown Gallery'
+        };
+      });
+      
+      if (reset) {
+        setPhotos(mappedPhotos);
+      } else {
+        setPhotos(prev => [...prev, ...mappedPhotos]);
+      }
+
+      setHasMore(mappedPhotos.length === PAGE_SIZE);
+      setPage(currentPage + 1);
+
     } catch (error) {
       console.error('Error loading photos:', error);
       Alert.alert('Error', 'Failed to load photos');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+      setRefreshing(false);
     }
-  }, [clientId, clientName]);
+  }, [clientId, clientName, page, hasMore, loadingMore]);
 
   const togglePhotoSelection = useCallback((photoId: string) => {
     setSelectedPhotos(prev => 
@@ -105,13 +194,34 @@ export default function ClientGalleryScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // In a real implementation, delete from database/storage
+              setLoading(true);
+              const photosToDelete = photos.filter(p => selectedPhotos.includes(p.id));
+              const paths = photosToDelete.map(p => p.storage_path);
+              
+              // 1. Delete from storage
+              const { error: storageError } = await supabase.storage
+                .from('client-photos')
+                .remove(paths);
+                
+              if (storageError) throw storageError;
+
+              // 2. Delete from database
+              const { error: dbError } = await supabase
+                .from('gallery_photos')
+                .delete()
+                .in('id', selectedPhotos);
+                
+              if (dbError) throw dbError;
+
               setPhotos(prev => prev.filter(photo => !selectedPhotos.includes(photo.id)));
               setSelectedPhotos([]);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               Alert.alert('Success', 'Photos deleted successfully');
             } catch (error) {
+              console.error('Error deleting photos:', error);
               Alert.alert('Error', 'Failed to delete photos');
+            } finally {
+              setLoading(false);
             }
           }
         }
@@ -121,39 +231,148 @@ export default function ClientGalleryScreen() {
 
   const resendAccessCode = useCallback(async (accessCode: string) => {
     try {
-      // In a real implementation, send SMS/email with access code
-      await Clipboard.setStringAsync(accessCode);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Access Code Copied', `Access code ${accessCode} has been copied to clipboard and is ready to be sent to ${clientName}`);
+      if (!clientPhone) {
+        await Clipboard.setStringAsync(accessCode);
+        Alert.alert('Copied', `No phone number found for ${clientName}. Access code ${accessCode} copied to clipboard.`);
+        return;
+      }
+
+      Alert.alert(
+        'Send Access Code',
+        `Send code ${accessCode} to ${clientName} (${clientPhone})?`,
+        [
+          { text: 'Copy Only', onPress: async () => {
+              await Clipboard.setStringAsync(accessCode);
+              Alert.alert('Copied', 'Access code copied to clipboard');
+            }
+          },
+          { text: 'Send SMS', onPress: async () => {
+              try {
+                setLoading(true);
+                const result = await DeliveryService.sendAccessCode(clientId, clientPhone);
+                if (result.success) {
+                  Alert.alert('Success', `Access code sent via ${result.method}`);
+                } else {
+                  Alert.alert('Failed', `Could not send code: ${result.error?.message || 'Unknown error'}`);
+                }
+              } catch (e: any) {
+                Alert.alert('Error', e.message);
+              } finally {
+                setLoading(false);
+              }
+            }
+          },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
     } catch (error) {
-      Alert.alert('Error', 'Failed to copy access code');
+      Alert.alert('Error', 'Failed to process request');
     }
-  }, [clientName]);
+  }, [clientName, clientPhone, clientId]);
 
   const togglePaymentStatus = useCallback(async (photoId: string, currentStatus: boolean) => {
     try {
-      // In a real implementation, update payment status in database
-      setPhotos(prev => prev.map(photo => 
-        photo.id === photoId ? { ...photo, is_paid: !currentStatus } : photo
+      const photo = photos.find(p => p.id === photoId);
+      if (!photo) return;
+
+      const newStatus = !currentStatus;
+      
+      // Update gallery payment status
+      const { error } = await supabase
+        .from('galleries')
+        .update({ is_paid: newStatus })
+        .eq('id', photo.gallery_id);
+
+      if (error) throw error;
+
+      // Update UI (all photos in this gallery)
+      setPhotos(prev => prev.map(p => 
+        p.gallery_id === photo.gallery_id ? { ...p, is_paid: newStatus } : p
       ));
+      
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      Alert.alert('Updated', `Gallery payment status marked as ${newStatus ? 'Paid' : 'Unpaid'}`);
     } catch (error) {
+      console.error('Error updating payment status:', error);
       Alert.alert('Error', 'Failed to update payment status');
     }
-  }, []);
+  }, [photos]);
 
   useEffect(() => {
+    let unsub: (() => void) | undefined;
+    let mounted = true;
+
     (async () => {
       const ok = await verifyAdminGuard('upload_galleries');
       if (!ok) {
-        router.replace('/admin-login');
+        if (mounted) router.replace('/admin-login');
         return;
       }
-      loadClientPhotos();
+      
+      if (mounted) {
+        loadClientPhotos(true);
+        
+        unsub = AdminService.gallery.subscribeToPhotos(() => {
+          // simple refresh on update
+          loadClientPhotos(true);
+        });
+      }
     })();
+
+    return () => {
+      mounted = false;
+      if (unsub) unsub();
+    };
   }, [router, verifyAdminGuard, loadClientPhotos]);
 
-  if (loading) {
+  const renderHeader = () => (
+    <View>
+      {/* Gallery Actions */}
+      <View style={styles.actionsSection}>
+        <Text style={styles.sectionTitle}>Gallery Management</Text>
+        
+        <View style={styles.actionButtons}>
+          <Pressable 
+            style={styles.actionButton}
+            onPress={() => {
+              const code = photos[0]?.access_code;
+              if (!code) return;
+              resendAccessCode(code);
+            }}
+          >
+            <Send size={16} color={Colors.gold} />
+            <Text style={styles.actionButtonText}>Resend Access Code</Text>
+          </Pressable>
+
+          <Pressable 
+            style={styles.actionButton}
+            onPress={() => {
+              // Toggle gallery lock status
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              Alert.alert('Lock/Unlock', 'Gallery lock status updated');
+            }}
+          >
+            <Lock size={16} color={Colors.warning} />
+            <Text style={styles.actionButtonText}>Toggle Lock</Text>
+          </Pressable>
+        </View>
+      </View>
+      <View style={{ paddingHorizontal: 20, paddingTop: 10 }}>
+        <Text style={styles.sectionTitle}>All Photos</Text>
+      </View>
+    </View>
+  );
+
+  const renderFooter = () => {
+    if (!loadingMore) return <View style={{ height: 100 }} />;
+    return (
+      <View style={{ padding: 20, alignItems: 'center', marginBottom: 100 }}>
+        <ActivityIndicator size="small" color={Colors.gold} />
+      </View>
+    );
+  };
+
+  if (loading && !refreshing) {
     return (
       <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={Colors.gold} />
@@ -171,7 +390,7 @@ export default function ClientGalleryScreen() {
         
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>{clientName}’s Gallery</Text>
-          <Text style={styles.headerSubtitle}>{photos.length} photos</Text>
+          <Text style={styles.headerSubtitle}>{photos.length} photos loaded</Text>
         </View>
 
         {selectedPhotos.length > 0 && (
@@ -182,155 +401,288 @@ export default function ClientGalleryScreen() {
         )}
       </LinearGradient>
 
-      <ScrollView style={styles.content}>
-        {/* Gallery Actions */}
-        <View style={styles.actionsSection}>
-          <Text style={styles.sectionTitle}>Gallery Management</Text>
-          
-          <View style={styles.actionButtons}>
-            <Pressable 
-              style={styles.actionButton}
-              onPress={() => {
-                const code = photos[0]?.access_code;
-                if (!code) return;
-                resendAccessCode(code);
-              }}
-            >
-              <Send size={16} color={Colors.gold} />
-              <Text style={styles.actionButtonText}>Resend Access Code</Text>
-            </Pressable>
-
-            <Pressable 
-              style={styles.actionButton}
-              onPress={() => {
-                // Toggle gallery lock status
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                Alert.alert('Lock/Unlock', 'Gallery lock status updated');
-              }}
-            >
-              <Lock size={16} color={Colors.warning} />
-              <Text style={styles.actionButtonText}>Toggle Lock</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Photos Grid */}
-        <View style={styles.photosSection}>
-          <Text style={styles.sectionTitle}>All Photos</Text>
-          
-          <FlatList
-            data={photos}
-            numColumns={2}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <Pressable 
-                style={[
-                  styles.photoCard,
-                  selectedPhotos.includes(item.id) && styles.photoCardSelected
-                ]}
-                onPress={() => togglePhotoSelection(item.id)}
-                onLongPress={() => togglePhotoSelection(item.id)}
-              >
-                <Image source={{ uri: item.url }} style={styles.photoImage} />
-                
-                {/* Selection Indicator */}
-                {selectedPhotos.includes(item.id) && (
-                  <View style={styles.selectionIndicator}>
-                    <CheckCircle size={20} color={Colors.gold} />
-                  </View>
-                )}
-
-                {/* Payment Status */}
-                <View style={styles.paymentBadge}>
-                  {item.is_paid ? (
-                    <CheckCircle size={12} color={Colors.success} />
-                  ) : (
-                    <XCircle size={12} color={Colors.error} />
-                  )}
-                  <Text style={[
-                    styles.paymentText,
-                    { color: item.is_paid ? Colors.success : Colors.error }
-                  ]}>
-                    {item.is_paid ? 'Paid' : 'Unpaid'}
-                  </Text>
-                </View>
-
-                {/* Photo Info */}
-                <View style={styles.photoInfo}>
-                  <Text style={styles.photoName} numberOfLines={1}>{item.filename}</Text>
-                  <Text style={styles.photoSize}>
-                    {(item.size / 1024 / 1024).toFixed(1)} MB
-                  </Text>
-                </View>
-
-                {/* Quick Actions */}
-                <View style={styles.quickActions}>
-                  <Pressable 
-                    style={styles.quickAction}
-                    onPress={() => togglePaymentStatus(item.id, item.is_paid)}
-                  >
-                    <CreditCard size={12} color={Colors.gold} />
-                  </Pressable>
-                  
-                  <Pressable 
-                    style={styles.quickAction}
-                    onPress={() => resendAccessCode(item.access_code)}
-                  >
-                    <Send size={12} color={Colors.gold} />
-                  </Pressable>
-                </View>
-              </Pressable>
-            )}
-            contentContainerStyle={styles.photosGrid}
-          />
-        </View>
-
-        {/* Batch Operations */}
-        {selectedPhotos.length > 0 && (
-          <View style={styles.batchSection}>
-            <Text style={styles.sectionTitle}>Batch Operations</Text>
+      <FlatList
+        data={photos}
+        numColumns={2}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <Pressable 
+            style={[
+              styles.photoCard,
+              selectedPhotos.includes(item.id) && styles.photoCardSelected
+            ]}
+            onPress={() => togglePhotoSelection(item.id)}
+            onLongPress={() => togglePhotoSelection(item.id)}
+          >
+            <Image 
+              source={{ uri: item.thumbnailUrl }} 
+              style={styles.photoImage} 
+              contentFit="cover" 
+              transition={200} 
+              cachePolicy="memory-disk"
+            />
             
-            <View style={styles.batchButtons}>
+            {/* Selection Indicator */}
+            {selectedPhotos.includes(item.id) && (
+              <View style={styles.selectionIndicator}>
+                <CheckCircle size={20} color={Colors.gold} />
+              </View>
+            )}
+
+            {/* Payment Status */}
+            <View style={styles.paymentBadge}>
+              {item.is_paid ? (
+                <CheckCircle size={12} color={Colors.success} />
+              ) : (
+                <XCircle size={12} color={Colors.error} />
+              )}
+              <Text style={[
+                styles.paymentText,
+                { color: item.is_paid ? Colors.success : Colors.error }
+              ]}>
+                {item.is_paid ? 'Paid' : 'Unpaid'}
+              </Text>
+            </View>
+
+            {/* Photo Info */}
+            <View style={styles.photoInfo}>
+              <Text style={styles.photoName} numberOfLines={1}>{item.filename}</Text>
+              <Text style={styles.photoSize}>
+                {(item.size / 1024 / 1024).toFixed(1)} MB
+              </Text>
+            </View>
+
+            {/* Quick Actions */}
+            <View style={styles.quickActions}>
               <Pressable 
-                style={[styles.batchButton, styles.markPaidButton]}
-                onPress={() => {
-                  // Mark selected as paid
+                style={styles.quickAction}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setSelectedImage(item);
+                }}
+              >
+                <Eye size={12} color={Colors.gold} />
+              </Pressable>
+
+              <Pressable 
+                style={styles.quickAction}
+                onPress={() => togglePaymentStatus(item.id, item.is_paid)}
+              >
+                <CreditCard size={12} color={Colors.gold} />
+              </Pressable>
+              
+              <Pressable 
+                style={styles.quickAction}
+                onPress={() => resendAccessCode(item.access_code)}
+              >
+                <Send size={12} color={Colors.gold} />
+              </Pressable>
+            </View>
+          </Pressable>
+        )}
+        contentContainerStyle={styles.photosGrid}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderFooter}
+        onEndReached={() => loadClientPhotos(false)}
+        onEndReachedThreshold={0.5}
+        onRefresh={() => {
+          setRefreshing(true);
+          loadClientPhotos(true);
+        }}
+        refreshing={refreshing}
+      />
+
+      {/* Batch Operations Bar */}
+      {selectedPhotos.length > 0 && (
+        <View style={styles.floatingBatchBar}>
+          <View style={styles.batchButtons}>
+            <Pressable 
+              style={[styles.batchButton, styles.markPaidButton]}
+              onPress={async () => {
+                try {
+                  const selectedGalleryIds = [...new Set(photos
+                    .filter(p => selectedPhotos.includes(p.id))
+                    .map(p => p.gallery_id))];
+                  
+                  if (selectedGalleryIds.length === 0) return;
+
+                  const { error } = await supabase
+                    .from('galleries')
+                    .update({ is_paid: true })
+                    .in('id', selectedGalleryIds);
+                    
+                  if (error) throw error;
+
                   setPhotos(prev => prev.map(photo => 
-                    selectedPhotos.includes(photo.id) 
+                    selectedGalleryIds.includes(photo.gallery_id)
                       ? { ...photo, is_paid: true } 
                       : photo
                   ));
                   setSelectedPhotos([]);
-                }}
-              >
-                <CheckCircle size={16} color={Colors.success} />
-                <Text style={styles.batchButtonText}>Mark Paid</Text>
-              </Pressable>
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  Alert.alert('Success', 'Selected galleries marked as paid');
+                } catch (error) {
+                  console.error('Error marking paid:', error);
+                  Alert.alert('Error', 'Failed to update payment status');
+                }
+              }}
+            >
+              <CheckCircle size={16} color={Colors.success} />
+              <Text style={styles.batchButtonText}>Mark Paid</Text>
+            </Pressable>
 
-              <Pressable 
-                style={[styles.batchButton, styles.markUnpaidButton]}
-                onPress={() => {
-                  // Mark selected as unpaid
+            <Pressable 
+              style={[styles.batchButton, styles.markUnpaidButton]}
+              onPress={async () => {
+                try {
+                  const selectedGalleryIds = [...new Set(photos
+                    .filter(p => selectedPhotos.includes(p.id))
+                    .map(p => p.gallery_id))];
+                  
+                  if (selectedGalleryIds.length === 0) return;
+
+                  const { error } = await supabase
+                    .from('galleries')
+                    .update({ is_paid: false })
+                    .in('id', selectedGalleryIds);
+                    
+                  if (error) throw error;
+
                   setPhotos(prev => prev.map(photo => 
-                    selectedPhotos.includes(photo.id) 
+                    selectedGalleryIds.includes(photo.gallery_id)
                       ? { ...photo, is_paid: false } 
                       : photo
                   ));
                   setSelectedPhotos([]);
-                }}
-              >
-                <XCircle size={16} color={Colors.error} />
-                <Text style={styles.batchButtonText}>Mark Unpaid</Text>
-              </Pressable>
-            </View>
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  Alert.alert('Success', 'Selected galleries marked as unpaid');
+                } catch (error) {
+                  console.error('Error marking unpaid:', error);
+                  Alert.alert('Error', 'Failed to update payment status');
+                }
+              }}
+            >
+              <XCircle size={16} color={Colors.error} />
+              <Text style={styles.batchButtonText}>Mark Unpaid</Text>
+            </Pressable>
           </View>
-        )}
-      </ScrollView>
+        </View>
+      )}
+      {/* Full Screen Image Modal */}
+      <Modal
+        visible={!!selectedImage}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedImage(null)}
+      >
+        <View style={styles.modalContainer}>
+          <Pressable 
+            style={styles.modalOverlay} 
+            onPress={() => setSelectedImage(null)}
+          />
+          
+          <View style={styles.modalContent}>
+            {selectedImage && (
+              <>
+                <Image
+                  source={{ uri: selectedImage.url }}
+                  placeholder={{ uri: selectedImage.thumbnailUrl }}
+                  style={styles.modalImage}
+                  contentFit="contain"
+                  transition={200}
+                  cachePolicy="memory-disk"
+                />
+                
+                <View style={styles.modalHeader}>
+                  <Pressable 
+                    style={styles.closeButton}
+                    onPress={() => setSelectedImage(null)}
+                  >
+                    <X size={24} color="#fff" />
+                  </Pressable>
+                </View>
+
+                <View style={styles.modalFooter}>
+                  <Text style={styles.modalTitle}>{selectedImage.filename}</Text>
+                  <Text style={styles.modalSubtitle}>
+                    {selectedImage.gallery_title} • {(selectedImage.size / 1024 / 1024).toFixed(1)} MB
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  modalContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height,
+  },
+  modalHeader: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  closeButton: {
+    padding: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+  },
+  modalFooter: {
+    position: 'absolute',
+    bottom: 50,
+    left: 20,
+    right: 20,
+    padding: 16,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 12,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  modalSubtitle: {
+    color: '#ccc',
+    fontSize: 12,
+  },
+  floatingBatchBar: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
   container: {
     flex: 1,
     backgroundColor: Colors.background,
@@ -375,9 +727,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Colors.error,
-  },
-  content: {
-    flex: 1,
   },
   actionsSection: {
     padding: 20,
