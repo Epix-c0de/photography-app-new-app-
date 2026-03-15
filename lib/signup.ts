@@ -20,12 +20,18 @@ export async function checkSupabaseConnectivity(): Promise<{
 }> {
   try {
     const startTime = Date.now();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second strict timeout
+    
     const response = await fetch('https://ujunohfpcmjywsblsoel.supabase.co/auth/v1/settings', {
-      method: 'HEAD',
+      method: 'GET', // Change from HEAD to GET as React Native Android fetch has HEAD bugs
+      signal: controller.signal,
       headers: {
         'apikey': process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqdW5vaGZwY21qeXdzYmxzb2VsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2NDk5NzYsImV4cCI6MjA4NjIyNTk3Nn0.w4bhLUjaAXhB8B1sujLJWIG5-TokDPuEIInFeLm5EMg',
       },
     });
+    clearTimeout(timeoutId);
+    
     const responseTime = Date.now() - startTime;
     
     return {
@@ -36,7 +42,7 @@ export async function checkSupabaseConnectivity(): Promise<{
   } catch (error: any) {
     return {
       reachable: false,
-      error: error.message,
+      error: error.name === 'AbortError' ? 'Connection timed out (10s)' : error.message,
     };
   }
 }
