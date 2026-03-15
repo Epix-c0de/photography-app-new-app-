@@ -35,6 +35,7 @@ function RootLayoutNav() {
       />
       <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="(admin)" options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="auth" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen
         name="notifications"
         options={{

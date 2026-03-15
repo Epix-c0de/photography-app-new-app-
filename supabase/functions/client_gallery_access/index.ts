@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -60,9 +60,10 @@ Deno.serve(async (req: Request) => {
     const accessCode = String(accessCodeRaw).trim().toUpperCase();
     const { data: gallery, error: galleryError } = await adminClient
       .from("galleries")
-      .select("id, access_code, is_active, expires_at, total_photos, client_name")
+      .select("id, access_code, is_active, expires_at, total_photos, client_name, upload_status")
       .eq("access_code", accessCode)
       .eq("is_active", true)
+      .eq("upload_status", "completed")
       .maybeSingle();
     if (galleryError || !gallery) {
       throw new Error("Gallery not found");
@@ -73,9 +74,10 @@ Deno.serve(async (req: Request) => {
 
     const { data: photos, error: photosError } = await adminClient
       .from("photos")
-      .select("id, file_url, file_name, file_size, mime_type, upload_status, created_at")
+      .select("id, file_url, file_name, file_size, mime_type, upload_status, created_at, galleries!inner(is_active)")
       .eq("gallery_id", gallery.id)
       .eq("upload_status", "uploaded")
+      .eq("galleries.is_active", true)
       .order("created_at", { ascending: true });
     if (photosError) throw photosError;
 
@@ -97,6 +99,7 @@ Deno.serve(async (req: Request) => {
     const photoRows = (photos as PhotoRow[] | null) || [];
     const paths = photoRows.map((p) => p.file_url).filter((p) => !!p);
     const signedMap = new Map<string, string>();
+    const cdnBase = Deno.env.get("STORAGE_CDN_BASE_URL") ?? "";
     if (paths.length > 0) {
       const { data: signedUrls, error: signedError } = await adminClient.storage
         .from("client-photos")
@@ -105,7 +108,13 @@ Deno.serve(async (req: Request) => {
       const signedRows = (signedUrls as SignedUrlRow[] | null) || [];
       signedRows.forEach((item) => {
         if (item?.path && item?.signedUrl) {
-          signedMap.set(item.path, item.signedUrl);
+          if (cdnBase) {
+            const parsed = new URL(item.signedUrl);
+            const base = cdnBase.endsWith("/") ? cdnBase.slice(0, -1) : cdnBase;
+            signedMap.set(item.path, `${base}${parsed.pathname}${parsed.search}`);
+          } else {
+            signedMap.set(item.path, item.signedUrl);
+          }
         }
       });
     }

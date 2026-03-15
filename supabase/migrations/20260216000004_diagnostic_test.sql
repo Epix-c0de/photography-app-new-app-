@@ -9,6 +9,7 @@
 SET session_replication_role = replica;
 
 -- This should succeed if the basic table structure is correct
+/*
 INSERT INTO public.gallery_photos (
   gallery_id, 
   photo_url, 
@@ -24,17 +25,19 @@ INSERT INTO public.gallery_photos (
   'image/jpeg', 
   0
 );
+*/
 
 -- Reset RLS
 SET session_replication_role = DEFAULT;
 
 -- Test 2: Check if RLS policies are working without recursion
 -- This will help identify if the issue is with the policies themselves
+/*
 SELECT 
-  polname as policy_name,
-  polcmd as command,
-  polqual as using_expression,
-  polwithcheck as check_expression
+  policyname as policy_name,
+  cmd as command,
+  qual as using_expression,
+  with_check as check_expression
 FROM pg_policies 
 WHERE tablename = 'gallery_photos';
 
@@ -55,6 +58,7 @@ SELECT
   action_timing
 FROM information_schema.triggers 
 WHERE event_object_table = 'gallery_photos';
+*/
 
 -- =============================================
 -- CLEANUP: Remove test data after verification

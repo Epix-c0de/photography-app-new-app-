@@ -1,45 +1,40 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  View, Text, StyleSheet, TextInput, Pressable, ScrollView, Switch, 
-  Alert, Platform, KeyboardAvoidingView, Image, Dimensions, ActivityIndicator,
-  FlatList, TouchableOpacity 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, TextInput, Pressable, ScrollView,
+  Alert, Image, FlatList, ActivityIndicator, Modal, KeyboardAvoidingView, Platform, Switch, Linking
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
-import { useNetInfo } from '@react-native-community/netinfo';
 import * as Clipboard from 'expo-clipboard';
-import { 
-  Cloud, CloudOff, User, Phone, Image as ImageIcon, Check, X, 
-  Calendar, CreditCard, Shield, Send, ArrowLeft, Camera, FileText, 
-  Copy, Wifi, WifiOff, Trash2, Smartphone, AlertTriangle,
-  MessageCircle, Mail, Upload, Download, Eye, EyeOff, Hash, DollarSign, Search, ChevronDown, ChevronUp
+import {
+  User, ArrowLeft, ChevronUp, ChevronDown,
+  Wifi, WifiOff, Cloud, DollarSign, FileText, Hash, Copy,
+  Trash2, CreditCard, Mail, Smartphone, AlertTriangle, Shield, Calendar,
+  Check, Send, MessageCircle, Phone, X, Search, Camera
 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { AdminService } from '@/services/admin';
 import { supabase } from '@/lib/supabase';
+import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
 
-const { width } = Dimensions.get('window');
-
-// Types
-type ShootType = 'wedding' | 'portrait' | 'event' | 'commercial' | 'family' | 'maternity' | 'newborn' | 'boudoir';
-
 type DeliveryMethod = 'sms' | 'whatsapp' | 'email' | 'in_app';
+type ShootType = 'wedding' | 'portrait' | 'event' | 'commercial' | 'other';
 
-interface Client {
+type Client = {
   id: string;
   name: string;
-  phone: string;
+  phone?: string;
   email?: string;
+  totalGalleries?: number;
   lastShoot?: string;
-  totalGalleries: number;
-}
+};
 
-interface Photo {
+type Photo = {
   id: string;
   uri: string;
   fileName: string;
@@ -47,65 +42,66 @@ interface Photo {
   mimeType: string;
   width?: number;
   height?: number;
-}
+};
 
-interface UploadProgress {
-  total: number;
-  completed: number;
-  currentFile?: string;
-}
-
-export default function UploadScreen() {
-  const router = useRouter();
+export default function ClientPhotoUploadScreen() {
   const insets = useSafeAreaInsets();
-  const netInfo = useNetInfo();
-  const { verifyAdminGuard } = useAuth();
-  const [accessReady, setAccessReady] = useState<boolean>(false);
-  
-  // State: Mode
-  const [outdoorMode, setOutdoorMode] = useState(false);
-  
-  // State: Client
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [temporaryClientName, setTemporaryClientName] = useState('');
-  const [email, setEmail] = useState('');
+  const router = useRouter();
+  const { userId } = useLocalSearchParams<{ userId: string }>();
+  const { user, verifyAdminGuard } = useAuth();
+  const { brandName: activeBrand, appDisplayName: activeAppName, shareAppLink: appLink, accessCodeLink: accessLink } = useBranding();
+
+  // Access guard
+  const [accessReady, setAccessReady] = useState(false);
+
+  // Network
+  const [netInfo, setNetInfo] = useState<{ isConnected: boolean | null }>({ isConnected: true });
+
+  // Client state
+  const [clients, setClients] = useState<Client[]>([]);
   const [clientData, setClientData] = useState<Client | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [email, setEmail] = useState('');
+  const [notes, setNotes] = useState('');
+  const [temporaryClientName, setTemporaryClientName] = useState('');
   const [isNewClient, setIsNewClient] = useState(false);
   const [checkingClient, setCheckingClient] = useState(false);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [clientSearch, setClientSearch] = useState('');
   const [loadingClients, setLoadingClients] = useState(false);
   const [creatingClient, setCreatingClient] = useState(false);
-  const [isClientListExpanded, setIsClientListExpanded] = useState(true);
-  
-  // State: Gallery
+  const [isClientListExpanded, setIsClientListExpanded] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
+
+  // Gallery config
   const [galleryTitle, setGalleryTitle] = useState('');
+  const [accessCode, setAccessCode] = useState('');
+  const [isPaid, setIsPaid] = useState(false);
+  const [price, setPrice] = useState('');
   const [shootType, setShootType] = useState<ShootType>('portrait');
-  const [notes, setNotes] = useState('');
   const [delayedDelivery, setDelayedDelivery] = useState(false);
   const [releaseDate, setReleaseDate] = useState(new Date());
-  const [price, setPrice] = useState('');
-  
-  // State: Photos
+  const [deliveryMethods, setDeliveryMethods] = useState<DeliveryMethod[]>(['sms']);
+  const [sendNotificationAfterUpload, setSendNotificationAfterUpload] = useState(true);
+  const [requirePaymentBeforeDownload, setRequirePaymentBeforeDownload] = useState(false);
+  const [customMessage, setCustomMessage] = useState('');
+  const [outdoorMode, setOutdoorMode] = useState(false);
+
+  // Photos
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [isPicking, setIsPicking] = useState(false);
-  
-  // State: Delivery Methods
-  const [deliveryMethods, setDeliveryMethods] = useState<DeliveryMethod[]>(['sms', 'in_app']);
-  const [customMessage, setCustomMessage] = useState('');
-  const [showSmsPreview, setShowSmsPreview] = useState(true);
-  
-  // State: Settings
-  const [isPaid, setIsPaid] = useState(false);
-  const [watermarkOpacity, setWatermarkOpacity] = useState(0.5);
-  const [accessCode, setAccessCode] = useState('');
-  const [sendNotificationAfterUpload, setSendNotificationAfterUpload] = useState(true);
-  const [requirePaymentBeforeDownload, setRequirePaymentBeforeDownload] = useState(true);
-  
-  // State: Status
+
+  // Upload
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress>({ total: 0, completed: 0 });
+  const [uploadProgress, setUploadProgress] = useState<{ total: number; completed: number; currentFile: string }>({ total: 0, completed: 0, currentFile: '' });
   const [uploadStatus, setUploadStatus] = useState('');
+  const [initializedGallery, setInitializedGallery] = useState<{
+    id: string;
+    sessionId: string;
+    accessCode: string;
+  } | null>(null);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+
+
 
   const normalizePhone = (value: string) => value.replace(/[^\d+]/g, '');
 
@@ -118,6 +114,15 @@ export default function UploadScreen() {
     }
     return code;
   };
+
+  // Generate access code on gallery title change (from upload.tsx)
+  useEffect(() => {
+    if (galleryTitle.trim()) {
+      const prefix = galleryTitle.split(' ')[0].toUpperCase().slice(0, 3);
+      const randomDigits = Math.floor(1000 + Math.random() * 9000);
+      setAccessCode(`${prefix}-${randomDigits}`);
+    }
+  }, [galleryTitle]);
 
   const loadClients = useCallback(async () => {
     try {
@@ -133,8 +138,10 @@ export default function UploadScreen() {
         totalGalleries: 0
       }));
       setClients(mapped);
+      return mapped;
     } catch (error) {
       console.error('Failed to load clients:', error);
+      return [];
     } finally {
       setLoadingClients(false);
       setCheckingClient(false);
@@ -182,8 +189,16 @@ export default function UploadScreen() {
 
   useEffect(() => {
     if (!accessReady) return;
-    loadClients();
-  }, [accessReady, loadClients]);
+    loadClients().then((loadedClients) => {
+      if (userId && loadedClients) {
+        const client = loadedClients.find(c => c.id === userId);
+        if (client) {
+          selectClient(client);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+      }
+    });
+  }, [accessReady, loadClients, userId]);
 
   const copyAccessCode = async () => {
     if (!accessCode) {
@@ -235,20 +250,27 @@ export default function UploadScreen() {
   const normalizedClientSearch = clientSearch.trim().toLowerCase();
   const filteredClients = normalizedClientSearch
     ? clients.filter(client =>
-        client.name.toLowerCase().includes(normalizedClientSearch) ||
-        normalizePhone(client.phone || '').includes(normalizedClientSearch)
-      )
-    : clients.slice(0, 6);
+      client.name.toLowerCase().includes(normalizedClientSearch) ||
+      normalizePhone(client.phone || '').includes(normalizedClientSearch)
+    )
+    : clients;
   const selectedClientCount = clientData ? 1 : 0;
   const selectedClientLabel = `${selectedClientCount} client${selectedClientCount === 1 ? '' : 's'} selected`;
 
   const pickImages = async () => {
     setIsPicking(true);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      const hasAccess = permission.status === 'granted' || permission.accessPrivileges === 'limited';
+      const { status: existingStatus } = await ImagePicker.getMediaLibraryPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      const hasAccess = finalStatus === 'granted';
       if (!hasAccess) {
         Alert.alert('Permission Required', 'Please grant photo library access to select images.');
+        setIsPicking(false);
         return;
       }
 
@@ -282,11 +304,10 @@ export default function UploadScreen() {
       };
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
-        quality: 1,
-        exif: true,
         selectionLimit: 100,
+        // Removed quality and exif to prevent silent failures on Android
       });
 
       if (result.canceled || !result.assets?.length) {
@@ -347,7 +368,7 @@ export default function UploadScreen() {
   };
 
   const toggleDeliveryMethod = (method: DeliveryMethod) => {
-    setDeliveryMethods(prev => 
+    setDeliveryMethods(prev =>
       prev.includes(method)
         ? prev.filter(m => m !== method)
         : [...prev, method]
@@ -383,7 +404,6 @@ export default function UploadScreen() {
 
   const uploadGalleryPhotosWithConcurrency = async (
     galleryId: string,
-    clientId: string,
     items: Photo[],
     concurrency: number
   ) => {
@@ -403,7 +423,17 @@ export default function UploadScreen() {
           currentFile: `Uploading ${currentIndex + 1}/${total}: ${photo.fileName}`
         }));
 
-        await AdminService.gallery.uploadPhoto(galleryId, clientId, photo, currentIndex + 1);
+        try {
+          await AdminService.gallery.uploadPhotoDirect(
+            galleryId,
+            photo,
+            !isPaid,
+            currentIndex + 1
+          );
+        } catch (error) {
+          console.error(`Failed to upload photo ${photo.fileName}:`, error);
+          throw error;
+        }
 
         completed += 1;
         setUploadProgress(prev => ({
@@ -416,6 +446,7 @@ export default function UploadScreen() {
 
     const workers = Array.from({ length: Math.min(concurrency, total) }, () => worker());
     await Promise.all(workers);
+
   };
 
   const uploadTempPhotosWithConcurrency = async (
@@ -462,6 +493,114 @@ export default function UploadScreen() {
     await Promise.all(workers);
   };
 
+  const handleSendSMS = async () => {
+    if (!phoneNumber || !accessCode) return;
+    const deepLink = `${accessLink}${accessCode}`;
+    const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
+    const smsUrl = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+
+    try {
+      const supported = await Linking.canOpenURL(smsUrl);
+      if (supported) {
+        await Linking.openURL(smsUrl);
+        await supabase.from('sms_logs').insert({
+          owner_admin_id: user?.id,
+          client_id: clientData?.id,
+          phone_number: phoneNumber,
+          message: message,
+          status: 'queued',
+        });
+        Alert.alert('SMS Composer Opened', 'SMS composer has been opened with the prefilled message.');
+      } else {
+        Alert.alert('Error', 'SMS is not supported on this device.');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to open SMS composer.');
+    }
+  };
+
+  const handleSendWhatsApp = async () => {
+    if (!phoneNumber || !accessCode) return;
+    const deepLink = `${accessLink}${accessCode}`;
+    const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
+    const whatsappUrl = `https://wa.me/${phoneNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+
+    try {
+      const supported = await Linking.canOpenURL(whatsappUrl);
+      if (supported) {
+        await Linking.openURL(whatsappUrl);
+        Alert.alert('WhatsApp Opened', 'WhatsApp has been opened with the prefilled message.');
+      } else {
+        Alert.alert('Error', 'WhatsApp is not installed or supported on this device.');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to open WhatsApp.');
+    }
+  };
+
+  const handleSetupGallery = async () => {
+    if (!phoneNumber) {
+      Alert.alert('Missing Info', 'Please enter a client phone number.');
+      return;
+    }
+
+    setIsInitializing(true);
+    setUploadStatus('Initializing gallery record...');
+
+    try {
+      // 1. Create or find client
+      let clientId = clientData?.id;
+      if (!clientId) {
+        const resolvedName = resolveClientName();
+        setUploadStatus('Creating client...');
+        const newClient = await AdminService.clients.create({
+          name: resolvedName,
+          phone: phoneNumber,
+          email: email || undefined,
+          notes
+        } as any);
+        clientId = newClient.id;
+        setClientData({
+          id: newClient.id,
+          name: newClient.name || phoneNumber,
+          phone: newClient.phone || phoneNumber,
+          email: newClient.email ?? undefined,
+          totalGalleries: 0
+        });
+      }
+
+      // 2. Create gallery directly (no Edge Functions)
+      setUploadStatus('Creating gallery...');
+      const galleryName = galleryTitle || `${shootType.charAt(0).toUpperCase() + shootType.slice(1)} ${new Date().getFullYear()}`;
+
+      const result = await AdminService.gallery.createSimple({
+        clientId: clientId!,
+        name: galleryName,
+        price: price ? parseFloat(price) : 0,
+        shootType,
+        isPaid,
+        accessCode,
+      });
+
+      setInitializedGallery({
+        id: result.id,
+        sessionId: result.session_id,
+        accessCode: result.access_code
+      });
+      setAccessCode(result.access_code);
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success', `Gallery created! Access code: ${result.access_code}. You can now select and upload photos.`);
+    } catch (error: any) {
+      console.error('Setup failed:', error);
+      Alert.alert('Setup Failed', error?.message || 'Could not initialize gallery.');
+    } finally {
+      setIsInitializing(false);
+      setUploadStatus('');
+    }
+  };
+
+
   const handleTemporaryUpload = async () => {
     const resolvedName = resolveClientName();
     if (!resolvedName) {
@@ -505,162 +644,114 @@ export default function UploadScreen() {
       return;
     }
 
+    const galleryName = galleryTitle || `${shootType.charAt(0).toUpperCase() + shootType.slice(1)} ${new Date().getFullYear()}`;
+
+    // Check for duplicate gallery name for this client
+    if (clientData?.id) {
+      try {
+        const { data: existingGalleries, error } = await supabase
+          .from('galleries')
+          .select('name')
+          .eq('client_id', clientData.id)
+          .ilike('name', galleryName.trim());
+
+        if (error) throw error;
+
+        if (existingGalleries && existingGalleries.length > 0) {
+          Alert.alert(
+            'Duplicate Gallery',
+            `A gallery named "${galleryName.trim()}" already exists for this client. Are you sure you want to create another?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Continue Anyway', style: 'destructive', onPress: () => proceedWithUpload(galleryName) }
+            ]
+          );
+          return;
+        }
+      } catch (error) {
+        console.warn('Failed to check for duplicate galleries:', error);
+      }
+    }
+
+    await proceedWithUpload(galleryName);
+  };
+
+  const proceedWithUpload = async (galleryName: string) => {
     const totalPhotos = photos.length;
     setIsUploading(true);
     setUploadProgress({ total: totalPhotos, completed: 0, currentFile: '' });
     setUploadStatus('Creating client and gallery...');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    
+
     try {
-      // 1. Create or find client
-      let clientId = clientData?.id;
-      if (!clientId) {
-        setUploadStatus('Creating new client...');
-        const resolvedName = resolveClientName();
-        const newClient = await AdminService.clients.create({
-          name: resolvedName,
-          phone: phoneNumber,
-          email: email || undefined,
-          notes
-        } as any);
-        clientId = newClient.id;
+      // 1. Use pre-initialized or create new
+      let clientId: string | undefined = clientData?.id;
+      let galleryId = initializedGallery?.id;
+      let sessionId = initializedGallery?.sessionId;
+      // Hoist galleryName so notification block can access it
+      if (!galleryId || !sessionId) {
+        if (!clientId) {
+          setUploadStatus('Creating new client...');
+          const resolvedName = resolveClientName();
+          const newClient = await AdminService.clients.create({
+            name: resolvedName,
+            phone: phoneNumber,
+            email: email || undefined,
+            notes
+          } as any);
+          clientId = newClient.id;
+        }
+
+        // 2. Create gallery directly (no Edge Functions)
+        setUploadStatus('Creating gallery...');
+        const gallery = await AdminService.gallery.createSimple({
+          clientId: clientId!,
+          name: galleryName,
+          price: price ? parseFloat(price) : 0,
+          shootType,
+          isPaid,
+          accessCode,
+        });
+        galleryId = gallery.id;
+        sessionId = gallery.session_id;
+        setAccessCode(gallery.access_code);
       }
 
-      // 2. Create gallery
-      setUploadStatus('Creating gallery...');
-      const galleryName = galleryTitle || `${shootType.charAt(0).toUpperCase() + shootType.slice(1)} ${new Date().getFullYear()}`;
-      const scheduledRelease = delayedDelivery ? releaseDate.toISOString() : undefined;
+      const finalGalleryId = galleryId as string;
+      const finalAccessCode = initializedGallery?.accessCode || accessCode;
 
-      const gallery = await AdminService.gallery.create({
-        clientId,
-        name: galleryName,
-        price: price ? parseFloat(price) : 0,
-        shootType,
-        scheduledRelease,
-        watermarkEnabled: !isPaid,
-        isPaid: isPaid,
-        status: isPaid ? 'unlocked' : 'locked'
-      });
-
-      // 3. Upload photos
+      // 3. Upload photos directly (no Edge Functions)
       setUploadStatus('Uploading photos...');
 
-      await uploadGalleryPhotosWithConcurrency(gallery.id, clientId, photos, 3);
+      await uploadGalleryPhotosWithConcurrency(finalGalleryId, photos, 3);
 
-      // 4. Send notifications
-      if (sendNotificationAfterUpload && deliveryMethods.length > 0) {
+      // 4. Send notifications (non-critical — don't let this crash the upload)
+      if (sendNotificationAfterUpload) {
         setUploadStatus('Sending notifications...');
-        
-        const { data: clientRow, error: clientFetchError } = await supabase
-          .from('clients')
-          .select('user_id, name, phone, email')
-          .eq('id', clientId)
-          .single();
-
-        if (!clientFetchError && clientRow) {
-          let resolvedUserId = clientRow.user_id;
-          if (!resolvedUserId && clientRow.phone) {
-            const { data: profileMatch } = await supabase
-              .from('user_profiles')
-              .select('id')
-              .eq('phone', clientRow.phone)
-              .maybeSingle();
-            if (profileMatch?.id) {
-              await supabase
-                .from('clients')
-                .update({ user_id: profileMatch.id })
-                .eq('id', clientId);
-              resolvedUserId = profileMatch.id;
-            }
-          }
-
-          const resolvedName = clientRow.name || resolveClientName();
-          const templateValues = {
-            Client: resolvedName,
-            Name: resolvedName,
-            Code: gallery.access_code,
-            AccessCode: gallery.access_code,
-            Gallery: galleryName,
-            ShootType: shootType
-          };
-          const registeredMessage = `Hello ${resolvedName}, your ${shootType} photos are ready! Access code: ${gallery.access_code}. View at epixvisualsstudios.co`;
-          const newClientMessage = `Welcome ${resolvedName}, your ${shootType} photos are ready! Download the app and use access code ${gallery.access_code} at epixvisualsstudios.co`;
-          const baseMessage = resolvedUserId ? registeredMessage : newClientMessage;
-          const notificationMessage = customMessage
-            ? applyTemplate(customMessage, templateValues)
-            : baseMessage;
-
-          // Create notification record only if client has a user_id
-          if (resolvedUserId) {
-            await supabase.from('notifications').insert({
-              user_id: resolvedUserId,
-              type: 'photo_gallery_ready',
-              title: 'Your Photos Are Ready!',
-              body: notificationMessage,
-              access_code: gallery.access_code,
-              gallery_id: gallery.id,
-              client_id: clientId,
-              data: { 
-                galleryId: gallery.id,
-                accessCode: gallery.access_code,
-                clientName: clientRow.name,
-                galleryTitle: galleryName
-              },
-              sent_status: 'sent'
-            });
-          }
-
-          // Send via selected delivery methods
-          if (deliveryMethods.includes('sms') && clientRow.phone) {
-            // Send SMS via edge function
-            const { error } = await supabase.functions.invoke('send_sms', {
-              body: {
-                phoneNumber: clientRow.phone,
-                message: notificationMessage
-              }
-            });
-            if (error) {
-              console.error('Failed to send SMS:', error);
-            }
-          }
-
-          if (deliveryMethods.includes('whatsapp') && clientRow.phone) {
-            // WhatsApp integration would go here
-            console.log('WhatsApp notification would be sent to:', clientRow.phone);
-          }
-
-          if (deliveryMethods.includes('email') && clientRow.email) {
-            // Email integration would go here
-            console.log('Email notification would be sent to:', clientRow.email);
-          }
+        try {
+          const resolvedName = clientData?.name || resolveClientName();
+          
+          await AdminService.notifications.create(clientId as string, {
+            clientId: clientId as string,
+            galleryId: finalGalleryId,
+            type: 'gallery_ready',
+            title: `Hello ${resolvedName} 👋, your ${galleryName} gallery is ready!`,
+            body: `Your photos from ${galleryName} are now available. Tap to view your gallery.`,
+            data: { galleryId: finalGalleryId, accessCode: finalAccessCode, clientName: resolvedName }
+          });
+        } catch (notifError: any) {
+          console.warn('Notification sending failed (non-critical):', notifError?.message);
+          // Don't throw — upload already succeeded
         }
       }
 
-      setAccessCode(gallery.access_code);
+
+      setAccessCode(finalAccessCode);
       setIsUploading(false);
       setUploadStatus('');
+      setShowUploadModal(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
-      Alert.alert(
-        'Success!', 
-        `Gallery created with ${photos.length} photos!${deliveryMethods.includes('sms') ? ' SMS sent.' : ''}`,
-        [
-          {
-            text: 'View Gallery',
-            onPress: () => router.push({
-              pathname: '/(admin)/clients/gallery',
-              params: { 
-                clientId: clientId,
-                clientName: clientData?.name || 'Client'
-              }
-            })
-          },
-          {
-            text: 'Done',
-            onPress: () => router.back()
-          }
-        ]
-      );
+
     } catch (error: any) {
       const message = error?.message || '';
       const status = error?.status || error?.code;
@@ -682,19 +773,12 @@ export default function UploadScreen() {
       }
 
       let friendlyMessage = message || 'An error occurred during upload.';
-      if (lowerMessage.includes('bucket') && lowerMessage.includes('not found')) {
-        friendlyMessage = 'Storage bucket "client-photos" is missing. Please create it in Supabase Storage.';
-      } else if (lowerMessage.includes('row-level security') || lowerMessage.includes('permission denied') || status === 403) {
-        friendlyMessage = 'Upload blocked by permissions. Ensure the admin profile exists and storage policies allow admin uploads.';
-      } else if (lowerMessage.includes('42p17') || lowerMessage.includes('infinite recursion')) {
-        friendlyMessage = 'Upload blocked by a recursive RLS policy. Apply the gallery_photos policy fix migration.';
-      } else if (lowerMessage.includes('schema cache') || lowerMessage.includes('does not exist')) {
-        friendlyMessage = 'Required database tables are missing. Run the latest Supabase migrations.';
-      }
-
+      // TEMPORARILY show the raw error for debugging
+      const debugInfo = `RAW ERROR:\n${message}\n\nStatus: ${status}\n\nStack: ${error?.stack?.substring(0, 200) || 'none'}`;
+      
       setIsUploading(false);
       setUploadStatus('');
-      Alert.alert('Upload Failed', friendlyMessage);
+      Alert.alert('Upload Failed', debugInfo);
     }
   };
 
@@ -702,7 +786,7 @@ export default function UploadScreen() {
   const renderPhotoItem = ({ item }: { item: Photo }) => (
     <View style={styles.photoItem}>
       <Image source={{ uri: item.uri }} style={styles.photoThumb} />
-      <Pressable 
+      <Pressable
         style={styles.removePhotoBtn}
         onPress={() => removePhoto(item.id)}
       >
@@ -737,11 +821,11 @@ export default function UploadScreen() {
         </View>
       </View>
 
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
@@ -836,7 +920,11 @@ export default function UploadScreen() {
               pointerEvents={isClientListExpanded ? 'auto' : 'none'}
             >
               {filteredClients.length > 0 && (
-                <View style={styles.clientList}>
+                <ScrollView 
+                  style={styles.clientList} 
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={true}
+                >
                   {filteredClients.map((client) => (
                     <Pressable
                       key={client.id}
@@ -850,7 +938,7 @@ export default function UploadScreen() {
                       <Text style={styles.clientListAction}>Use</Text>
                     </Pressable>
                   ))}
-                </View>
+                </ScrollView>
               )}
 
               {normalizedClientSearch.length > 0 && filteredClients.length === 0 && (
@@ -885,7 +973,7 @@ export default function UploadScreen() {
                 </View>
               </View>
             )}
-            
+
             {isNewClient && !checkingClient && phoneNumber.length >= 10 && (
               <View style={styles.newClientCard}>
                 <UserPlusBadge />
@@ -933,7 +1021,7 @@ export default function UploadScreen() {
                     onChangeText={setGalleryTitle}
                   />
                 </View>
-                
+
                 <View style={styles.typeSelector}>
                   {(['wedding', 'portrait', 'event', 'commercial'] as ShootType[]).map((type) => (
                     <Pressable
@@ -950,11 +1038,48 @@ export default function UploadScreen() {
                     </Pressable>
                   ))}
                 </View>
+
+                {/* ─── Create Gallery Button ─── */}
+                {!initializedGallery ? (
+                  <Pressable
+                    style={[
+                      styles.setupGalleryBtn,
+                      (isInitializing || !phoneNumber) && styles.primaryBtnDisabled
+                    ]}
+                    onPress={handleSetupGallery}
+                    disabled={isInitializing || !phoneNumber}
+                  >
+                    {isInitializing ? (
+                      <ActivityIndicator color={Colors.background} size="small" />
+                    ) : (
+                      <>
+                        <LinearGradient
+                          colors={!phoneNumber ? ['#333', '#333'] : ['#2563eb', '#1d4ed8']}
+                          style={StyleSheet.absoluteFillObject}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                        />
+                        <Hash size={18} color={Colors.white} />
+                        <Text style={styles.setupGalleryBtnText}>Create Gallery &amp; Get Access Code</Text>
+                      </>
+                    )}
+                  </Pressable>
+                ) : (
+                  <View style={styles.galleryReadyBadge}>
+                    <Check size={16} color={Colors.success} />
+                    <Text style={styles.galleryReadyText}>
+                      Gallery Ready — Code: {initializedGallery.accessCode}
+                    </Text>
+                    <Pressable onPress={copyAccessCode}>
+                      <Copy size={14} color={Colors.success} />
+                    </Pressable>
+                  </View>
+                )}
               </View>
 
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>PHOTOS ({photos.length}) • {formatFileSize(getTotalFileSize())}</Text>
-                <Pressable 
+                <Pressable
                   style={styles.uploadArea}
                   onPress={pickImages}
                   disabled={isPicking}
@@ -969,7 +1094,7 @@ export default function UploadScreen() {
                     </>
                   )}
                 </Pressable>
-                
+
                 {photos.length > 0 && (
                   <View style={styles.photoList}>
                     <FlatList
@@ -983,7 +1108,7 @@ export default function UploadScreen() {
                       <Text style={styles.photoStatsText}>
                         {photos.length} photos • {formatFileSize(getTotalFileSize())}
                       </Text>
-                      <Pressable 
+                      <Pressable
                         style={styles.clearPhotosBtn}
                         onPress={() => {
                           Alert.alert(
@@ -991,8 +1116,8 @@ export default function UploadScreen() {
                             'Are you sure you want to remove all selected photos?',
                             [
                               { text: 'Cancel', style: 'cancel' },
-                              { 
-                                text: 'Clear All', 
+                              {
+                                text: 'Clear All',
                                 style: 'destructive',
                                 onPress: () => setPhotos([])
                               }
@@ -1010,13 +1135,13 @@ export default function UploadScreen() {
 
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>SETTINGS & AUTOMATION</Text>
-                
+
                 <View style={styles.settingRow}>
                   <View style={styles.settingInfo}>
                     <CreditCard size={18} color={isPaid ? Colors.success : Colors.textMuted} />
                     <Text style={styles.settingLabel}>Payment Status</Text>
                   </View>
-                  <Pressable 
+                  <Pressable
                     onPress={() => setIsPaid(!isPaid)}
                     style={[styles.toggleBtn, isPaid && styles.toggleBtnActive]}
                   >
@@ -1071,84 +1196,84 @@ export default function UploadScreen() {
 
                 <View style={styles.divider} />
 
-              {/* Delivery Methods */}
-              <View style={styles.deliverySection}>
-                <Text style={styles.deliveryLabel}>DELIVERY METHODS</Text>
-                <View style={styles.deliveryGrid}>
-                  <Pressable 
-                    style={[styles.deliveryChip, deliveryMethods.includes('sms') && styles.deliveryChipActive]}
-                    onPress={() => toggleDeliveryMethod('sms')}
-                  >
-                    <MessageCircle size={16} color={deliveryMethods.includes('sms') ? Colors.white : Colors.textMuted} />
-                    <Text style={[styles.deliveryText, deliveryMethods.includes('sms') && styles.deliveryTextActive]}>
-                      SMS
-                    </Text>
-                  </Pressable>
-                  
-                  <Pressable 
-                    style={[styles.deliveryChip, deliveryMethods.includes('whatsapp') && styles.deliveryChipActive]}
-                    onPress={() => toggleDeliveryMethod('whatsapp')}
-                  >
-                    <MessageCircle size={16} color={deliveryMethods.includes('whatsapp') ? Colors.white : Colors.textMuted} />
-                    <Text style={[styles.deliveryText, deliveryMethods.includes('whatsapp') && styles.deliveryTextActive]}>
-                      WhatsApp
-                    </Text>
-                  </Pressable>
-                  
-                  <Pressable 
-                    style={[styles.deliveryChip, deliveryMethods.includes('email') && styles.deliveryChipActive]}
-                    onPress={() => toggleDeliveryMethod('email')}
-                  >
-                    <Mail size={16} color={deliveryMethods.includes('email') ? Colors.white : Colors.textMuted} />
-                    <Text style={[styles.deliveryText, deliveryMethods.includes('email') && styles.deliveryTextActive]}>
-                      Email
-                    </Text>
-                  </Pressable>
-                  
-                  <Pressable 
-                    style={[styles.deliveryChip, deliveryMethods.includes('in_app') && styles.deliveryChipActive]}
-                    onPress={() => toggleDeliveryMethod('in_app')}
-                  >
-                    <Smartphone size={16} color={deliveryMethods.includes('in_app') ? Colors.white : Colors.textMuted} />
-                    <Text style={[styles.deliveryText, deliveryMethods.includes('in_app') && styles.deliveryTextActive]}>
-                      In-App
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
+                {/* Delivery Methods */}
+                <View style={styles.deliverySection}>
+                  <Text style={styles.deliveryLabel}>DELIVERY METHODS</Text>
+                  <View style={styles.deliveryGrid}>
+                    <Pressable
+                      style={[styles.deliveryChip, deliveryMethods.includes('sms') && styles.deliveryChipActive]}
+                      onPress={() => toggleDeliveryMethod('sms')}
+                    >
+                      <MessageCircle size={16} color={deliveryMethods.includes('sms') ? Colors.white : Colors.textMuted} />
+                      <Text style={[styles.deliveryText, deliveryMethods.includes('sms') && styles.deliveryTextActive]}>
+                        SMS
+                      </Text>
+                    </Pressable>
 
-              {/* Custom Message */}
-              {deliveryMethods.length > 0 && (
-                <View style={styles.customMessageSection}>
-                  <Text style={styles.sectionLabel}>CUSTOM MESSAGE</Text>
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
-                    placeholder="Custom notification message (optional)"
-                    placeholderTextColor={Colors.textMuted}
-                    value={customMessage}
-                    onChangeText={setCustomMessage}
-                    multiline
-                    numberOfLines={3}
-                  />
-                </View>
-              )}
-              
-              <View style={styles.divider} />
-              
-              {accessCode ? (
-                <View style={styles.accessCodeContainer}>
-                  <View>
-                    <Text style={styles.accessCodeLabel}>ACCESS CODE</Text>
-                    <Text style={styles.accessCodeValue}>{accessCode}</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <Pressable style={styles.iconBtn} onPress={copyAccessCode}>
-                      <Copy size={20} color={Colors.gold} />
+                    <Pressable
+                      style={[styles.deliveryChip, deliveryMethods.includes('whatsapp') && styles.deliveryChipActive]}
+                      onPress={() => toggleDeliveryMethod('whatsapp')}
+                    >
+                      <MessageCircle size={16} color={deliveryMethods.includes('whatsapp') ? Colors.white : Colors.textMuted} />
+                      <Text style={[styles.deliveryText, deliveryMethods.includes('whatsapp') && styles.deliveryTextActive]}>
+                        WhatsApp
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[styles.deliveryChip, deliveryMethods.includes('email') && styles.deliveryChipActive]}
+                      onPress={() => toggleDeliveryMethod('email')}
+                    >
+                      <Mail size={16} color={deliveryMethods.includes('email') ? Colors.white : Colors.textMuted} />
+                      <Text style={[styles.deliveryText, deliveryMethods.includes('email') && styles.deliveryTextActive]}>
+                        Email
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[styles.deliveryChip, deliveryMethods.includes('in_app') && styles.deliveryChipActive]}
+                      onPress={() => toggleDeliveryMethod('in_app')}
+                    >
+                      <Smartphone size={16} color={deliveryMethods.includes('in_app') ? Colors.white : Colors.textMuted} />
+                      <Text style={[styles.deliveryText, deliveryMethods.includes('in_app') && styles.deliveryTextActive]}>
+                        In-App
+                      </Text>
                     </Pressable>
                   </View>
                 </View>
-              ) : null}
-            </View>
+
+                {/* Custom Message */}
+                {deliveryMethods.length > 0 && (
+                  <View style={styles.customMessageSection}>
+                    <Text style={styles.sectionLabel}>CUSTOM MESSAGE</Text>
+                    <TextInput
+                      style={[styles.input, styles.textArea]}
+                      placeholder="Custom notification message (optional)"
+                      placeholderTextColor={Colors.textMuted}
+                      value={customMessage}
+                      onChangeText={setCustomMessage}
+                      multiline
+                      numberOfLines={3}
+                    />
+                  </View>
+                )}
+
+                <View style={styles.divider} />
+
+                {accessCode ? (
+                  <View style={styles.accessCodeContainer}>
+                    <View>
+                      <Text style={styles.accessCodeLabel}>ACCESS CODE</Text>
+                      <Text style={styles.accessCodeValue}>{accessCode}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                      <Pressable style={styles.iconBtn} onPress={copyAccessCode}>
+                        <Copy size={20} color={Colors.gold} />
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+              </View>
             </>
           )}
 
@@ -1161,45 +1286,68 @@ export default function UploadScreen() {
           </View>
 
           {/* Upload Progress */}
-          {isUploading && (
-            <View style={styles.uploadProgressContainer}>
-              <Text style={styles.uploadStatus}>{uploadStatus}</Text>
-              {uploadProgress.currentFile && (
-                <Text style={styles.currentFile} numberOfLines={1}>
-                  {uploadProgress.currentFile}
+          {(isUploading || isInitializing) && (() => {
+            const pct = uploadProgress.total > 0
+              ? Math.round((uploadProgress.completed / uploadProgress.total) * 100)
+              : 0;
+            const isCreatingGallery = uploadStatus.toLowerCase().includes('creating') || uploadStatus.toLowerCase().includes('client') || uploadStatus.toLowerCase().includes('initializ');
+            return (
+              <View style={styles.uploadProgressContainer}>
+                {/* Status label */}
+                <Text style={styles.uploadStatus}>{uploadStatus || 'Starting...'}</Text>
+
+                {/* Big percentage */}
+                <Text style={styles.uploadPct}>{pct}%</Text>
+
+                {/* Progress bar */}
+                <View style={styles.progressBar}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      isCreatingGallery && styles.progressFillSetup,
+                      { width: `${isCreatingGallery ? 5 : pct}%` }
+                    ]}
+                  />
+                </View>
+
+                {/* Photo counter */}
+                <Text style={styles.progressText}>
+                  {isCreatingGallery
+                    ? 'Preparing gallery record...'
+                    : `${uploadProgress.completed} of ${uploadProgress.total} photos uploaded`}
                 </Text>
-              )}
-              <View style={styles.progressBar}>
-                <View 
-                  style={[
-                    styles.progressFill, 
-                    { 
-                      width: `${(uploadProgress.completed / Math.max(1, uploadProgress.total)) * 100}%` 
-                    }
-                  ]} 
-                />
+
+                {/* Current file */}
+                {uploadProgress.currentFile ? (
+                  <Text style={styles.currentFile} numberOfLines={1}>
+                    {uploadProgress.currentFile}
+                  </Text>
+                ) : null}
               </View>
-              <Text style={styles.progressText}>
-                {uploadProgress.completed} / {uploadProgress.total} photos uploaded
-              </Text>
-            </View>
-          )}
+            );
+          })()}
 
           {/* Actions */}
           <View style={styles.actions}>
-            <Pressable 
+            <Pressable
               style={[
-                styles.primaryBtn, 
-                (!phoneNumber || (photos.length === 0 && !outdoorMode)) && styles.primaryBtnDisabled
+                styles.primaryBtn,
+                (isUploading || (photos.length === 0 && !outdoorMode)) && styles.primaryBtnDisabled
               ]}
               onPress={handleUpload}
-              disabled={isUploading || (!phoneNumber || (photos.length === 0 && !outdoorMode))}
+              disabled={isUploading || (photos.length === 0 && !outdoorMode)}
             >
               {isUploading ? (
                 <ActivityIndicator color={Colors.background} />
               ) : (
                 <LinearGradient
-                  colors={(!phoneNumber || (photos.length === 0 && !outdoorMode)) ? ['#333', '#333'] : [Colors.gold, Colors.goldDark]}
+                  colors={
+                    (photos.length === 0 && !outdoorMode)
+                      ? ['#333', '#333']
+                      : initializedGallery
+                        ? [Colors.success, '#16a34a']
+                        : [Colors.gold, Colors.goldDark]
+                  }
                   style={StyleSheet.absoluteFillObject}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
@@ -1207,19 +1355,60 @@ export default function UploadScreen() {
               )}
               {!isUploading && (
                 <Text style={styles.primaryBtnText}>
-                  {outdoorMode ? 'Save Shoot & Sync Later' : 'Upload & Create Gallery'}
+                  {outdoorMode
+                    ? 'Save Shoot & Sync Later'
+                    : initializedGallery
+                      ? `Upload ${photos.length} Photo${photos.length !== 1 ? 's' : ''} → (Fast)`
+                      : 'Upload & Create Gallery'}
                 </Text>
               )}
             </Pressable>
-            
+
             <Pressable style={styles.secondaryBtn} onPress={() => router.back()}>
               <Text style={styles.secondaryBtnText}>Cancel</Text>
             </Pressable>
           </View>
-          
+
           <View style={{ height: 40 }} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Upload Success Modal */}
+      <Modal visible={showUploadModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.successModal}>
+            <View style={styles.successIconWrapper}>
+              <Check size={40} color={Colors.success} />
+            </View>
+            <Text style={styles.successTitle}>Gallery Uploaded!</Text>
+            <Text style={styles.successMessage}>
+              Your gallery is live and notifications are queued.
+            </Text>
+
+            <View style={styles.successActions}>
+              <Pressable style={styles.actionBtnRow} onPress={handleSendSMS}>
+                <Send size={16} color={Colors.white} />
+                <Text style={styles.actionBtnText}>Send SMS natively</Text>
+              </Pressable>
+
+              <Pressable style={[styles.actionBtnRow, { backgroundColor: '#25D366', borderColor: '#25D366' }]} onPress={handleSendWhatsApp}>
+                <MessageCircle size={16} color={Colors.white} />
+                <Text style={styles.actionBtnText}>Send via WhatsApp</Text>
+              </Pressable>
+            </View>
+
+            <Pressable
+              style={styles.doneBtn}
+              onPress={() => {
+                setShowUploadModal(false);
+                router.back();
+              }}
+            >
+              <Text style={styles.doneBtnText}>Done</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1316,14 +1505,20 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 28,
+    backgroundColor: '#161616',
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
   sectionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
     color: Colors.textMuted,
-    marginBottom: 12,
-    letterSpacing: 1,
+    marginBottom: 16,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
   toolsGrid: {
     gap: 12,
@@ -1335,7 +1530,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(212, 175, 55, 0.1)',
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
@@ -1365,12 +1560,13 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
+    backgroundColor: '#0A0A0A',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.08)',
     paddingHorizontal: 16,
     height: 56,
+    marginBottom: 12,
   },
   inputIcon: {
     marginRight: 12,
@@ -1432,6 +1628,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     overflow: 'hidden',
+    maxHeight: 300,
   },
   clientListItem: {
     flexDirection: 'row',
@@ -1540,9 +1737,9 @@ const styles = StyleSheet.create({
     color: Colors.background,
   },
   iconBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: 'rgba(212, 175, 55, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1550,20 +1747,25 @@ const styles = StyleSheet.create({
   typeSelector: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 12,
+    gap: 10,
+    marginTop: 8,
   },
   typeChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#1A1A1A',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 24,
+    backgroundColor: '#0A0A0A',
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   typeChipActive: {
     backgroundColor: Colors.gold,
     borderColor: Colors.gold,
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   typeText: {
     fontSize: 13,
@@ -1640,31 +1842,37 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   deliveryLabel: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
     color: Colors.textMuted,
     marginBottom: 12,
-    letterSpacing: 1,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
   },
   deliveryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
   deliveryChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: '#1A1A1A',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 24,
+    backgroundColor: '#0A0A0A',
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   deliveryChipActive: {
     backgroundColor: Colors.gold,
     borderColor: Colors.gold,
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
   deliveryText: {
     fontSize: 12,
@@ -1847,6 +2055,124 @@ const styles = StyleSheet.create({
   },
   progressText: {
     fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
+  setupGalleryBtn: {
+    height: 50,
+    borderRadius: 12,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  setupGalleryBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  galleryReadyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(46, 204, 113, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(46, 204, 113, 0.3)',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 16,
+  },
+  galleryReadyText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.success,
+  },
+  uploadPct: {
+    fontSize: 48,
+    fontWeight: '800',
+    color: Colors.gold,
+    textAlign: 'center',
+    marginVertical: 8,
+    letterSpacing: -1,
+  },
+  progressFillSetup: {
+    backgroundColor: '#f59e0b',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  successModal: {
+    backgroundColor: '#161616',
+    borderRadius: 24,
+    padding: 32,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.5,
+    shadowRadius: 32,
+    elevation: 20,
+  },
+  successIconWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(46, 204, 113, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(46, 204, 113, 0.2)',
+  },
+  successTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.white,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  successMessage: {
+    fontSize: 15,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 22,
+  },
+  successActions: {
+    width: '100%',
+    gap: 12,
+    marginBottom: 24,
+  },
+  actionBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#1A1A1A',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 16,
+    borderRadius: 16,
+  },
+  actionBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  doneBtn: {
+    width: '100%',
+    paddingVertical: 16,
+  },
+  doneBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
     color: Colors.textMuted,
     textAlign: 'center',
   },

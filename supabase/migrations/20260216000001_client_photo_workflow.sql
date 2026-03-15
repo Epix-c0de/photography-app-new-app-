@@ -344,7 +344,7 @@ BEGIN
       ON storage.objects FOR INSERT
       WITH CHECK (
         bucket_id = 'client-photos'
-        AND (storage.foldername(name))[1] = 'clients'
+        AND (storage.foldername(name))[1] IN ('clients', 'galleries')
         AND coalesce(
           auth.jwt() -> 'app_metadata' ->> 'role',
           auth.jwt() -> 'user_metadata' ->> 'role'

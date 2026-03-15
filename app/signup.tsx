@@ -28,12 +28,10 @@ import {
   signupSchema, 
   type SignupFormState, 
   checkSupabaseConnectivity, 
-  createEnhancedError,
-  createUserProfileWithRetry,
-  isProfileComplete,
-  doesProfileExist
+  createEnhancedError
 } from '@/lib/signup';
 import Colors from '@/constants/colors';
+import { ClientService } from '@/services/client';
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -187,9 +185,6 @@ export default function SignupScreen() {
     }
 
     try {
-      if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
-        throw new Error('Supabase is not configured. Add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY.');
-      }
 
       // Check server connectivity before attempting signup
       const connectivity = await checkSupabaseConnectivity();
@@ -218,38 +213,42 @@ export default function SignupScreen() {
       });
 
       if (authData.user) {
-        // 4. Create Profile with enhanced validation and retry
-        // Only attempt client-side creation if we have a session (user is logged in)
-        // If session is null (email confirmation required), we rely on the database trigger
+        // The profile is created automatically by the database trigger
+        // with security definer (bypasses RLS). Just verify it exists.
         if (authData.session) {
-          const profileResult = await createUserProfileWithRetry(authData.user.id, {
-            name: normalized.fullName,
-            phone: normalized.phone,
-            email: normalized.email,
-            pinHash: pinHash,
-            biometricEnabled: biometricEnabled,
-          });
+          let profileVerified = false;
+          const maxAttempts = 3;
+          
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+              const { data: profile, error: fetchError } = await supabase
+                .from('user_profiles')
+                .select('id, profile_complete')
+                .eq('id', authData.user.id)
+                .maybeSingle();
 
-          if (!profileResult.success) {
-            console.error('Profile creation failed:', profileResult.error);
-            
-            // Check if the profile exists (even if incomplete)
-            const profileRecordExists = await doesProfileExist(authData.user.id);
-            
-            if (!profileRecordExists) {
-              // Critical error - profile creation failed completely
-              throw createEnhancedError(
-                'Profile creation failed. Please contact support.',
-                profileResult.error,
-                { code: 'PROFILE_ERROR', isNetworkError: false }
-              );
+              if (profile) {
+                profileVerified = true;
+                console.log('Profile verified after signup:', profile);
+                break;
+              }
+
+              if (attempt < maxAttempts - 1) {
+                // Wait before retrying - trigger might still be executing
+                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+              }
+            } catch (verifyErr) {
+              console.warn(`Profile verification attempt ${attempt + 1} failed:`, verifyErr);
+              if (attempt === maxAttempts - 1) throw verifyErr;
+              await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
             }
-            
-            // Profile exists but might have warnings - log but continue
-            console.warn('Profile created with warnings:', profileResult.error);
+          }
+
+          if (!profileVerified) {
+            console.warn('Profile could not be verified - may be created by trigger asynchronously');
           }
         } else {
-          console.log('Session not available (email confirmation likely required). Relying on server trigger for profile creation.');
+          console.log('Session not available (email confirmation likely required). Profile will be created by server trigger.');
         }
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -261,8 +260,11 @@ export default function SignupScreen() {
           router.replace('/login' as any);
         } else {
             await supabase.auth.refreshSession();
-            // Auto-login behavior - redirect to security setup for new users
-            router.replace('/security-setup' as any);
+            try {
+              await ClientService.clients.ensureLinkedRecordsForCurrentUser();
+            } catch {}
+            // Auto-login behavior - redirect to home (PIN forms are in the signup flow itself)
+            router.replace('/(tabs)/home' as any);
         }
       } else {
         throw new Error('Signup succeeded but no user was returned.');

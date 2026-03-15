@@ -79,7 +79,13 @@ begin
       select 1
       from pg_constraint
       where conname = 'payments_status_check'
-    ) then
+    ) and (
+      select data_type 
+      from information_schema.columns 
+      where table_schema = 'public' 
+      and table_name = 'payments' 
+      and column_name = 'status'
+    ) = 'text' then
       alter table public.payments
         add constraint payments_status_check
         check (status in ('pending', 'paid', 'failed', 'cancelled'));

@@ -341,6 +341,8 @@ export interface Database {
           block_screenshots: boolean
           custom_app_icon_url: string | null
           custom_package_name: string | null
+          share_app_link: string
+          access_code_link: string
           created_at: string
           updated_at: string
         }
@@ -362,6 +364,8 @@ export interface Database {
           block_screenshots?: boolean
           custom_app_icon_url?: string | null
           custom_package_name?: string | null
+          share_app_link?: string
+          access_code_link?: string
           created_at?: string
           updated_at?: string
         }
@@ -383,6 +387,8 @@ export interface Database {
           block_screenshots?: boolean
           custom_app_icon_url?: string | null
           custom_package_name?: string | null
+          share_app_link?: string
+          access_code_link?: string
           created_at?: string
           updated_at?: string
         }
@@ -482,7 +488,7 @@ export interface Database {
       user_profiles: {
         Row: {
           id: string
-          role: 'admin' | 'client'
+          role: 'admin' | 'client' | 'super_admin'
           name: string | null
           phone: string | null
           email: string | null
@@ -497,7 +503,7 @@ export interface Database {
         }
         Insert: {
           id: string
-          role?: 'admin' | 'client'
+          role?: 'admin' | 'client' | 'super_admin'
           name?: string | null
           phone?: string | null
           email?: string | null
@@ -511,7 +517,7 @@ export interface Database {
         }
         Update: {
           id?: string
-          role?: 'admin' | 'client'
+          role?: 'admin' | 'client' | 'super_admin'
           name?: string | null
           phone?: string | null
           email?: string | null
@@ -806,35 +812,48 @@ export interface Database {
       packages: {
         Row: {
           id: string
+          owner_admin_id: string
           name: string
-          description: string | null
           price: number
-          features: string[]
-          duration: string
-          is_popular: boolean
+          sms_included: number
+          storage_limit_gb: number
+          features: Json
+          is_active: boolean
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
+          owner_admin_id: string
           name: string
-          description?: string | null
-          price: number
-          features?: string[]
-          duration: string
-          is_popular?: boolean
+          price?: number
+          sms_included?: number
+          storage_limit_gb?: number
+          features?: Json
+          is_active?: boolean
           created_at?: string
+          updated_at?: string
         }
         Update: {
           id?: string
+          owner_admin_id?: string
           name?: string
-          description?: string | null
           price?: number
-          features?: string[]
-          duration?: string
-          is_popular?: boolean
+          sms_included?: number
+          storage_limit_gb?: number
+          features?: Json
+          is_active?: boolean
           created_at?: string
+          updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "packages_owner_admin_id_fkey"
+            columns: ["owner_admin_id"]
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       bookings: {
         Row: {
@@ -951,11 +970,13 @@ export interface Database {
           id: string
           title: string | null
           media_url: string
+          image_url: string | null
           media_type: 'image' | 'video'
           category: string | null
           created_at: string
           expires_at: string | null
           scheduled_for: string | null
+          has_music: boolean
           music_url: string | null
           views_count: number
           clicks_count: number
@@ -970,11 +991,13 @@ export interface Database {
           id?: string
           title?: string | null
           media_url: string
+          image_url?: string | null
           media_type: 'image' | 'video'
           category?: string | null
           created_at?: string
           expires_at?: string | null
           scheduled_for?: string | null
+          has_music?: boolean
           music_url?: string | null
           views_count?: number
           clicks_count?: number
@@ -989,11 +1012,13 @@ export interface Database {
           id?: string
           title?: string | null
           media_url?: string
+          image_url?: string | null
           media_type?: 'image' | 'video'
           category?: string | null
           created_at?: string
           expires_at?: string | null
           scheduled_for?: string | null
+          has_music?: boolean
           music_url?: string | null
           views_count?: number
           clicks_count?: number

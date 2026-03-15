@@ -1,16 +1,26 @@
-/// <reference lib="deno.ns" />
-import { createClient } from "@supabase/supabase-js";
+// @ts-nocheck
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
 
-Deno.serve(async (req: Request) => {
+const DenoRef = (globalThis as any).Deno;
+
+DenoRef?.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
   try {
     const { email, password } = await req.json();
     if (!email || !password) {
       throw new Error("Email and password are required");
     }
 
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
     const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      DenoRef?.env?.get('SUPABASE_URL') ?? '',
+      DenoRef?.env?.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
     // 1. Create or Get User
@@ -28,12 +38,13 @@ Deno.serve(async (req: Request) => {
       // If user already exists, try to get their ID
       if (createError.message.includes("already been registered")) {
         const { data: { users } } = await supabaseAdmin.auth.admin.listUsers();
-        const existing = users.find(u => u.email === email);
+        const existing = users.find((u: any) => u.email === email);
         if (existing) {
           userId = existing.id;
-          // Update password if needed
+          // Update password if needed and ensure email is confirmed
           await supabaseAdmin.auth.admin.updateUserById(userId, {
             password,
+            email_confirm: true,
             user_metadata: { role: 'admin' },
             app_metadata: { role: 'admin' }
           });
@@ -59,12 +70,12 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({ message: `Admin user ${email} created/updated successfully`, userId }),
-      { headers: { "Content-Type": "application/json" } }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     return new Response(JSON.stringify({ error: (error as Error).message }), {
       status: 400,
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

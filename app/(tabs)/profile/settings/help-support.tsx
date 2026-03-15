@@ -1,10 +1,12 @@
 import { View, Text, StyleSheet, Pressable } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';
 import { MessageCircle } from 'lucide-react-native';
 
 export default function HelpSupport() {
+  const router = useRouter();
+
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -21,7 +23,10 @@ export default function HelpSupport() {
           </Pressable>
         </View>
         
-        <Pressable style={styles.chatButton}>
+        <Pressable 
+          style={styles.chatButton}
+          onPress={() => router.push('/chat')}
+        >
           <MessageCircle size={24} color={Colors.white} />
           <Text style={styles.chatButtonText}>Start Live Chat</Text>
         </Pressable>

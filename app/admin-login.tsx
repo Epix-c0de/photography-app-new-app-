@@ -6,6 +6,7 @@ import { Shield, Mail, Lock, Eye, EyeOff, ArrowRight, Fingerprint, RefreshCcw } 
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
+import { supabase, supabaseUrl } from '@/lib/supabase';
 
 export default function AdminLoginScreen() {
   const router = useRouter();
@@ -68,6 +69,116 @@ export default function AdminLoginScreen() {
       }
     } catch (error: any) {
       const message = typeof error?.message === 'string' ? error.message : 'An error occurred.';
+      const normalizedEmail = email.trim().toLowerCase();
+      const isEmailNotConfirmed =
+        message.toLowerCase().includes('email not confirmed') ||
+        message.toLowerCase().includes('email_not_confirmed') ||
+        error?.code === 'email_not_confirmed';
+
+      const isUnauthorizedAdminOnly = message.toLowerCase().includes('unauthorized: admin access only');
+
+      if (isEmailNotConfirmed) {
+        Alert.alert(
+          'Email Not Confirmed',
+          [
+            'Supabase is still treating this email as unconfirmed.',
+            '',
+            'Fix options:',
+            '1) Use OTP login (this also verifies the email) by tapping "Login via OTP / Forgot Password?"',
+            '2) Resend the confirmation email and click the latest link',
+            '',
+            `Project: ${supabaseUrl}`,
+          ].join('\n'),
+          [
+            {
+              text: 'Send OTP Code',
+              onPress: async () => {
+                try {
+                  setMode('otp-request');
+                  await loginWithOtp(normalizedEmail);
+                  Alert.alert('Code Sent', `A verification code has been sent to ${normalizedEmail}`);
+                  setMode('otp-verify');
+                } catch (e: any) {
+                  Alert.alert('Error', e?.message || 'Failed to send code');
+                }
+              },
+            },
+            {
+              text: 'Resend Confirmation',
+              onPress: async () => {
+                try {
+                  const { error: resendError } = await supabase.auth.resend({
+                    type: 'signup',
+                    email: normalizedEmail,
+                  });
+                  if (resendError) throw resendError;
+                  Alert.alert('Sent', `Confirmation email sent to ${normalizedEmail}`);
+                } catch (e: any) {
+                  Alert.alert('Error', e?.message || 'Failed to resend confirmation');
+                }
+              },
+            },
+            { text: 'OK' },
+          ]
+        );
+        return;
+      }
+
+      if (isUnauthorizedAdminOnly) {
+        const actions: { text: string; onPress?: () => void }[] = [
+          { text: 'OK' },
+          { text: 'Use OTP Login', onPress: () => switchMode('otp-request') },
+        ];
+
+        if (__DEV__ && mode === 'password' && normalizedEmail && password.trim()) {
+          actions.unshift({
+            text: 'Make Admin (Dev)',
+            onPress: async () => {
+              try {
+                setIsSubmitting(true);
+                const { data, error: fnError } = await supabase.functions.invoke('create_admin_user', {
+                  body: { email: normalizedEmail, password: password.trim() },
+                });
+                if (fnError) throw fnError;
+                if (data?.error) throw new Error(data.error);
+
+                await loginAsAdmin(normalizedEmail, password.trim());
+                router.replace('/(admin)/dashboard');
+              } catch (e: any) {
+                if (e?.message?.includes('Failed to send a request to the Edge Function')) {
+                  Alert.alert(
+                    'Edge Function Error',
+                    'Could not reach the "create_admin_user" function.\n\n' +
+                    'If running locally: Ensure "supabase functions serve" is running.\n' +
+                    'If running remotely: Ensure the function is deployed with "supabase functions deploy create_admin_user".'
+                  );
+                } else {
+                  Alert.alert('Error', e?.message || 'Failed to promote admin');
+                }
+              } finally {
+                setIsSubmitting(false);
+              }
+            },
+          });
+        }
+
+        Alert.alert(
+          'Login Failed',
+          [
+            'Your account is authenticated, but it is not marked as an admin.',
+            '',
+            'Fix:',
+            '1) In Supabase Dashboard -> Table Editor -> user_profiles -> set role = admin for this user',
+            '2) Or use OTP login if you just need access temporarily',
+            '',
+            __DEV__ ? 'Dev option: use "Make Admin (Dev)" to promote via Edge Function.' : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          actions
+        );
+        return;
+      }
       if (
         email.trim().toLowerCase() === 'admin@lexnart.com' &&
         (message.includes('Invalid login credentials') || message.includes('Default admin user not found'))
@@ -234,6 +345,9 @@ export default function AdminLoginScreen() {
                     <Text style={styles.linkText}>Back to Password Login</Text>
                   </Pressable>
                 )}
+                <Pressable onPress={() => router.push('/admin/signup')}>
+                  <Text style={styles.linkText}>Need an admin account? Sign Up</Text>
+                </Pressable>
               </View>
 
             </View>

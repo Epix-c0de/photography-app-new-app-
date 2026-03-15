@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Animated, Ale
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   Search,
   UserPlus,
@@ -15,12 +15,16 @@ import {
   Send,
   X,
   Crown,
+  Trash2,
+  Megaphone,
+  Upload,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import Colors from '@/constants/colors';
 import { AdminService } from '@/services/admin';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 // Types for UI
 type AdminClient = {
@@ -67,7 +71,7 @@ const loyaltyColors: Record<string, string> = {
 
 type ViewMode = 'clients' | 'galleries';
 
-function ClientCard({ client, onPress }: { client: AdminClient; onPress: () => void }) {
+function ClientCard({ client, onPress, onPressShortcut }: { client: AdminClient; onPress: () => void; onPressShortcut: (type: 'upload') => void }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   return (
@@ -77,9 +81,9 @@ function ClientCard({ client, onPress }: { client: AdminClient; onPress: () => v
       onPress={onPress}
     >
       <Animated.View style={[styles.clientCard, { transform: [{ scale: scaleAnim }] }]}>
-        <Image 
-          source={{ uri: client.avatar }} 
-          style={styles.clientAvatar} 
+        <Image
+          source={{ uri: client.avatar }}
+          style={styles.clientAvatar}
           contentFit="cover"
           transition={200}
           cachePolicy="memory-disk"
@@ -100,13 +104,26 @@ function ClientCard({ client, onPress }: { client: AdminClient; onPress: () => v
           </View>
         </View>
         <ChevronRight size={18} color={Colors.textMuted} />
+        <Pressable 
+          style={styles.uploadShortcut} 
+          onPress={(e) => {
+            e.stopPropagation();
+            onPressShortcut('upload');
+          }}
+          hitSlop={12}
+        >
+          <Upload size={18} color={Colors.gold} />
+        </Pressable>
       </Animated.View>
     </Pressable>
   );
 }
 
-function GalleryCard({ gallery }: { gallery: AdminGallery }) {
+function GalleryCard({ gallery, onDeleted }: { gallery: AdminGallery; onDeleted: (id: string) => void }) {
+  const router = useRouter();
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isPromoting, setIsPromoting] = useState(false);
 
   const handleResendCode = useCallback(async () => {
     await Clipboard.setStringAsync(gallery.accessCode);
@@ -121,17 +138,76 @@ function GalleryCard({ gallery }: { gallery: AdminGallery }) {
       `Are you sure you want to ${gallery.isLocked ? 'unlock' : 'lock'} "${gallery.title}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Confirm', 
+        {
+          text: 'Confirm',
           style: 'destructive',
           onPress: async () => {
-             try {
-               const { error } = await AdminService.gallery.update(gallery.id, { is_locked: !gallery.isLocked });
-               if (error) throw error;
-               // State will update via subscription
-             } catch (e) {
-               Alert.alert('Error', 'Failed to update gallery status');
-             }
+            try {
+              const { error } = await AdminService.gallery.update(gallery.id, { is_locked: !gallery.isLocked });
+              if (error) throw error;
+              // State will update via subscription
+            } catch (e) {
+              Alert.alert('Error', 'Failed to update gallery status');
+            }
+          }
+        }
+      ]
+    );
+  }, [gallery]);
+
+  const handleDelete = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      'Delete Gallery',
+      `Are you sure you want to delete "${gallery.title}"? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsDeleting(true);
+              await AdminService.gallery.delete(gallery.id);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              onDeleted(gallery.id);
+            } catch (e) {
+              const message = (e as any)?.message || 'Failed to delete gallery';
+              Alert.alert('Error', message);
+            } finally {
+              setIsDeleting(false);
+            }
+          }
+        }
+      ]
+    );
+  }, [gallery]);
+
+  const handlePromote = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert(
+      'Promote to Announcement',
+      `Create an announcement for "${gallery.title}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Promote',
+          style: 'default',
+          onPress: async () => {
+            try {
+              setIsPromoting(true);
+              await AdminService.gallery.promoteToAnnouncement(
+                gallery.id,
+                `New Gallery: ${gallery.title}`,
+                `Check out the photos from ${gallery.title}!`
+              );
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert('Success', 'Announcement created successfully');
+            } catch (e: any) {
+              Alert.alert('Error', e.message || 'Failed to promote gallery');
+            } finally {
+              setIsPromoting(false);
+            }
           }
         }
       ]
@@ -142,16 +218,22 @@ function GalleryCard({ gallery }: { gallery: AdminGallery }) {
     <Pressable
       onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true }).start()}
       onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
+      onPress={() => {
+        router.push({
+          pathname: '/(admin)/clients/gallery/[id]',
+          params: { id: gallery.id }
+        });
+      }}
     >
       <Animated.View style={[styles.galleryCard, { transform: [{ scale: scaleAnim }] }]}>
-        <Image 
-          source={{ uri: gallery.coverImage }} 
-          style={styles.galleryCover} 
-          contentFit="cover" 
+        <Image
+          source={{ uri: gallery.coverImage }}
+          style={styles.galleryCover}
+          contentFit="cover"
           transition={200}
           cachePolicy="memory-disk"
         />
-        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.galleryOverlay} />
+        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.9)']} style={styles.galleryOverlay} />
 
         <View style={styles.galleryBadges}>
           <View style={[styles.statusBadge, { backgroundColor: gallery.isPaid ? Colors.success + '25' : Colors.warning + '25' }]}>
@@ -178,11 +260,18 @@ function GalleryCard({ gallery }: { gallery: AdminGallery }) {
           <View style={styles.galleryActions}>
             <Pressable style={styles.galleryActionBtn} onPress={handleResendCode}>
               <Send size={13} color={Colors.gold} />
-              <Text style={styles.galleryActionText}>Resend Code</Text>
+              <Text style={styles.galleryActionText}>Code</Text>
             </Pressable>
             <Pressable style={styles.galleryActionBtn} onPress={handleToggleLock}>
               {gallery.isLocked ? <Unlock size={13} color={Colors.success} /> : <Lock size={13} color={Colors.warning} />}
               <Text style={styles.galleryActionText}>{gallery.isLocked ? 'Unlock' : 'Lock'}</Text>
+            </Pressable>
+            <Pressable style={styles.galleryActionBtn} onPress={handlePromote} disabled={isPromoting}>
+              {isPromoting ? <ActivityIndicator size="small" color={Colors.gold} /> : <Megaphone size={13} color={Colors.gold} />}
+              <Text style={styles.galleryActionText}>Promote</Text>
+            </Pressable>
+            <Pressable style={[styles.galleryActionBtn, styles.deleteBtn]} onPress={handleDelete} disabled={isDeleting}>
+              {isDeleting ? <ActivityIndicator size="small" color={Colors.error} /> : <Trash2 size={13} color={Colors.error} />}
             </Pressable>
           </View>
         </View>
@@ -193,23 +282,44 @@ function GalleryCard({ gallery }: { gallery: AdminGallery }) {
 
 function ClientDetailModal({ client, galleries, onClose }: { client: AdminClient; galleries: AdminGallery[]; onClose: () => void }) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const clientGalleries = useMemo(
     () => galleries.filter(g => g.clientId === client.id),
     [client.id, galleries]
   );
 
   return (
-    <View style={styles.modalOverlay}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose} />
-      <Animated.View style={styles.modalContent}>
-        <View style={styles.modalHandle} />
-        <ScrollView showsVerticalScrollIndicator={false}>
+    <Modal
+      visible={true}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
+      <View style={[styles.fullScreenContainer, { paddingTop: insets.top }]}>
+        <View style={styles.fullScreenHeader}>
+          <Pressable onPress={onClose} style={styles.closeButton}>
+            <X size={24} color={Colors.white} />
+          </Pressable>
+          <Text style={styles.fullScreenTitle}>Client Details</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.fullScreenContent}>
           <View style={styles.modalHeader}>
             <Image source={{ uri: client.avatar }} style={styles.modalAvatar} />
             <Text style={styles.modalName}>{client.name}</Text>
             <View style={[styles.loyaltyBadge, { backgroundColor: (loyaltyColors[client.loyaltyLevel] || Colors.gold) + '20' }]}>
               <Crown size={12} color={loyaltyColors[client.loyaltyLevel] || Colors.gold} />
               <Text style={[styles.loyaltyText, { color: loyaltyColors[client.loyaltyLevel] || Colors.gold }]}>{client.loyaltyLevel}</Text>
+            </View>
+            <View style={styles.contactRow}>
+              <Text style={styles.contactText}>{client.phone}</Text>
+              {client.email && (
+                <>
+                  <Text style={styles.contactDot}>•</Text>
+                  <Text style={styles.contactText}>{client.email}</Text>
+                </>
+              )}
             </View>
           </View>
 
@@ -225,94 +335,42 @@ function ClientDetailModal({ client, galleries, onClose }: { client: AdminClient
             </View>
             <View style={styles.modalStatDivider} />
             <View style={styles.modalStat}>
-              <Text style={styles.modalStatValue}>{client.preferredPackage || 'None'}</Text>
-              <Text style={styles.modalStatLabel}>Package</Text>
+              <Text style={styles.modalStatValue}>{client.loyaltyLevel}</Text>
+              <Text style={styles.modalStatLabel}>Status</Text>
             </View>
           </View>
-
-          <View style={styles.modalInfoRow}>
-            <Phone size={14} color={Colors.textMuted} />
-            <Text style={styles.modalInfoText}>{client.phone}</Text>
+          
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Galleries ({clientGalleries.length})</Text>
           </View>
 
-          {client.notes ? (
-            <View style={styles.modalNotes}>
-              <Text style={styles.modalNotesLabel}>Notes</Text>
-              <Text style={styles.modalNotesText}>{client.notes}</Text>
-            </View>
-          ) : null}
-
-          {clientGalleries.length > 0 && (
-            <View style={styles.modalGalleries}>
-              <Text style={styles.modalGalleriesTitle}>Galleries ({clientGalleries.length})</Text>
-              {clientGalleries.map((g) => (
-                <View key={g.id} style={styles.modalGalleryItem}>
-                  <Image 
-                    source={{ uri: g.coverImage }} 
-                    style={styles.modalGalleryThumb} 
-                    contentFit="cover" 
-                    transition={200}
-                    cachePolicy="memory-disk"
-                  />
-                  <View style={styles.modalGalleryInfo}>
-                    <Text style={styles.modalGalleryTitle}>{g.title}</Text>
-                    <Text style={styles.modalGallerySub}>{g.photoCount} photos · {g.accessCode}</Text>
-                  </View>
-                  <View style={[styles.miniStatusBadge, { backgroundColor: g.isPaid ? Colors.success + '20' : Colors.warning + '20' }]}>
-                    <Text style={[styles.miniStatusText, { color: g.isPaid ? Colors.success : Colors.warning }]}>
-                      {g.isPaid ? 'Paid' : 'Unpaid'}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
+          {clientGalleries.length > 0 ? (
+            clientGalleries.map(gallery => (
+              <GalleryCard 
+                key={gallery.id} 
+                gallery={gallery} 
+                onDeleted={() => {}} // No-op in modal, or handle deletion
+              />
+            ))
+          ) : (
+            <Text style={styles.emptyText}>No galleries found for this client.</Text>
           )}
 
-          <View style={styles.modalActions}>
-            <Pressable
-              style={styles.modalActionButton}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                router.push({
-                  pathname: '/(admin)/upload',
-                  params: { clientId: client.id, clientName: client.name } as any,
-                });
-              }}
-            >
-              <LinearGradient colors={[Colors.gold, Colors.goldDark]} style={styles.modalActionGradient}>
-                <Images size={16} color={Colors.background} />
-                <Text style={styles.modalActionButtonText}>Upload Gallery</Text>
-              </LinearGradient>
-            </Pressable>
-            <Pressable
-              style={styles.modalSecondaryButton}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                Alert.alert('SMS', `Send SMS to ${client.name}`);
-              }}
-            >
-              <Send size={16} color={Colors.gold} />
-              <Text style={styles.modalSecondaryText}>Send SMS</Text>
-            </Pressable>
-          </View>
+          <View style={{ height: 40 }} />
         </ScrollView>
-
-        <Pressable style={styles.modalCloseBtn} onPress={onClose}>
-          <X size={18} color={Colors.textMuted} />
-        </Pressable>
-      </Animated.View>
-    </View>
+      </View>
+    </Modal>
   );
 }
 
 export default function AdminClientsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { verifyAdminGuard } = useAuth();
+  const { clientId } = useLocalSearchParams<{ clientId: string }>();
+  const { verifyAdminGuard, user } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>('clients');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedClient, setSelectedClient] = useState<AdminClient | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showCreateClientModal, setShowCreateClientModal] = useState(false);
   const [creatingClient, setCreatingClient] = useState(false);
@@ -320,115 +378,99 @@ export default function AdminClientsScreen() {
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientEmail, setNewClientEmail] = useState('');
   const [newClientNotes, setNewClientNotes] = useState('');
-  
-  const [clients, setClients] = useState<AdminClient[]>([]);
-  const [galleries, setGalleries] = useState<AdminGallery[]>([]);
 
-  const loadData = useCallback(async (isRefresh = false) => {
+  const [selectedClient, setSelectedClient] = useState<AdminClient | null>(null);
+  const [clients, setClients] = useState<AdminClient[]>(AdminService.cache.get('clients') || []);
+  const [galleries, setGalleries] = useState<AdminGallery[]>(AdminService.cache.get('galleries') || []);
+
+  useEffect(() => {
+    if (clientId && clients.length > 0) {
+      const client = clients.find((c) => c.id === clientId);
+      if (client) {
+        setSelectedClient(client);
+      }
+    }
+  }, [clientId, clients]);
+
+  const loadData = useCallback(async (force = false) => {
     try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
+      // Always fetch fresh data when force=true, otherwise check cache
+      if (!force) {
+        const cachedClients = AdminService.cache.get('clients');
+        const cachedGalleries = AdminService.cache.get('galleries');
+        if (cachedClients && cachedGalleries && cachedClients.length > 0 && cachedGalleries.length > 0) {
+          console.log('[AdminClients] Using cached data:', { clients: cachedClients.length, galleries: cachedGalleries.length });
+          setClients(cachedClients);
+          setGalleries(cachedGalleries);
+          setLoading(false);
+          return;
+        }
       }
 
-      const [dbClients, dbGalleries] = await Promise.all([
+      if (!user) {
+        console.warn('[AdminClients] No user, aborting loadData');
+        setLoading(false);
+        return;
+      }
+
+      setRefreshing(true);
+      console.log('[AdminClients] Fetching fresh data...');
+      console.log('[AdminClients] User:', user);
+      
+      const [clientsData, galleriesResult] = await Promise.all([
         AdminService.clients.list(),
         AdminService.gallery.list()
       ]);
 
+      console.log('[AdminClients] Raw data:', { 
+        clientsData: clientsData?.length || 0, 
+        galleriesResult: galleriesResult?.length || 0,
+        firstClient: clientsData?.[0],
+        firstGallery: galleriesResult?.[0]
+      });
+
       // Transform Clients
-      const transformedClients: AdminClient[] = (dbClients || []).map((c: any) => ({
+      const transformedClients: AdminClient[] = (clientsData || []).map((c: any) => ({
         id: c.id,
         name: c.name,
-        avatar: c.user_profiles?.avatar_url || 'https://via.placeholder.com/150',
-        phone: c.phone || 'No phone',
+        avatar: c.avatar_url || 'https://via.placeholder.com/150',
+        phone: c.phone || '',
         email: c.email || '',
-        loyaltyLevel: c.total_paid > 50000 ? 'Gold' : c.total_paid > 10000 ? 'Silver' : 'Bronze',
-        totalSpent: c.total_paid || 0,
-        totalGalleries: dbGalleries.filter((g: any) => g.client_id === c.id).length,
+        loyaltyLevel: c.loyalty_level || 'Bronze',
+        totalSpent: c.total_spent || 0,
+        totalGalleries: c.total_galleries || 0,
         preferredPackage: c.preferred_package,
-        notes: c.notes
+        notes: c.notes,
       }));
 
-      // Transform Galleries
-      const transformedGalleries: AdminGallery[] = (dbGalleries || []).map((g: any) => ({
+      // Transform Galleries with Signed URLs
+      const transformedGalleries = (galleriesResult || []).map((g: any) => ({
         id: g.id,
         clientId: g.client_id,
         clientName: g.clients?.name || 'Unknown',
         title: g.name,
-        coverImage: g.cover_photo_url || 'https://via.placeholder.com/400x300',
-        photoCount: 0, // TODO: Count photos
+        coverImage: g.derived_cover_image || g.cover_photo_url || 'https://via.placeholder.com/400x300',
+        photoCount: g.photo_count || 0,
         accessCode: g.access_code,
         isLocked: g.is_locked,
         isPaid: g.is_paid,
-        price: g.price || 0,
-        status: g.scheduled_release ? 'scheduled' : 'active'
+        price: g.price_quote || 0,
+        status: g.status,
       }));
+
+      console.log('[AdminClients] Transformed:', { clients: transformedClients.length, galleries: transformedGalleries.length });
 
       setClients(transformedClients);
       setGalleries(transformedGalleries);
-    } catch (error) {
-      console.error('Failed to load admin data:', error);
-      const rawMessage =
-        (error as any)?.message ||
-        (error as any)?.details ||
-        (error as any)?.hint ||
-        String(error || '');
-      const lowerMessage = rawMessage.toLowerCase();
-      const status = (error as any)?.status || (error as any)?.code;
-      if (
-        lowerMessage.includes('not authenticated') ||
-        lowerMessage.includes('auth session missing') ||
-        lowerMessage.includes('jwt') ||
-        lowerMessage.includes('unauthorized') ||
-        lowerMessage.includes('forbidden') ||
-        lowerMessage.includes('permission') ||
-        lowerMessage.includes('row level security') ||
-        status === 401 ||
-        status === 403
-      ) {
-        Alert.alert(
-          'Session Expired',
-          'Please log in again to load clients and galleries.',
-          [{ text: 'Login', onPress: () => router.replace('/admin-login') }]
-        );
-        return;
-      }
-      if (
-        lowerMessage.includes('schema cache') ||
-        lowerMessage.includes('does not exist') ||
-        lowerMessage.includes('relation') ||
-        lowerMessage.includes('missing')
-      ) {
-        Alert.alert(
-          'Database Setup Required',
-          `Some required tables or policies are missing. ${rawMessage}`
-        );
-        return;
-      }
-      if (
-        lowerMessage.includes('failed to fetch') ||
-        lowerMessage.includes('network') ||
-        lowerMessage.includes('timeout')
-      ) {
-        Alert.alert(
-          'Connection Error',
-          'Unable to load clients and galleries. Please check your internet connection and try again.',
-          [{ text: 'Retry', onPress: () => loadData() }]
-        );
-        return;
-      }
-      Alert.alert(
-        'Load Failed',
-        rawMessage || 'Unable to load clients and galleries.',
-        [{ text: 'Retry', onPress: () => loadData() }]
-      );
+
+    } catch (error: any) {
+      console.error('Error loading data:', error);
+      Alert.alert('Error', error.message || 'Failed to load data');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [router]);
+  }, [user]);
 
   const resetCreateClientForm = useCallback(() => {
     setNewClientName('');
@@ -467,6 +509,7 @@ export default function AdminClientsScreen() {
 
   useEffect(() => {
     let unsubClients: (() => void) | undefined;
+    let unsubGalleries: (() => void) | undefined;
     let mounted = true;
 
     (async () => {
@@ -476,13 +519,16 @@ export default function AdminClientsScreen() {
         return;
       }
       if (!mounted) return;
-      loadData();
+      // Force initial fetch to avoid stale empty cache
+      await loadData(true);
       unsubClients = AdminService.clients.subscribe(() => loadData(true));
+      unsubGalleries = AdminService.gallery.subscribe(() => loadData(true));
     })();
 
     return () => {
       mounted = false;
       if (unsubClients) unsubClients();
+      if (unsubGalleries) unsubGalleries();
     };
   }, [loadData, router, verifyAdminGuard]);
 
@@ -571,6 +617,14 @@ export default function AdminClientsScreen() {
                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   setSelectedClient(client);
                 }}
+                onPressShortcut={(type) => {
+                  if (type === 'upload') {
+                    router.push({
+                      pathname: '/(admin)/upload',
+                      params: { userId: client.id }
+                    } as any);
+                  }
+                }}
               />
             ))
           ) : (
@@ -582,7 +636,13 @@ export default function AdminClientsScreen() {
         ) : (
           filteredGalleries.length > 0 ? (
             filteredGalleries.map((gallery) => (
-              <GalleryCard key={gallery.id} gallery={gallery} />
+              <GalleryCard
+                key={gallery.id}
+                gallery={gallery}
+                onDeleted={(id) => {
+                  setGalleries((prev) => prev.filter((g) => g.id !== id));
+                }}
+              />
             ))
           ) : (
             <View style={styles.emptyState}>
@@ -799,6 +859,60 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     marginBottom: 4,
   },
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  fullScreenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  fullScreenTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  fullScreenContent: {
+    padding: 20,
+  },
+  closeButton: {
+    padding: 8,
+    marginLeft: -8,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  contactText: {
+    fontSize: 14,
+    color: Colors.textMuted,
+  },
+  contactDot: {
+    fontSize: 14,
+    color: Colors.textMuted,
+  },
+  sectionHeader: {
+    marginTop: 24,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    fontStyle: 'italic',
+  },
+
   clientMeta: {
     flexDirection: 'row' as const,
     alignItems: 'center',
@@ -902,9 +1016,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   galleryActionText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600' as const,
     color: Colors.white,
+  },
+  deleteBtn: {
+    marginLeft: 'auto',
+    backgroundColor: 'rgba(231, 76, 60, 0.2)',
   },
   emptyState: {
     alignItems: 'center',
@@ -1201,5 +1319,14 @@ const styles = StyleSheet.create({
   },
   createModalButtonDisabled: {
     opacity: 0.6,
+  },
+  uploadShortcut: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
 });

@@ -6,7 +6,7 @@ const path = require('path');
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 2000;
 const COMMAND = 'npx';
-const ARGS = ['expo', 'start', '--web', '--clear', '--offline', '--port', '8082'];
+const ARGS = ['expo', 'start', '--web', '--clear', '--offline', '--port', '8084'];
 
 function log(message) {
   console.log(`[TunnelRetry] ${message}`);
@@ -35,8 +35,8 @@ async function startWithRetry(attempt = 1) {
         EXPO_HOME: path.join(process.cwd(), '.expo-home'),
         EXPO_OFFLINE: '1',
         EXPO_DOCTOR: '0',
-        RCT_METRO_PORT: '8082',
-        EXPO_DEV_SERVER_PORT: '8082',
+        RCT_METRO_PORT: '8084',
+        EXPO_DEV_SERVER_PORT: '8084',
       }
     });
 

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Animated, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Animated, Alert, Image, Modal, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import {
   Check,
   X,
@@ -11,11 +11,21 @@ import {
   RefreshCw,
   DollarSign,
   AlertCircle,
+  Edit3,
+  MessageCircle,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { supabase } from '@/lib/supabase';
+import { AdminService } from '@/services/admin';
+import { useAuth } from '@/contexts/AuthContext';
+import type { Database } from '@/types/supabase';
 
-// TODO: Implement Booking type based on DB schema when available
+type Booking = Database['public']['Tables']['bookings']['Row'] & {
+  packages?: { name: string } | null;
+  user_profiles?: { name: string; phone: string; avatar_url?: string } | null;
+};
+
 type AdminBooking = {
   id: string;
   clientName: string;
@@ -30,25 +40,90 @@ type AdminBooking = {
   depositPaid: boolean;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   notes?: string;
+  clientId?: string;
 };
-
-// Placeholder until Bookings table is implemented
-const adminBookings: AdminBooking[] = [];
 
 type FilterType = 'all' | 'pending' | 'confirmed' | 'completed' | 'cancelled';
 
 const statusConfig: Record<string, { color: string; label: string; icon: React.ReactNode }> = {
+  booked: { color: Colors.warning, label: 'Booked', icon: <Clock size={14} color={Colors.warning} /> },
   pending: { color: Colors.warning, label: 'Pending', icon: <Clock size={14} color={Colors.warning} /> },
   confirmed: { color: Colors.success, label: 'Confirmed', icon: <Check size={14} color={Colors.success} /> },
   completed: { color: '#6C9AED', label: 'Completed', icon: <Check size={14} color="#6C9AED" /> },
   cancelled: { color: Colors.error, label: 'Cancelled', icon: <X size={14} color={Colors.error} /> },
+  editing: { color: Colors.gold, label: 'Editing', icon: <Edit3 size={14} color={Colors.gold} /> },
+  ready: { color: Colors.success, label: 'Ready', icon: <Check size={14} color={Colors.success} /> },
 };
 
 function formatCurrency(amount: number): string {
   return `KES ${amount.toLocaleString()}`;
 }
 
-function BookingCard({ booking, index }: { booking: AdminBooking; index: number }) {
+function RescheduleModal({ visible, onClose, onConfirm, initialDate, initialTime }: { visible: boolean; onClose: () => void; onConfirm: (date: string, time: string) => void; initialDate: string; initialTime: string }) {
+  const [date, setDate] = useState(initialDate);
+  const [time, setTime] = useState(initialTime);
+
+  useEffect(() => {
+    if (visible) {
+      setDate(initialDate);
+      setTime(initialTime);
+    }
+  }, [visible, initialDate, initialTime]);
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Reschedule Booking</Text>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>New Date (YYYY-MM-DD)</Text>
+            <TextInput
+              style={styles.input}
+              value={date}
+              onChangeText={setDate}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor={Colors.textMuted}
+            />
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>New Time</Text>
+            <TextInput
+              style={styles.input}
+              value={time}
+              onChangeText={setTime}
+              placeholder="e.g. 14:00"
+              placeholderTextColor={Colors.textMuted}
+            />
+          </View>
+          <View style={styles.modalActions}>
+            <Pressable style={styles.modalCancelBtn} onPress={onClose}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={styles.modalConfirmBtn}
+              onPress={() => onConfirm(date, time)}
+            >
+              <Text style={styles.modalConfirmText}>Confirm</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function BookingCard({ 
+  booking, 
+  index, 
+  onReschedule, 
+  onUpdateStatus 
+}: { 
+  booking: AdminBooking; 
+  index: number; 
+  onReschedule: (booking: AdminBooking) => void; 
+  onUpdateStatus: (id: string, status: 'confirmed' | 'cancelled' | 'completed' | 'pending') => void 
+}) {
+  const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -65,30 +140,49 @@ function BookingCard({ booking, index }: { booking: AdminBooking; index: number 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Alert.alert('Confirm Booking', `Confirm ${booking.clientName}'s ${booking.type} booking?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Confirm', style: 'default' },
+      { text: 'Confirm', style: 'default', onPress: () => onUpdateStatus(booking.id, 'confirmed') },
     ]);
-  }, [booking]);
+  }, [booking, onUpdateStatus]);
 
   const handleReschedule = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert('Reschedule', `Reschedule ${booking.clientName}'s booking?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Reschedule', style: 'default' },
-    ]);
-  }, [booking]);
+    onReschedule(booking);
+  }, [booking, onReschedule]);
 
   const handleCancel = useCallback(() => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Alert.alert('Cancel Booking', `Cancel ${booking.clientName}'s ${booking.type} booking? This action cannot be undone.`, [
       { text: 'Keep', style: 'cancel' },
-      { text: 'Cancel Booking', style: 'destructive' },
+      { text: 'Cancel Booking', style: 'destructive', onPress: () => onUpdateStatus(booking.id, 'cancelled') },
     ]);
-  }, [booking]);
+  }, [booking, onUpdateStatus]);
+
+  const handleComplete = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    onUpdateStatus(booking.id, 'completed');
+  }, [booking, onUpdateStatus]);
+
+  const handleChat = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push({
+      pathname: '/(admin)/inbox',
+      params: { clientId: booking.clientId }
+    } as any);
+  }, [booking.clientId, router]);
+
 
   return (
     <Pressable
       onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true }).start()}
       onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
+      onPress={() => {
+        if (booking.clientId) {
+          router.push({
+            pathname: '/(admin)/clients',
+            params: { clientId: booking.clientId }
+          });
+        }
+      }}
     >
       <Animated.View style={[styles.bookingCard, { opacity: fadeAnim, transform: [{ translateY: slideAnim }, { scale: scaleAnim }] }]}>
         <View style={styles.cardHeader}>
@@ -148,23 +242,72 @@ function BookingCard({ booking, index }: { booking: AdminBooking; index: number 
           ) : null}
         </View>
 
-        {(booking.status === 'pending' || booking.status === 'confirmed') && (
-          <View style={styles.cardActions}>
-            {booking.status === 'pending' && (
-              <Pressable style={styles.confirmBtn} onPress={handleConfirm}>
-                <Check size={14} color={Colors.background} />
-                <Text style={styles.confirmBtnText}>Confirm</Text>
+        <View style={styles.cardActions}>
+          {booking.status === 'pending' ? (
+            <Pressable style={styles.confirmBtn} onPress={handleConfirm}>
+              <Check size={14} color={Colors.background} />
+              <Text style={styles.confirmBtnText}>Confirm</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={[styles.rescheduleBtn, { borderColor: Colors.warning }]} onPress={() => onUpdateStatus(booking.id, 'pending')}>
+              <Clock size={13} color={Colors.warning} />
+              <Text style={[styles.rescheduleBtnText, { color: Colors.warning }]}>Set Pending</Text>
+            </Pressable>
+          )}
+          
+          {(booking.status === 'confirmed' || booking.status === 'pending') && (
+            <>
+              <Pressable style={styles.rescheduleBtn} onPress={handleReschedule}>
+                <RefreshCw size={13} color={Colors.gold} />
+                <Text style={styles.rescheduleBtnText}>Reschedule</Text>
               </Pressable>
-            )}
-            <Pressable style={styles.rescheduleBtn} onPress={handleReschedule}>
-              <RefreshCw size={13} color={Colors.gold} />
-              <Text style={styles.rescheduleBtnText}>Reschedule</Text>
-            </Pressable>
-            <Pressable style={styles.cancelBtn} onPress={handleCancel}>
-              <X size={13} color={Colors.error} />
-            </Pressable>
-          </View>
-        )}
+              
+              {booking.status === 'confirmed' && (
+                <Pressable style={[styles.rescheduleBtn, { borderColor: Colors.success }]} onPress={handleComplete}>
+                  <Check size={13} color={Colors.success} />
+                  <Text style={[styles.rescheduleBtnText, { color: Colors.success }]}>Complete</Text>
+                </Pressable>
+              )}
+
+              <Pressable style={styles.chatBtn} onPress={handleChat}>
+                <MessageCircle size={14} color={Colors.gold} />
+              </Pressable>
+
+              <Pressable style={styles.cancelBtn} onPress={handleCancel}>
+                <X size={13} color={Colors.error} />
+              </Pressable>
+            </>
+          )}
+
+          {booking.status === 'completed' && (
+            <>
+              <View style={[styles.statusBadge, { backgroundColor: Colors.success + '18', marginLeft: 0 }]}>
+                <Check size={12} color={Colors.success} />
+                <Text style={[styles.statusText, { color: Colors.success }]}>Completed</Text>
+              </View>
+              <Pressable style={[styles.chatBtn, { marginLeft: 'auto' }]} onPress={handleChat}>
+                <MessageCircle size={14} color={Colors.gold} />
+                <Text style={{color: Colors.gold, fontSize: 12, fontWeight: '600', marginLeft: 4}}>Chat</Text>
+              </Pressable>
+            </>
+          )}
+
+          {booking.status === 'cancelled' && (
+            <>
+              <View style={[styles.statusBadge, { backgroundColor: Colors.error + '18', marginLeft: 0 }]}>
+                <X size={12} color={Colors.error} />
+                <Text style={[styles.statusText, { color: Colors.error }]}>Cancelled</Text>
+              </View>
+              <Pressable 
+                style={[styles.rescheduleBtn, { marginLeft: 'auto', borderColor: Colors.gold }]} 
+                onPress={() => onUpdateStatus(booking.id, 'pending')}
+              >
+                <RefreshCw size={13} color={Colors.gold} />
+                <Text style={styles.rescheduleBtnText}>Re-open</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
       </Animated.View>
     </Pressable>
   );
@@ -172,20 +315,102 @@ function BookingCard({ booking, index }: { booking: AdminBooking; index: number 
 
 export default function AdminBookingsScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [filter, setFilter] = useState<FilterType>('all');
+  const [bookings, setBookings] = useState<AdminBooking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState<AdminBooking | null>(null);
+
+  useEffect(() => {
+    loadBookings();
+  }, [user]);
+
+  const loadBookings = useCallback(async () => {
+    try {
+      setLoading(true);
+      
+      if (!user) return;
+
+      const data = await AdminService.bookings.list();
+
+      // Load clients for mapping
+      const { data: clients } = await supabase
+        .from('clients')
+        .select('id, user_id')
+        .eq('owner_admin_id', user.id);
+      
+      const userIdToClientId = new Map((clients || []).map((c: any) => [c.user_id, c.id]));
+
+      // Transform the data to match AdminBooking format
+      const transformedBookings: AdminBooking[] = (data || []).map((booking: any) => ({
+        id: booking.id,
+        clientId: userIdToClientId.get(booking.user_id),
+        clientName: booking.user_profiles?.name || 'Unknown Client',
+        clientAvatar: booking.user_profiles?.avatar_url || 'https://via.placeholder.com/40x40/333333/FFFFFF?text=?',
+        clientPhone: booking.user_profiles?.phone || 'No phone',
+        type: 'Session',
+        packageName: booking.packages?.name || 'Unknown Package',
+        date: booking.date,
+        time: booking.time,
+        location: booking.location,
+        amount: 0, // We'll need to get this from packages table
+        depositPaid: false, // We'll need to implement payment tracking
+        status: booking.status as 'pending' | 'confirmed' | 'completed' | 'cancelled',
+        notes: booking.notes
+      }));
+
+      setBookings(transformedBookings);
+    } catch (error) {
+      console.error('Error loading bookings:', error);
+      Alert.alert('Error', 'Failed to load bookings');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  const handleUpdateStatus = useCallback(async (id: string, status: 'confirmed' | 'cancelled' | 'completed' | 'pending') => {
+    try {
+      setLoading(true);
+      await AdminService.bookings.updateStatus(id, status);
+      await loadBookings();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error updating status:', error);
+      Alert.alert('Error', 'Failed to update booking status');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadBookings]);
+
+  const handleRescheduleConfirm = useCallback(async (date: string, time: string) => {
+    if (!selectedBooking) return;
+    try {
+      setLoading(true);
+      await AdminService.bookings.reschedule(selectedBooking.id, date, time);
+      setShowRescheduleModal(false);
+      await loadBookings();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error rescheduling:', error);
+      Alert.alert('Error', 'Failed to reschedule booking');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedBooking, loadBookings]);
 
   const filteredBookings = useMemo(() => {
-    if (filter === 'all') return adminBookings;
-    return adminBookings.filter(b => b.status === filter);
-  }, [filter]);
+    if (filter === 'all') return bookings;
+    return bookings.filter(b => b.status === filter);
+  }, [filter, bookings]);
 
   const counts = useMemo(() => ({
-    all: adminBookings.length,
-    pending: adminBookings.filter(b => b.status === 'pending').length,
-    confirmed: adminBookings.filter(b => b.status === 'confirmed').length,
-    completed: adminBookings.filter(b => b.status === 'completed').length,
-    cancelled: adminBookings.filter(b => b.status === 'cancelled').length,
-  }), []);
+    all: bookings.length,
+    pending: bookings.filter(b => b.status === 'pending').length,
+    confirmed: bookings.filter(b => b.status === 'confirmed').length,
+    completed: bookings.filter(b => b.status === 'completed').length,
+    cancelled: bookings.filter(b => b.status === 'cancelled').length,
+  }), [bookings]);
 
   const filters: { key: FilterType; label: string; color: string }[] = [
     { key: 'all', label: 'All', color: Colors.white },
@@ -226,7 +451,16 @@ export default function AdminBookingsScreen() {
       >
         {filteredBookings.length > 0 ? (
           filteredBookings.map((booking, index) => (
-            <BookingCard key={booking.id} booking={booking} index={index} />
+            <BookingCard 
+              key={booking.id} 
+              booking={booking} 
+              index={index}
+              onUpdateStatus={handleUpdateStatus}
+              onReschedule={(b) => {
+                setSelectedBooking(b);
+                setShowRescheduleModal(true);
+              }}
+            />
           ))
         ) : (
           <View style={styles.emptyState}>
@@ -236,6 +470,16 @@ export default function AdminBookingsScreen() {
           </View>
         )}
       </ScrollView>
+
+      {selectedBooking && (
+        <RescheduleModal
+          visible={showRescheduleModal}
+          onClose={() => setShowRescheduleModal(false)}
+          onConfirm={handleRescheduleConfirm}
+          initialDate={selectedBooking.date}
+          initialTime={selectedBooking.time}
+        />
+      )}
     </View>
   );
 }
@@ -476,5 +720,80 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 14,
     color: Colors.textMuted,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.white,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: Colors.inputBg,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 10,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  modalCancelText: {
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 8,
+    backgroundColor: Colors.gold,
+  },
+  modalConfirmText: {
+    color: Colors.background,
+    fontWeight: '700',
+  },
+  chatBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

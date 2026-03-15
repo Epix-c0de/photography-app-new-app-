@@ -8,6 +8,8 @@
 -- Step 1: Drop the problematic recursive policies
 DROP POLICY IF EXISTS "Admins can manage gallery photos" ON public.gallery_photos;
 DROP POLICY IF EXISTS "Super admins can manage all gallery photos" ON public.gallery_photos;
+DROP POLICY IF EXISTS "Gallery owners can manage their photos" ON public.gallery_photos;
+DROP POLICY IF EXISTS "Super admins can manage all photos" ON public.gallery_photos;
 
 -- Step 2: Create non-recursive policies that avoid querying the same table during INSERT
 -- Policy 1: Gallery owners can manage their own gallery photos (non-recursive)
@@ -55,7 +57,7 @@ CREATE POLICY "Admins can upload client photos"
   ON storage.objects FOR INSERT
   WITH CHECK (
     bucket_id = 'client-photos'
-    AND (storage.foldername(name))[1] = 'clients'
+    AND (storage.foldername(name))[1] IN ('clients', 'galleries')
     AND auth.uid() IN (
       SELECT up.id FROM public.user_profiles up
       WHERE up.role IN ('admin', 'super_admin')

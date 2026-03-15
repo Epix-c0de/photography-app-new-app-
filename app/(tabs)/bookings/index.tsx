@@ -9,7 +9,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 
-type Package = Database['public']['Tables']['packages']['Row'];
+type DBPackage = Database['public']['Tables']['packages']['Row'];
+type Package = Omit<DBPackage, 'features'> & {
+  is_popular?: boolean;
+  description?: string | null;
+  duration?: string | null;
+  features: string[];
+};
 type BookingRow = Database['public']['Tables']['bookings']['Row'];
 
 interface Booking extends BookingRow {
@@ -236,7 +242,16 @@ export default function BookingsScreen() {
           .select('*')
           .order('price');
         
-        if (packagesData) setPackages(packagesData);
+        if (packagesData) {
+          const normalized = packagesData.map((p: DBPackage & Record<string, unknown>) => ({
+            ...(p as DBPackage),
+            is_popular: (p as Record<string, unknown>)['is_popular'] === true,
+            description: (p as Record<string, unknown>)['description'] as string | null | undefined ?? null,
+            duration: (p as Record<string, unknown>)['duration'] as string | null | undefined ?? null,
+            features: Array.isArray(p.features) ? (p.features as string[]) : [],
+          }));
+          setPackages(normalized);
+        }
 
         if (user) {
           const { data: bookingsData } = await supabase
@@ -264,7 +279,7 @@ export default function BookingsScreen() {
     });
   }, [bookings]);
 
-  const handleConfirmBooking = useCallback(() => {
+  const handleConfirmBooking = useCallback(async () => {
     if (!selectedPackage) {
       Alert.alert('Select a Package', 'Please choose a package before booking.');
       return;
@@ -273,14 +288,50 @@ export default function BookingsScreen() {
       Alert.alert('Select a Date', 'Please pick a date on the calendar.');
       return;
     }
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const pkg = packages.find(p => p.id === selectedPackage);
-    Alert.alert(
-      'Booking Request Sent!',
-      `${pkg?.name} Package on the ${selectedDate}th.\n\nYou won't be charged yet. We'll confirm availability shortly.`,
-      [{ text: 'Great!', onPress: () => setActiveSection('bookings') }]
-    );
-  }, [selectedPackage, selectedDate, packages]);
+
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Get the current month and year for the booking date
+      const now = new Date();
+      const bookingDate = `${selectedDate}th of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+      
+      // Insert the booking into the database
+      const { data, error } = await supabase
+        .from('bookings')
+        .insert({
+          user_id: user?.id,
+          package_id: selectedPackage,
+          status: 'booked',
+          date: bookingDate,
+          time: 'TBD', // Default time
+          location: 'TBD', // Default location
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Reload bookings to show the new one
+      const { data: bookingsData } = await supabase
+        .from('bookings')
+        .select('*, packages(name)')
+        .eq('user_id', user?.id)
+        .order('date', { ascending: false });
+        
+      if (bookingsData) setBookings(bookingsData);
+
+      const pkg = packages.find(p => p.id === selectedPackage);
+      Alert.alert(
+        'Booking Request Sent!',
+        `${pkg?.name} Package booked for the ${selectedDate}th.\n\nYou won't be charged yet. We'll confirm availability shortly.`,
+        [{ text: 'Great!', onPress: () => setActiveSection('bookings') }]
+      );
+    } catch (error) {
+      console.error('Error creating booking:', error);
+      Alert.alert('Error', 'Failed to create booking. Please try again.');
+    }
+  }, [selectedPackage, selectedDate, packages, user]);
 
   const selectedPkg = packages.find(p => p.id === selectedPackage);
 
@@ -404,7 +455,13 @@ export default function BookingsScreen() {
 
             <Pressable
               style={[styles.confirmBookingButton, (!selectedPackage || !selectedDate) && styles.confirmBookingButtonDisabled]}
-              onPress={handleConfirmBooking}
+              onPress={() => {
+                console.log('Confirm Booking pressed');
+                console.log('selectedPackage:', selectedPackage);
+                console.log('selectedDate:', selectedDate);
+                console.log('user:', user);
+                handleConfirmBooking();
+              }}
               disabled={!selectedPackage || !selectedDate}
             >
               <LinearGradient

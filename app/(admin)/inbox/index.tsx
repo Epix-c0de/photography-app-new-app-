@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Animated, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Animated, ActivityIndicator, Alert, Modal, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import {
   Search,
   Send,
@@ -10,6 +11,10 @@ import {
   Circle,
   MessageSquare,
   Phone,
+  Plus,
+  ChevronRight,
+  Camera,
+  User,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -99,6 +104,7 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
   const [message, setMessage] = useState<string>('');
   const [messages, setMessages] = useState<{ id: string; text: string; sender: 'admin' | 'client'; time: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -124,15 +130,15 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
     loadMessages();
 
     unsubscribe = AdminService.chat.subscribeToMessages(thread.clientId, (payload) => {
-       if (payload.eventType === 'INSERT') {
-          const newMsg = payload.new;
-          setMessages(prev => [...prev, {
-            id: newMsg.id,
-            text: newMsg.content,
-            sender: newMsg.sender_role,
-            time: new Date(newMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }]);
-       }
+      if (payload.eventType === 'INSERT') {
+        const newMsg = payload.new;
+        setMessages(prev => [...prev, {
+          id: newMsg.id,
+          text: newMsg.content,
+          sender: newMsg.sender_role,
+          time: new Date(newMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }]);
+      }
     });
 
     return () => {
@@ -143,7 +149,7 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
   const handleSend = useCallback(async () => {
     if (!message.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    
+
     try {
       await AdminService.chat.sendMessage(thread.clientId, message.trim());
       setMessage('');
@@ -157,6 +163,13 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
   const handleQuickReply = useCallback(async (reply: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
+      // Optimistic update
+      setMessages(prev => [...prev, {
+        id: 'reply-' + Date.now(),
+        text: reply,
+        sender: 'admin',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
       await AdminService.chat.sendMessage(thread.clientId, reply);
       console.log('[AdminChat] Quick reply to', thread.clientName);
     } catch (error) {
@@ -164,6 +177,14 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
       Alert.alert('Error', 'Failed to send quick reply');
     }
   }, [thread.clientId, thread.clientName]);
+
+  const handlePhonePress = useCallback(() => {
+    if (thread.clientPhone) {
+      Linking.openURL(`tel:${thread.clientPhone}`);
+    } else {
+      Alert.alert('Error', 'Client phone number not available');
+    }
+  }, [thread.clientPhone]);
 
   return (
     <View style={styles.chatView}>
@@ -178,7 +199,13 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
             </Text>
           </View>
         </View>
-        <Pressable style={styles.chatHeaderAction}>
+        <Pressable 
+          style={styles.chatHeaderAction} 
+          onPress={() => router.push(`/(admin)/upload?userId=${thread.clientId}`)}
+        >
+          <Camera size={18} color={Colors.gold} />
+        </Pressable>
+        <Pressable style={styles.chatHeaderAction} onPress={handlePhonePress}>
           <Phone size={18} color={Colors.textSecondary} />
         </Pressable>
       </View>
@@ -230,6 +257,187 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
   );
 }
 
+function NewChatModal({ visible, onClose, clients, onSelectClient }: { visible: boolean; onClose: () => void; clients: any[]; onSelectClient: (client: any) => void }) {
+  const insets = useSafeAreaInsets();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredClients = useMemo(() => {
+    if (!searchQuery.trim()) return clients;
+    const q = searchQuery.toLowerCase();
+    return clients.filter(c => c.name.toLowerCase().includes(q) || c.phone?.includes(q));
+  }, [clients, searchQuery]);
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={[styles.modalContainer, { paddingTop: 20 }]}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>New Message</Text>
+          <Pressable onPress={onClose} style={styles.closeButton}>
+            <X size={24} color={Colors.textMuted} />
+          </Pressable>
+        </View>
+
+        <View style={styles.searchBox}>
+          <Search size={16} color={Colors.textMuted} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search clients..."
+            placeholderTextColor={Colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoFocus
+          />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.clientList}>
+          {filteredClients.map(client => (
+            <Pressable
+              key={client.id}
+              style={styles.clientItem}
+              onPress={() => onSelectClient(client)}
+            >
+              <Image source={{ uri: client.user_profiles?.avatar_url || 'https://via.placeholder.com/150' }} style={styles.clientAvatar} />
+              <View style={styles.clientInfo}>
+                <Text style={styles.clientName}>{client.name}</Text>
+                <Text style={styles.clientPhone}>{client.phone}</Text>
+              </View>
+              <ChevronRight size={20} color={Colors.textMuted} />
+            </Pressable>
+          ))}
+          {filteredClients.length === 0 && (
+            <Text style={styles.emptyText}>No clients found</Text>
+          )}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+function AdminProfileModal({ visible, onClose, onUpdate }: { visible: boolean; onClose: () => void; onUpdate: () => void }) {
+  const [name, setName] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isPicking, setIsPicking] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      AdminService.profile.get().then(p => {
+        setName(p.name || '');
+        setAvatarUrl(p.avatar_url || '');
+      });
+    }
+  }, [visible]);
+
+  const handlePickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets[0].uri) {
+        setIsPicking(true);
+        const publicUrl = await AdminService.profile.uploadAvatar(result.assets[0].uri);
+        setAvatarUrl(publicUrl);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (error) {
+      console.error('Error picking avatar:', error);
+      Alert.alert('Error', 'Failed to upload avatar');
+    } finally {
+      setIsPicking(false);
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!name.trim()) return;
+    try {
+      setLoading(true);
+      await AdminService.profile.update({ name: name.trim(), avatar_url: avatarUrl.trim() });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onUpdate();
+      onClose();
+    } catch (error) {
+      console.error('Error updating admin profile:', error);
+      Alert.alert('Error', 'Failed to update profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[styles.modalContainer, { paddingTop: 20 }]}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Admin Profile</Text>
+          <Pressable onPress={onClose} style={styles.closeButton}>
+            <X size={24} color={Colors.textMuted} />
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 20 }}>
+          <View style={styles.profileAvatarContainer}>
+            <View style={styles.avatarWrapper}>
+              <Image 
+                source={{ uri: avatarUrl || 'https://via.placeholder.com/150' }} 
+                style={styles.profileAvatarLarge} 
+              />
+              {isPicking && (
+                <View style={[StyleSheet.absoluteFill, styles.avatarLoading]}>
+                  <ActivityIndicator color={Colors.white} />
+                </View>
+              )}
+            </View>
+            <Pressable style={styles.profileAvatarEdit} onPress={handlePickImage} disabled={isPicking}>
+              <Camera size={16} color={Colors.white} />
+            </Pressable>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Admin Display Name</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={name}
+              onChangeText={setName}
+              placeholder="Your name"
+              placeholderTextColor={Colors.textMuted}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Avatar URL (Manual Override)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={avatarUrl}
+              onChangeText={setAvatarUrl}
+              placeholder="https://example.com/avatar.jpg"
+              placeholderTextColor={Colors.textMuted}
+            />
+          </View>
+
+          <Pressable 
+            style={[styles.saveButton, loading && { opacity: 0.7 }]} 
+            onPress={handleUpdate}
+            disabled={loading || isPicking}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color={Colors.background} />
+            ) : (
+              <Text style={styles.saveButtonText}>Save Changes</Text>
+            )}
+          </Pressable>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 export default function AdminInboxScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -237,6 +445,11 @@ export default function AdminInboxScreen() {
   const [selectedThread, setSelectedThread] = useState<AdminChatThread | null>(null);
   const [threads, setThreads] = useState<AdminChatThread[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [clients, setClients] = useState<any[]>([]);
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+
   const classifyError = useCallback((error: any) => {
     const message =
       error?.message ||
@@ -269,30 +482,35 @@ export default function AdminInboxScreen() {
   }, []);
 
   useEffect(() => {
-    const loadThreads = async () => {
+    const loadClientsAndThreads = async () => {
       try {
         setLoading(true);
+        // Fetch clients from database (all clients)
+        const clientsList = await AdminService.clients.listAll();
+        setClients(clientsList || []);
+        
+        // Fetch chat threads
         const data = await AdminService.chat.listThreads();
         setThreads(data);
       } catch (error) {
-        console.error('Error loading threads:', error);
+        console.error('Error loading threads and clients:', error);
         const info = classifyError(error);
         if (info.type === 'auth') {
           Alert.alert(info.title, info.body, [{ text: 'Login', onPress: () => router.replace('/admin-login') }]);
         } else if (info.type === 'schema') {
           Alert.alert(info.title, info.body, [{ text: 'OK' }]);
         } else {
-          Alert.alert(info.title, info.body, [{ text: 'Retry', onPress: () => loadThreads() }]);
+          Alert.alert(info.title, info.body, [{ text: 'Retry', onPress: () => loadClientsAndThreads() }]);
         }
       } finally {
         setLoading(false);
       }
     };
 
-    loadThreads();
-    
+    loadClientsAndThreads();
+
     const unsubscribe = AdminService.chat.subscribeToThreads(() => {
-      loadThreads(); 
+      loadClientsAndThreads();
     });
 
     return () => {
@@ -332,6 +550,15 @@ export default function AdminInboxScreen() {
             <Text style={styles.headerTitle}>Inbox</Text>
             <Text style={styles.headerSub}>{totalUnread} unread messages</Text>
           </View>
+          <Pressable 
+            style={styles.profileHeaderButton} 
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowProfileModal(true);
+            }}
+          >
+            <User size={20} color={Colors.gold} />
+          </Pressable>
         </View>
 
         <View style={styles.searchBox}>
@@ -354,7 +581,7 @@ export default function AdminInboxScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {loading ? (
-           <ActivityIndicator size="large" color={Colors.gold} style={{ marginTop: 40 }} />
+          <ActivityIndicator size="large" color={Colors.gold} style={{ marginTop: 40 }} />
         ) : filteredThreads.length > 0 ? (
           filteredThreads.map((thread) => (
             <ThreadItem
@@ -375,6 +602,53 @@ export default function AdminInboxScreen() {
           </View>
         )}
       </ScrollView>
+
+      <Pressable
+        style={styles.fab}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+          setShowNewChatModal(true);
+        }}
+      >
+        <Plus size={24} color={Colors.white} />
+      </Pressable>
+
+      <NewChatModal
+        visible={showNewChatModal}
+        onClose={() => setShowNewChatModal(false)}
+        clients={clients}
+        onSelectClient={(client) => {
+          setShowNewChatModal(false);
+          // Check if thread exists
+          const existingThread = threads.find(t => t.clientId === client.id);
+          if (existingThread) {
+            setSelectedThread(existingThread);
+          } else {
+            // Create temporary thread object
+            setSelectedThread({
+              id: 'temp-' + client.id,
+              clientId: client.id,
+              clientName: client.name,
+              clientAvatar: client.user_profiles?.avatar_url || 'https://via.placeholder.com/150',
+              clientPhone: client.phone,
+              lastMessage: '',
+              unread: 0,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isOnline: false,
+            });
+          }
+        }}
+      />
+
+      <AdminProfileModal 
+        visible={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        onUpdate={() => {
+          // Re-load threads to see changes? 
+          // Actually, thread avatars are client avatars, not admin avatars.
+          // Admin avatar is used in ChatView and client-side chat screen.
+        }}
+      />
     </View>
   );
 }
@@ -670,5 +944,151 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 14,
     color: Colors.textMuted,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 30,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  closeButton: {
+    padding: 5,
+  },
+  clientList: {
+    padding: 20,
+  },
+  clientItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  clientAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  clientInfo: {
+    flex: 1,
+  },
+  clientName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  clientPhone: {
+    fontSize: 14,
+    color: Colors.textMuted,
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: Colors.textMuted,
+    marginTop: 20,
+  },
+  profileHeaderButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  profileAvatarContainer: {
+    alignItems: 'center',
+    marginVertical: 20,
+    position: 'relative',
+  },
+  profileAvatarLarge: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+  },
+  avatarWrapper: {
+    position: 'relative',
+    borderRadius: 50,
+    overflow: 'hidden',
+  },
+  avatarLoading: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileAvatarEdit: {
+    position: 'absolute',
+    bottom: 0,
+    right: '35%',
+    backgroundColor: Colors.gold,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.background,
+  },
+  inputGroup: {
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 8,
+    marginLeft: 4,
+  },
+  modalInput: {
+    backgroundColor: Colors.inputBg,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    color: Colors.white,
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+  },
+  saveButton: {
+    backgroundColor: Colors.gold,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  saveButtonText: {
+    color: Colors.background,
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

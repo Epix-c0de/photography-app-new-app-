@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 
+
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
@@ -80,10 +81,16 @@ export default function LoginScreen() {
   const handleGoogleLogin = useCallback(async () => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setIsSubmitting(true);
+
+      // For built native apps, the redirect must use the app's custom URI scheme.
+      // This becomes epix-visuals://auth/callback on Android/iOS.
       const redirectUrl = makeRedirectUri({
-        scheme: 'rork-app',
+        scheme: 'epix-visuals',
         path: 'auth/callback',
       });
+
+      console.log('[Google Sign-In] redirectUrl:', redirectUrl);
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -94,41 +101,33 @@ export default function LoginScreen() {
       });
 
       if (error) throw error;
+      if (!data?.url) throw new Error('No authentication URL received from Supabase');
 
-      if (data?.url) {
-        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
-        
-        if (result.type === 'success' && result.url) {
-          // Extract access_token and refresh_token from the URL fragment
-          // URL format: rork-app://auth/callback#access_token=...&refresh_token=...&...
-          const { url } = result;
-          
-          // Helper to extract params from fragment
-          const getParam = (name: string) => {
-             const regex = new RegExp(`[#&]${name}=([^&#]*)`);
-             const results = regex.exec(url);
-             return results ? decodeURIComponent(results[1]) : null;
-          };
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl, {
+        showInRecents: true,
+        dismissButtonStyle: 'cancel',
+        createTask: false,
+      });
 
-          const accessToken = getParam('access_token');
-          const refreshToken = getParam('refresh_token');
-
-          if (accessToken && refreshToken) {
-            const { error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-            
-            if (sessionError) throw sessionError;
-            
-            // Session set successfully, navigate home
-            router.replace('/(tabs)/home');
-          }
-        }
+      if (result.type === 'success' && result.url) {
+        // Navigate to the callback handler which extracts tokens and creates a session
+        router.push({
+          pathname: '/auth/callback',
+          params: {
+            url: result.url,
+            provider: 'google',
+          },
+        });
+      } else if (result.type === 'dismiss') {
+        setIsSubmitting(false);
+        Alert.alert('Cancelled', 'Google Sign-In was cancelled.');
+      } else {
+        throw new Error('Authentication failed unexpectedly');
       }
     } catch (error: any) {
-      console.error('Google Sign-In Error:', error);
-      Alert.alert('Google Sign-In Failed', error?.message || 'An error occurred during Google Sign-In.');
+      console.error('[Google Sign-In] Error:', error?.message || error);
+      setIsSubmitting(false);
+      Alert.alert('Sign-In Failed', error?.message || 'An error occurred during Google Sign-In');
     }
   }, [router]);
 

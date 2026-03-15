@@ -1,6 +1,6 @@
 // supabase/functions/stk_push/index.ts
 /// <reference lib="deno.ns" />
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 Deno.serve(async (req: Request) => {
   try {

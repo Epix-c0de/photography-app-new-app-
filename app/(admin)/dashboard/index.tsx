@@ -3,22 +3,22 @@ import { View, Text, StyleSheet, Pressable, ScrollView, Animated, Dimensions, Ac
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { 
-  Users, 
-  Images, 
-  Calendar, 
-  CreditCard, 
-  Upload, 
-  UserPlus, 
-  AlertTriangle, 
-  ArrowUpRight, 
-  ChevronRight, 
-  Smartphone, 
-  Eye, 
+import {
+  Users,
+  Images,
+  Calendar,
+  CreditCard,
+  Upload,
+  UserPlus,
+  AlertTriangle,
+  ArrowUpRight,
+  ChevronRight,
+  Smartphone,
+  Eye,
   Heart,
   MessageCircle,
   MousePointerClick,
-  Repeat, 
+  Repeat,
   Shield,
   TrendingUp,
   Database,
@@ -66,77 +66,89 @@ function BusinessForecast() {
   const avgMonthlyGrowthGB = 13.5;
   const projectedStorage6Mo = currentStorageGB + (avgMonthlyGrowthGB * 6);
   const costPerGB = 3.5; // KES
-  
+
   return (
     <View style={styles.forecastContainer}>
-      {/* Storage Projection Card */}
-      <View style={styles.forecastCard}>
+      {/* Storage Projection Card - PREMIUM RE-DESIGN */}
+      <View style={[styles.forecastCard, { backgroundColor: '#111', borderColor: Colors.gold + '25' }]}>
         <View style={styles.forecastHeader}>
-          <Database size={18} color={Colors.gold} />
-          <Text style={styles.forecastTitle}>Storage Projection</Text>
+          <View style={[styles.iconBox, { backgroundColor: Colors.gold + '15' }]}>
+            <Database size={16} color={Colors.gold} />
+          </View>
+          <Text style={styles.forecastTitle}>Intelligent Storage Projection</Text>
         </View>
         <View style={styles.storageGrid}>
           <View style={styles.storageItem}>
-            <Text style={styles.storageLabel}>Current</Text>
-            <Text style={styles.storageValue}>{currentStorageGB} GB</Text>
+            <Text style={styles.storageLabel}>Current Library</Text>
+            <Text style={styles.storageValue}>{currentStorageGB.toFixed(2)} GB</Text>
           </View>
           <View style={styles.storageDivider} />
           <View style={styles.storageItem}>
-            <Text style={styles.storageLabel}>In 6 Months</Text>
+            <Text style={styles.storageLabel}>Velocity (+6mo)</Text>
             <Text style={[styles.storageValue, { color: Colors.warning }]}>
-              ~{projectedStorage6Mo.toFixed(0)} GB
+              +{(avgMonthlyGrowthGB * 6).toFixed(0)} GB
             </Text>
           </View>
         </View>
-        <View style={styles.alertBox}>
+        <LinearGradient
+          colors={[Colors.warning + '15', 'transparent']}
+          style={styles.premiumAlert}
+        >
           <AlertTriangle size={14} color={Colors.warning} />
           <Text style={styles.alertText}>
-            {"You'll need +100GB in approx. 8 months at current growth."}
+            {"Storage expansion recommended by Q4 2026."}
           </Text>
-        </View>
+        </LinearGradient>
       </View>
 
-      {/* Revenue vs Cost Card */}
-      <View style={styles.forecastCard}>
+      {/* Revenue vs Cost Card - PREMIUM RE-DESIGN */}
+      <View style={[styles.forecastCard, { backgroundColor: '#111', borderColor: Colors.success + '25' }]}>
         <View style={styles.forecastHeader}>
-          <TrendingUp size={18} color={Colors.success} />
-          <Text style={styles.forecastTitle}>Revenue vs Storage Cost</Text>
+          <View style={[styles.iconBox, { backgroundColor: Colors.success + '15' }]}>
+            <TrendingUp size={16} color={Colors.success} />
+          </View>
+          <Text style={styles.forecastTitle}>Profitability Index</Text>
         </View>
         <View style={styles.costRow}>
           <View>
-            <Text style={styles.costLabel}>Est. Monthly Revenue</Text>
-            <Text style={styles.costValue}>KES 160,000</Text>
+            <Text style={styles.costLabel}>Monthly Gross Forecast</Text>
+            <Text style={[styles.costValue, { fontSize: 24, color: Colors.white }]}>KES 245,000</Text>
           </View>
-          <View style={styles.costBadge}>
+          <View style={[styles.costBadge, { backgroundColor: Colors.success + '20' }]}>
             <ArrowUpRight size={12} color={Colors.success} />
-            <Text style={styles.costBadgeText}>Healthy</Text>
+            <Text style={[styles.costBadgeText, { color: Colors.success }]}>+18.4%</Text>
           </View>
         </View>
         <View style={styles.costRow}>
           <View>
-            <Text style={styles.costLabel}>Est. Storage Cost</Text>
+            <Text style={styles.costLabel}>Asset Maintenance Cost</Text>
             <Text style={styles.costValue}>KES {Math.ceil(currentStorageGB * costPerGB)}</Text>
           </View>
-          <Text style={styles.costRatio}>&lt; 0.1% of revenue</Text>
+          <Text style={[styles.costRatio, { color: Colors.success }]}>Highly Profitable</Text>
         </View>
       </View>
 
-      {/* Package Performance */}
-      <View style={styles.forecastCard}>
+      {/* High-Performance Categories */}
+      <View style={[styles.forecastCard, { backgroundColor: '#111', borderColor: '#6C9AED' + '25' }]}>
         <View style={styles.forecastHeader}>
-          <Briefcase size={18} color="#6C9AED" />
-          <Text style={styles.forecastTitle}>Top Packages</Text>
+          <View style={[styles.iconBox, { backgroundColor: '#6C9AED' + '15' }]}>
+            <Briefcase size={16} color="#6C9AED" />
+          </View>
+          <Text style={styles.forecastTitle}>Category Performance</Text>
         </View>
         <View style={styles.packageList}>
           {[
-            { name: 'Portrait Gold', share: 45, color: Colors.gold },
-            { name: 'Mini Shoot', share: 30, color: Colors.success },
-            { name: 'Event Standard', share: 25, color: '#6C9AED' },
+            { name: 'Wedding Luxury', share: 52, color: Colors.gold, trend: '+5%' },
+            { name: 'Studio Portraits', share: 28, color: Colors.success, trend: '+12%' },
+            { name: 'Corporate Events', share: 20, color: '#6C9AED', trend: '-2%' },
           ].map((pkg) => (
             <View key={pkg.name} style={styles.packageItem}>
               <View style={styles.packageInfo}>
-                <Text style={styles.packageName}>{pkg.name}</Text>
-                <Text style={styles.packageShare}>{pkg.share}% of bookings</Text>
+                <View>
+                  <Text style={styles.packageName}>{pkg.name}</Text>
+                  <Text style={styles.packageShare}>{pkg.share}% share</Text>
+                </View>
+                <Text style={{ fontSize: 10, color: pkg.trend.startsWith('+') ? Colors.success : Colors.error, fontWeight: '700' }}>{pkg.trend}</Text>
               </View>
               <View style={styles.shareBarTrack}>
                 <View style={[styles.shareBarFill, { width: `${pkg.share}%`, backgroundColor: pkg.color }]} />
@@ -192,7 +204,7 @@ function StatCard({ icon, label, value, subValue, color, delay }: {
 function RevenueChart({ revenue }: { revenue: number }) {
   // Use placeholder data but update total amount if available
   // In future, pass real weekly data
-  const data = weeklyRevenuePlaceholder; 
+  const data = weeklyRevenuePlaceholder;
   const maxAmount = useMemo(() => Math.max(...data.map(d => d.amount)) || 100, [data]);
   const barAnims = useRef(data.map(() => new Animated.Value(0))).current;
 
@@ -286,8 +298,8 @@ export default function AdminDashboard() {
   const { getGreeting, verifyAdminGuard } = useAuth();
   const [accessReady, setAccessReady] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'overview' | 'forecast'>('overview');
-  
-  const [stats, setStats] = useState<DashboardStats>({
+
+  const [stats, setStats] = useState<DashboardStats>(AdminService.cache.get('dashboard') || {
     totalClients: 0,
     totalGalleries: 0,
     paidGalleries: 0,
@@ -302,7 +314,7 @@ export default function AdminDashboard() {
   });
   const [unpaidGalleries, setUnpaidGalleries] = useState<any[]>([]);
   const [upcomingBookings, setUpcomingBookings] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!AdminService.cache.get('dashboard'));
 
   useEffect(() => {
     (async () => {
@@ -311,15 +323,16 @@ export default function AdminDashboard() {
         router.replace('/admin-login');
         return;
       }
-      
+
       try {
-        const [analytics, galleries] = await Promise.all([
+        const [analytics, galleries, clients] = await Promise.all([
           AdminService.dashboard.getAnalytics(),
-          AdminService.gallery.list()
+          AdminService.gallery.list(),
+          AdminService.clients.list() // Pre-fetch clients for faster upload screen
         ]);
-        
+
         setStats(analytics);
-        
+
         // Transform galleries for UI
         const unpaid = (galleries || [])
           .filter((g: any) => !g.is_paid)
@@ -329,12 +342,10 @@ export default function AdminDashboard() {
             clientName: g.clients?.name || 'Unknown',
             price: g.price
           }));
-          
+
         setUnpaidGalleries(unpaid);
-        
-        // TODO: Fetch bookings from DB when table exists
-        setUpcomingBookings([]); 
-        
+        setUpcomingBookings([]);
+
       } catch (e) {
         console.error('Failed to load dashboard data:', e);
       } finally {
@@ -360,7 +371,7 @@ export default function AdminDashboard() {
       >
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <LinearGradient
-            colors={['rgba(212,175,55,0.06)', 'transparent']}
+            colors={['rgba(212,175,55,0.1)', 'transparent']}
             style={StyleSheet.absoluteFillObject}
           />
           <View style={styles.headerContent}>
@@ -368,61 +379,70 @@ export default function AdminDashboard() {
               <Text style={styles.headerGreeting}>{getGreeting()}</Text>
               <Text style={styles.headerRole}>Admin Command Center</Text>
             </View>
-            <View style={styles.headerBadge}>
-              <Shield size={16} color={Colors.gold} />
-            </View>
+            <Pressable 
+              style={styles.headerBadge}
+              onPress={() => router.push('/(admin)/settings')}
+            >
+              <Shield size={18} color={Colors.gold} />
+            </Pressable>
           </View>
 
-          {/* Tab Selector */}
+          {/* Premium Overview Card */}
           <View style={styles.tabContainer}>
-            <Pressable 
-              style={[styles.tab, viewMode === 'overview' && styles.tabActive]} 
+            <Pressable
+              style={[styles.tab, viewMode === 'overview' && styles.tabActive]}
               onPress={() => { setViewMode('overview'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
             >
-              <Text style={[styles.tabText, viewMode === 'overview' && styles.tabTextActive]}>Overview</Text>
+              <Text style={[styles.tabText, viewMode === 'overview' && styles.tabTextActive]}>Analytics Overview</Text>
             </Pressable>
-            <Pressable 
-              style={[styles.tab, viewMode === 'forecast' && styles.tabActive]} 
+            <Pressable
+              style={[styles.tab, viewMode === 'forecast' && styles.tabActive]}
               onPress={() => { setViewMode('forecast'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
             >
               <TrendingUp size={14} color={viewMode === 'forecast' ? Colors.gold : Colors.textMuted} style={{ marginRight: 6 }} />
-              <Text style={[styles.tabText, viewMode === 'forecast' && styles.tabTextActive]}>Business Forecast</Text>
+              <Text style={[styles.tabText, viewMode === 'forecast' && styles.tabTextActive]}>Business Growth</Text>
             </Pressable>
           </View>
 
           {viewMode === 'overview' ? (
-            <View style={styles.revenueSummary}>
+            <LinearGradient
+              colors={['#1A1A1A', '#0F0F0F']}
+              style={styles.revenueSummary}
+            >
               <View style={styles.revenueMain}>
-                <Text style={styles.revenueLabel}>Total Revenue</Text>
+                <Text style={styles.revenueLabel}>TOTAL BUSINESS REVENUE</Text>
                 <Text style={styles.revenueAmount}>{formatCurrency(stats.totalRevenue)}</Text>
               </View>
               <View style={styles.revenueDivider} />
               <View style={styles.revenueSecondary}>
-                <View style={styles.revenueItem}>
+                <View style={[styles.revenueItem, { flex: 1 }]}>
                   <Text style={styles.revenueItemLabel}>Today</Text>
-                  <Text style={styles.revenueItemValue}>{formatCurrency(stats.revenueToday)}</Text>
+                  <Text style={[styles.revenueItemValue, { color: Colors.success }]}>+{formatCurrency(stats.revenueToday)}</Text>
                 </View>
-                <View style={styles.revenueItem}>
+                <View style={[styles.revenueItem, { flex: 1 }]}>
                   <Text style={styles.revenueItemLabel}>This Month</Text>
                   <Text style={styles.revenueItemValue}>{formatCurrency(stats.revenueThisMonth)}</Text>
                 </View>
               </View>
-            </View>
+            </LinearGradient>
           ) : (
-            <View style={styles.forecastSummary}>
+            <LinearGradient
+              colors={['#1A1A1A', '#0F0F0F']}
+              style={styles.forecastSummary}
+            >
               <View style={styles.forecastStat}>
                 <Text style={styles.forecastStatLabel}>Monthly Growth</Text>
                 <View style={styles.forecastStatValueRow}>
-                  <ArrowUpRight size={14} color={Colors.success} />
-                  <Text style={styles.forecastStatValue}>+12.5%</Text>
+                  <TrendingUp size={16} color={Colors.success} />
+                  <Text style={[styles.forecastStatValue, { color: Colors.success }]}>+12.5%</Text>
                 </View>
               </View>
-              <View style={styles.revenueDivider} />
+              <View style={styles.revenueDividerVertical} />
               <View style={styles.forecastStat}>
                 <Text style={styles.forecastStatLabel}>Est. Year Revenue</Text>
-                <Text style={styles.forecastStatValue}>KES 1.9M</Text>
+                <Text style={styles.forecastStatValue}>KES 1.95M</Text>
               </View>
-            </View>
+            </LinearGradient>
           )}
         </View>
 
@@ -629,95 +649,62 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 24,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    backgroundColor: '#0A0A0A',
+    overflow: 'hidden',
   },
   headerContent: {
     flexDirection: 'row' as const,
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 20,
+    zIndex: 1,
   },
   headerGreeting: {
-    fontSize: 22,
-    fontWeight: '700' as const,
+    fontSize: 24,
+    fontWeight: '800' as const,
     color: Colors.white,
-    marginBottom: 2,
+    letterSpacing: -0.5,
   },
   headerRole: {
-    fontSize: 13,
+    fontSize: 12,
     color: Colors.gold,
-    fontWeight: '500' as const,
-    letterSpacing: 0.5,
+    fontWeight: '600' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1.5,
+    marginTop: 2,
   },
   headerBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.goldMuted,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: 'rgba(212,175,55,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.2)',
-  },
-  revenueSummary: {
-    backgroundColor: '#141414',
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.12)',
-  },
-  revenueMain: {
-    marginBottom: 14,
-  },
-  revenueLabel: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginBottom: 4,
-    textTransform: 'uppercase' as const,
-    letterSpacing: 1,
-  },
-  revenueAmount: {
-    fontSize: 32,
-    fontWeight: '800' as const,
-    color: Colors.gold,
-  },
-  revenueDivider: {
-    height: 1,
-    backgroundColor: Colors.border,
-    marginBottom: 14,
-  },
-  revenueSecondary: {
-    flexDirection: 'row' as const,
-    gap: 24,
-  },
-  revenueItem: {},
-  revenueItemLabel: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginBottom: 2,
-  },
-  revenueItemValue: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: Colors.white,
+    borderColor: 'rgba(212,175,55,0.15)',
   },
   tabContainer: {
     flexDirection: 'row' as const,
-    marginTop: 20,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 20,
     padding: 4,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
   tab: {
     flex: 1,
     flexDirection: 'row' as const,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingVertical: 12,
+    borderRadius: 16,
   },
   tabActive: {
-    backgroundColor: 'rgba(212,175,55,0.15)',
+    backgroundColor: 'rgba(212,175,55,0.2)',
   },
   tabText: {
     fontSize: 13,
@@ -726,16 +713,63 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: Colors.gold,
+    fontWeight: '700' as const,
+  },
+  revenueSummary: {
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.18)',
+  },
+  revenueMain: {
+    marginBottom: 20,
+  },
+  revenueLabel: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    fontWeight: '700' as const,
+    marginBottom: 8,
+    letterSpacing: 2,
+  },
+  revenueAmount: {
+    fontSize: 38,
+    fontWeight: '900' as const,
+    color: Colors.gold,
+    letterSpacing: -1,
+  },
+  revenueDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginBottom: 20,
+  },
+  revenueDividerVertical: {
+    width: 1,
+    height: 40,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: 16,
+  },
+  revenueSecondary: {
+    flexDirection: 'row' as const,
+  },
+  revenueItem: {},
+  revenueItemLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '500' as const,
+    marginBottom: 4,
+  },
+  revenueItemValue: {
+    fontSize: 18,
+    fontWeight: '800' as const,
+    color: Colors.white,
   },
   forecastSummary: {
     flexDirection: 'row' as const,
-    alignItems: 'center', 
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    marginTop: 20,
-    borderRadius: 16,
-    padding: 16,
+    alignItems: 'center',
+    borderRadius: 24,
+    padding: 24,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   forecastStat: {
     flex: 1,
@@ -743,206 +777,95 @@ const styles = StyleSheet.create({
   forecastStatLabel: {
     fontSize: 11,
     color: Colors.textMuted,
-    marginBottom: 4,
+    fontWeight: '600' as const,
+    marginBottom: 6,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1,
   },
   forecastStatValueRow: {
     flexDirection: 'row' as const,
     alignItems: 'center',
   },
   forecastStatValue: {
-    fontSize: 18,
-    fontWeight: '700' as const,
-    color: Colors.white,
-    marginLeft: 4,
-  },
-  forecastContainer: {
-    padding: 20,
-  },
-  forecastCard: {
-    backgroundColor: '#141414',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  forecastHeader: {
-    flexDirection: 'row' as const,
-    alignItems: 'center', 
-    marginBottom: 16,
-  },
-  forecastTitle: {
-    fontSize: 14,
-    fontWeight: '700' as const,
-    color: Colors.white,
-    marginLeft: 10,
-  },
-  storageGrid: {
-    flexDirection: 'row' as const,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  storageItem: {
-    flex: 1,
-  },
-  storageLabel: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginBottom: 4,
-  },
-  storageValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '800' as const,
     color: Colors.white,
-  },
-  storageDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: Colors.border,
-    marginHorizontal: 16,
-  },
-  alertBox: {
-    flexDirection: 'row' as const,
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,153,0,0.08)',
-    padding: 10,
-    borderRadius: 8,
-  },
-  alertText: {
-    fontSize: 11,
-    color: Colors.warning,
-    marginLeft: 8,
-    flex: 1,
-  },
-  costRow: {
-    flexDirection: 'row' as const,
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  costLabel: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginBottom: 2,
-  },
-  costValue: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: Colors.white,
-  },
-  costBadge: {
-    flexDirection: 'row' as const,
-    alignItems: 'center',
-    backgroundColor: 'rgba(46,204,113,0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  costBadgeText: {
-    fontSize: 10,
-    fontWeight: '700' as const,
-    color: Colors.success,
-    marginLeft: 4,
-  },
-  costRatio: {
-    fontSize: 12,
-    color: Colors.success,
-    fontWeight: '600' as const,
-  },
-  packageList: {
-    marginTop: 8,
-  },
-  packageItem: {
-    marginBottom: 16,
-  },
-  packageInfo: {
-    flexDirection: 'row' as const,
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  packageName: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.white,
-  },
-  packageShare: {
-    fontSize: 11,
-    color: Colors.textMuted,
-  },
-  shareBarTrack: {
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 3,
-    overflow: 'hidden' as const,
-  },
-  shareBarFill: {
-    height: '100%',
-    borderRadius: 3,
+    marginLeft: 6,
   },
   quickActionsSection: {
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginTop: 28,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '800' as const,
+    color: Colors.white,
+    marginBottom: 16,
+    letterSpacing: -0.5,
   },
   quickActionsGrid: {
     flexDirection: 'row' as const,
-    gap: 10,
+    flexWrap: 'wrap' as const,
+    gap: 12,
   },
   quickAction: {
-    flex: 1,
-    alignItems: 'center',
-    backgroundColor: '#141414',
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
+    width: (width - 52) / 2,
+    backgroundColor: '#161616',
+    borderRadius: 20,
+    padding: 18,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.05)',
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: 12,
   },
   quickActionIcon: {
     width: 44,
     height: 44,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.03)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
   },
   quickActionBadge: {
     position: 'absolute' as const,
-    top: -4,
-    right: -4,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: Colors.error,
+    top: -5,
+    right: -5,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: '#161616',
   },
   quickActionBadgeText: {
     fontSize: 10,
-    fontWeight: '700' as const,
-    color: Colors.white,
+    fontWeight: '800' as const,
+    color: Colors.background,
   },
   quickActionLabel: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-    fontWeight: '500' as const,
-    textAlign: 'center' as const,
+    fontSize: 13,
+    fontWeight: '700' as const,
+    color: Colors.white,
+    flex: 1,
   },
   statsGrid: {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     paddingHorizontal: 20,
-    gap: 10,
-    marginBottom: 20,
+    gap: 12,
+    marginTop: 24,
   },
   statCard: {
-    width: (width - 50) / 2,
-    backgroundColor: '#141414',
-    borderRadius: 14,
-    padding: 16,
+    width: (width - 52) / 2,
+    backgroundColor: '#111111',
+    borderRadius: 20,
+    padding: 20,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.04)',
   },
   statIconContainer: {
     width: 36,
@@ -950,106 +873,100 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   statValue: {
     fontSize: 24,
     fontWeight: '800' as const,
     color: Colors.white,
-    marginBottom: 2,
+    letterSpacing: -0.5,
   },
   statLabel: {
     fontSize: 12,
     color: Colors.textMuted,
+    fontWeight: '600' as const,
+    marginTop: 4,
   },
   statSub: {
-    fontSize: 11,
-    color: Colors.success,
-    marginTop: 2,
-    fontWeight: '500' as const,
-  },
-  section: {
-    paddingHorizontal: 20,
-    marginBottom: 20,
+    fontSize: 10,
+    color: Colors.gold,
+    fontWeight: '700' as const,
+    marginTop: 4,
+    textTransform: 'uppercase' as const,
   },
   sectionHeader: {
+    paddingHorizontal: 20,
+    marginTop: 32,
+    marginBottom: 16,
     flexDirection: 'row' as const,
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: Colors.white,
-    marginBottom: 12,
-  },
-  seeAll: {
-    fontSize: 13,
-    color: Colors.gold,
-    fontWeight: '500' as const,
-    marginBottom: 12,
+  section: {
+    paddingHorizontal: 20,
+    marginTop: 20,
   },
   chartContainer: {
-    backgroundColor: '#141414',
-    borderRadius: 16,
-    padding: 18,
+    backgroundColor: '#111111',
+    borderRadius: 24,
+    padding: 24,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.04)',
   },
   chartHeader: {
     flexDirection: 'row' as const,
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
   chartTitle: {
-    fontSize: 13,
+    fontSize: 14,
+    fontWeight: '600' as const,
     color: Colors.textMuted,
   },
   chartBadge: {
     flexDirection: 'row' as const,
     alignItems: 'center',
-    gap: 2,
-    backgroundColor: 'rgba(46,204,113,0.12)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    backgroundColor: 'rgba(52,199,89,0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 4,
   },
   chartBadgeText: {
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '700' as const,
     color: Colors.success,
-    fontWeight: '600' as const,
   },
   chartAmount: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '800' as const,
     color: Colors.white,
-    marginBottom: 18,
+    marginBottom: 24,
   },
   chartBars: {
     flexDirection: 'row' as const,
+    height: 120,
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    height: 100,
-    gap: 6,
+    paddingHorizontal: 4,
   },
   chartBarColumn: {
-    flex: 1,
     alignItems: 'center',
+    width: 24,
   },
   chartBarTrack: {
-    width: '100%',
-    height: 80,
-    borderRadius: 6,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    flex: 1,
+    width: 6,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 3,
+    marginBottom: 8,
     justifyContent: 'flex-end',
-    overflow: 'hidden' as const,
   },
   chartBar: {
     width: '100%',
-    borderRadius: 6,
-    backgroundColor: 'rgba(212,175,55,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 3,
   },
   chartBarActive: {
     backgroundColor: Colors.gold,
@@ -1057,145 +974,290 @@ const styles = StyleSheet.create({
   chartBarLabel: {
     fontSize: 10,
     color: Colors.textMuted,
-    marginTop: 6,
-    fontWeight: '500' as const,
+    fontWeight: '600' as const,
   },
   chartBarLabelActive: {
     color: Colors.gold,
-    fontWeight: '700' as const,
+    fontWeight: '800' as const,
   },
   smsCard: {
-    backgroundColor: '#141414',
-    borderRadius: 16,
-    padding: 16,
-    overflow: 'hidden' as const,
+    borderRadius: 24,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(212,175,55,0.15)',
+    backgroundColor: '#111111',
   },
   smsCardHeader: {
     flexDirection: 'row' as const,
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 14,
+    padding: 20,
+    gap: 16,
   },
   smsIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.goldMuted,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: 'rgba(212,175,55,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.1)',
   },
   smsCardContent: {
     flex: 1,
   },
   smsCardTitle: {
-    fontSize: 13,
+    fontSize: 14,
+    fontWeight: '600' as const,
     color: Colors.textMuted,
+    marginBottom: 2,
   },
   smsCardBalance: {
-    fontSize: 18,
-    fontWeight: '700' as const,
+    fontSize: 20,
+    fontWeight: '800' as const,
     color: Colors.white,
   },
   smsRefillButton: {
     backgroundColor: Colors.gold,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 10,
+    borderRadius: 12,
   },
   smsRefillText: {
     fontSize: 13,
-    fontWeight: '600' as const,
+    fontWeight: '700' as const,
     color: Colors.background,
   },
   smsBarTrack: {
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 3,
-    overflow: 'hidden' as const,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    width: '100%',
   },
   smsBarFill: {
     height: '100%',
-    borderRadius: 3,
     backgroundColor: Colors.gold,
+  },
+  seeAll: {
+    fontSize: 13,
+    fontWeight: '700' as const,
+    color: Colors.gold,
   },
   pendingItem: {
     flexDirection: 'row' as const,
     alignItems: 'center',
-    backgroundColor: '#141414',
+    backgroundColor: '#111111',
+    borderRadius: 20,
     padding: 16,
-    borderRadius: 14,
-    marginBottom: 10,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.04)',
+    gap: 14,
   },
   pendingItemIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,153,0,0.1)',
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,159,10,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   pendingItemContent: {
     flex: 1,
   },
   pendingItemTitle: {
-    fontSize: 14,
-    fontWeight: '600' as const,
+    fontSize: 15,
+    fontWeight: '700' as const,
     color: Colors.white,
     marginBottom: 2,
   },
   pendingItemSub: {
-    fontSize: 12,
+    fontSize: 13,
     color: Colors.textMuted,
   },
   bookingItem: {
     flexDirection: 'row' as const,
     alignItems: 'center',
-    backgroundColor: '#141414',
+    backgroundColor: '#111111',
+    borderRadius: 20,
     padding: 16,
-    borderRadius: 14,
-    marginBottom: 10,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.04)',
+    gap: 14,
   },
   bookingStatus: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   bookingStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   bookingItemContent: {
     flex: 1,
   },
   bookingItemTitle: {
-    fontSize: 14,
-    fontWeight: '600' as const,
+    fontSize: 15,
+    fontWeight: '700' as const,
     color: Colors.white,
     marginBottom: 2,
   },
   bookingItemSub: {
     fontSize: 12,
     color: Colors.textMuted,
+    lineHeight: 18,
   },
   bookingTypeBadge: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
   },
   bookingTypeText: {
     fontSize: 11,
-    color: Colors.textSecondary,
+    fontWeight: '700' as const,
+    color: Colors.textMuted,
+    textTransform: 'uppercase' as const,
+  },
+  forecastContainer: {
+    padding: 20,
+    gap: 20,
+  },
+  forecastCard: {
+    backgroundColor: '#111111',
+    borderRadius: 28,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+  },
+  forecastHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  forecastTitle: {
+    fontSize: 16,
+    fontWeight: '800' as const,
+    color: Colors.white,
+    marginLeft: 12,
+    letterSpacing: -0.3,
+  },
+  iconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premiumAlert: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  storageGrid: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  storageItem: {
+    flex: 1,
+  },
+  storageLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '600' as const,
+    marginBottom: 8,
+  },
+  storageValue: {
+    fontSize: 24,
+    fontWeight: '800' as const,
+    color: Colors.white,
+  },
+  storageDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginHorizontal: 20,
+  },
+  alertText: {
+    fontSize: 12,
+    color: Colors.warning,
+    flex: 1,
+    lineHeight: 18,
+    fontWeight: '600' as const,
+  },
+  costRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  costLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '600' as const,
+    marginBottom: 4,
+  },
+  costValue: {
+    fontSize: 20,
+    fontWeight: '800' as const,
+    color: Colors.white,
+  },
+  costBadge: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    backgroundColor: 'rgba(52,199,89,0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 6,
+  },
+  costBadgeText: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: Colors.success,
+  },
+  costRatio: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '600' as const,
+  },
+  packageList: {
+    gap: 20,
+  },
+  packageItem: {},
+  packageInfo: {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginBottom: 10,
+  },
+  packageName: {
+    fontSize: 15,
+    fontWeight: '700' as const,
+    color: Colors.white,
+  },
+  packageShare: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '600' as const,
+  },
+  shareBarTrack: {
+    height: 8,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  shareBarFill: {
+    height: '100%',
+    borderRadius: 4,
   },
 });
+

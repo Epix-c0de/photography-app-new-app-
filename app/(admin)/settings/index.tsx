@@ -25,12 +25,16 @@ import {
   FileText,
   Fingerprint,
   Moon,
+  Share2,
+  ExternalLink,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { useAuth } from '@/contexts/AuthContext';
-import { useBranding } from '@/contexts/BrandingContext';
+import { useBranding, DEFAULTS } from '@/contexts/BrandingContext';
 import { useRouter } from 'expo-router';
 import Colors from '@/constants/colors';
+import { supabase } from '@/lib/supabase';
 
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -116,7 +120,8 @@ export default function AdminSettingsScreen() {
   const [autoLockGalleries, setAutoLockGalleries] = useState<boolean>(true);
   const [darkModeOnly, setDarkModeOnly] = useState<boolean>(true);
   const [screenshotProtection, setScreenshotProtection] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'general' | 'security'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'security' | 'links'>('general');
+  const [savingLinks, setSavingLinks] = useState(false);
   const [changeEmailOpen, setChangeEmailOpen] = useState<boolean>(false);
   const [newEmail, setNewEmail] = useState<string>('');
   const [emailPassword, setEmailPassword] = useState<string>('');
@@ -130,6 +135,49 @@ export default function AdminSettingsScreen() {
 
   const adminEmail = user?.role === 'admin' ? user.email : 'admin@epixvisualsstudios.co';
   const adminPhone = user?.role === 'admin' ? user.phone : '+254711111111';
+
+  const [mpesaMode, setMpesaMode] = useState<'STK_PUSH' | 'MANUAL'>('STK_PUSH');
+  const [shareAppLink, setShareAppLink] = useState('https://studio.epix.co/share/');
+  const [accessCodeDeliveryLink, setAccessCodeDeliveryLink] = useState('https://studio.epix.co/unlock?code=');
+
+  const handleSaveLinks = useCallback(async () => {
+    try {
+      setSavingLinks(true);
+      const { error } = await supabase
+        .from('admin_settings')
+        .upsert({
+          admin_id: user?.id,
+          share_app_link: shareAppLink,
+          access_code_delivery_link: accessCodeDeliveryLink,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'admin_id' });
+
+      if (error) throw error;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success', 'Links updated successfully');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to save links');
+    } finally {
+      setSavingLinks(false);
+    }
+  }, [user?.id, shareAppLink, accessCodeDeliveryLink]);
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      if (!user) return;
+      const { data } = await supabase
+        .from('admin_settings')
+        .select('*')
+        .eq('admin_id', user.id)
+        .maybeSingle();
+      
+      if (data) {
+        if (data.share_app_link) setShareAppLink(data.share_app_link);
+        if (data.access_code_delivery_link) setAccessCodeDeliveryLink(data.access_code_delivery_link);
+      }
+    };
+    fetchSettings();
+  }, [user]);
 
   useEffect(() => {
     if (!brandSettings) return;
@@ -194,6 +242,7 @@ export default function AdminSettingsScreen() {
     ]);
   }, [logout, router]);
 
+  const [refillingSms, setRefillingSms] = useState(false);
   const handleRefillSms = useCallback(() => {
     (async () => {
       const ok = await handleGuardOrFallback('buy_sms_bundles');
@@ -204,16 +253,48 @@ export default function AdminSettingsScreen() {
         'Purchase 500 SMS credits via M-Pesa for KES 2,500?',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Buy Now', onPress: () => Alert.alert('Success', 'M-Pesa STK push sent to your phone.') },
+          { 
+            text: 'Buy Now', 
+            onPress: async () => {
+              setRefillingSms(true);
+              try {
+                const { error } = await supabase.functions.invoke('buy_sms', {
+                  body: { amount: 500, phone_number: adminPhone }
+                });
+                if (error) throw error;
+                Alert.alert('Success', 'M-Pesa STK push sent to your phone. Check your phone to complete payment.');
+              } catch (e: any) {
+                Alert.alert('Refill Failed', e.message || 'Could not initiate connection');
+              } finally {
+                setRefillingSms(false);
+              }
+            } 
+          },
         ]
       );
     })();
-  }, [handleGuardOrFallback]);
+  }, [handleGuardOrFallback, adminPhone]);
 
-  const handleTestSms = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert('Test SMS', 'A test SMS has been sent to your admin number.');
-  }, []);
+  const [testingSms, setTestingSms] = useState(false);
+  const handleTestSms = useCallback(async () => {
+    if (!adminPhone) {
+      Alert.alert('Error', 'No admin phone number configured.');
+      return;
+    }
+    setTestingSms(true);
+    try {
+      const { error } = await supabase.functions.invoke('send_sms', {
+        body: { phoneNumber: adminPhone, message: 'This is a test SMS from Epix Visuals Settings.' }
+      });
+      if (error) throw error;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Test SMS', 'A test SMS has been sent to your admin number.');
+    } catch (e: any) {
+      Alert.alert('SMS Failed', e.message || 'Could not send test SMS');
+    } finally {
+      setTestingSms(false);
+    }
+  }, [adminPhone]);
 
   const handleSaveBranding = useCallback(() => {
     (async () => {
@@ -249,6 +330,8 @@ export default function AdminSettingsScreen() {
           watermark_size: watermarkSize as any,
           watermark_position: watermarkPosition as any,
           block_screenshots: screenshotProtection,
+          share_app_link: shareAppLink.trim(),
+          access_code_link: accessCodeDeliveryLink.trim(),
         });
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -292,6 +375,15 @@ export default function AdminSettingsScreen() {
             <Text style={[styles.tabText, activeTab === 'general' && styles.tabTextActive]}>General</Text>
           </Pressable>
           <Pressable
+            style={[styles.tab, activeTab === 'links' && styles.tabActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveTab('links');
+            }}
+          >
+            <Text style={[styles.tabText, activeTab === 'links' && styles.tabTextActive]}>Links</Text>
+          </Pressable>
+          <Pressable
             style={[styles.tab, activeTab === 'security' && styles.tabActive]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -320,9 +412,16 @@ export default function AdminSettingsScreen() {
                 showArrow
               />
               <SettingsRow
+                icon={<Smartphone size={18} color={Colors.gold} />}
+                label="Simple M-PESA Setup"
+                description="Connect your number for instant STK payments"
+                onPress={() => router.push('/(admin)/settings/simple-mpesa')}
+                showArrow
+              />
+              <SettingsRow
                 icon={<CreditCard size={18} color={Colors.gold} />}
-                label="Payments Configuration"
-                description="M-Pesa paybill, references & recipients"
+                label="Advanced Payments"
+                description="Daraja API, shortcodes & certificates"
                 onPress={() => router.push('/(admin)/settings/payments')}
                 showArrow
               />
@@ -454,6 +553,28 @@ export default function AdminSettingsScreen() {
                   </View>
                 </>
               )}
+
+              <View style={styles.inputRow}>
+                <Share2 size={16} color={Colors.textMuted} />
+                <TextInput
+                  style={styles.settingsInput}
+                  value={shareAppLink}
+                  onChangeText={setShareAppLink}
+                  placeholder="App share link"
+                  placeholderTextColor={Colors.textMuted}
+                />
+              </View>
+
+              <View style={styles.inputRow}>
+                <ExternalLink size={16} color={Colors.textMuted} />
+                <TextInput
+                  style={styles.settingsInput}
+                  value={accessCodeDeliveryLink}
+                  onChangeText={setAccessCodeDeliveryLink}
+                  placeholder="Access code direct link"
+                  placeholderTextColor={Colors.textMuted}
+                />
+              </View>
             </SettingsSection>
 
             <SettingsSection title="SECURITY">
@@ -513,6 +634,38 @@ export default function AdminSettingsScreen() {
               />
             </SettingsSection>
           </>
+        ) : activeTab === 'links' ? (
+          <SettingsSection title="CUSTOM LINKS">
+            <View style={styles.inputRow}>
+              <Share2 size={16} color={Colors.textMuted} />
+              <TextInput
+                style={styles.settingsInput}
+                value={shareAppLink}
+                onChangeText={setShareAppLink}
+                placeholder="Share App Link"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="none"
+              />
+            </View>
+            <View style={styles.inputRow}>
+              <ExternalLink size={16} color={Colors.textMuted} />
+              <TextInput
+                style={styles.settingsInput}
+                value={accessCodeDeliveryLink}
+                onChangeText={setAccessCodeDeliveryLink}
+                placeholder="Access Code Delivery Link"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="none"
+              />
+            </View>
+            <Pressable 
+              style={[styles.primaryBtn, savingLinks && { opacity: 0.7 }]}
+              onPress={handleSaveLinks}
+              disabled={savingLinks}
+            >
+              <Text style={styles.primaryBtnText}>{savingLinks ? 'Saving...' : 'Save Links'}</Text>
+            </Pressable>
+          </SettingsSection>
         ) : (
           <>
             <SettingsSection title="ACCOUNT IDENTITY">
@@ -745,35 +898,76 @@ export default function AdminSettingsScreen() {
                 label="Enable Face ID / fingerprint"
                 description="Use biometrics for admin verification"
                 value={adminSecurity.biometricEnabled}
-                onToggle={(val) => updateAdminSecurity({ biometricEnabled: val })}
+                onToggle={async (val) => {
+                  if (val) {
+                     const supported = await LocalAuthentication.hasHardwareAsync() && await LocalAuthentication.isEnrolledAsync();
+                     if (!supported) {
+                       Alert.alert('Not Supported', 'Biometrics are not set up on this device.');
+                       return;
+                     }
+                     const result = await LocalAuthentication.authenticateAsync({
+                       promptMessage: 'Verify your identity to enable biometrics',
+                       fallbackLabel: 'Use Device Passcode',
+                     });
+                     if (result.success) {
+                       updateAdminSecurity({ biometricEnabled: true });
+                     }
+                  } else {
+                     updateAdminSecurity({ biometricEnabled: false });
+                  }
+                }}
               />
               <SettingsToggle
                 icon={<Shield size={18} color={Colors.textSecondary} />}
                 label="Require for Admin Dashboard"
                 description="Prompt verification when opening dashboard"
                 value={adminSecurity.requireBiometricForDashboard}
-                onToggle={(val) => updateAdminSecurity({ requireBiometricForDashboard: val })}
+                onToggle={(val) => {
+                  if (val && !adminSecurity.biometricEnabled) {
+                    Alert.alert('Enable Biometrics First', 'You must enable Face ID / fingerprint first.');
+                    return;
+                  }
+                  updateAdminSecurity({ requireBiometricForDashboard: val });
+                }}
               />
               <SettingsToggle
                 icon={<FileText size={18} color={Colors.textSecondary} />}
                 label="Require for Upload"
                 description="Prompt verification before uploads"
                 value={adminSecurity.requireBiometricForUpload}
-                onToggle={(val) => updateAdminSecurity({ requireBiometricForUpload: val })}
+                onToggle={(val) => {
+                  if (val && !adminSecurity.biometricEnabled) {
+                    Alert.alert('Enable Biometrics First', 'You must enable Face ID / fingerprint first.');
+                    return;
+                  }
+                  updateAdminSecurity({ requireBiometricForUpload: val });
+                }}
               />
               <SettingsToggle
                 icon={<Zap size={18} color={Colors.textSecondary} />}
                 label="Require for M-Pesa"
                 description="Prompt verification before STK push"
                 value={adminSecurity.requireBiometricForMpesa}
-                onToggle={(val) => updateAdminSecurity({ requireBiometricForMpesa: val })}
+                onToggle={(val) => {
+                  if (val && !adminSecurity.biometricEnabled) {
+                    Alert.alert('Enable Biometrics First', 'You must enable Face ID / fingerprint first.');
+                    return;
+                  }
+                  updateAdminSecurity({ requireBiometricForMpesa: val });
+                }}
               />
               <SettingsToggle
                 icon={<Smartphone size={18} color={Colors.textSecondary} />}
                 label="Require for SMS bundles"
                 description="Prompt verification before buying bundles"
                 value={adminSecurity.requireBiometricForSmsBundles}
-                onToggle={(val) => updateAdminSecurity({ requireBiometricForSmsBundles: val })}
+                onToggle={(val) => {
+                  if (val && !adminSecurity.biometricEnabled) {
+                    Alert.alert('Enable Biometrics First', 'You must enable Face ID / fingerprint first.');
+                    return;
+                  }
+                  updateAdminSecurity({ requireBiometricForSmsBundles: val });
+                }}
               />
               <SettingsRow
                 icon={<RotateCw size={18} color={Colors.gold} />}
@@ -782,7 +976,12 @@ export default function AdminSettingsScreen() {
                 onPress={async () => {
                   const ok = await handleGuardOrFallback('open_dashboard');
                   if (!ok) return;
-                  Alert.alert('Re-enroll', 'Biometric re-enrollment will be handled by the device security settings.');
+                  const result = await LocalAuthentication.authenticateAsync({
+                    promptMessage: 'Re-enroll by verifying your identity',
+                  });
+                  if (result.success) {
+                    Alert.alert('Success', 'Biometrics verified successfully.');
+                  }
                 }}
                 showArrow
               />

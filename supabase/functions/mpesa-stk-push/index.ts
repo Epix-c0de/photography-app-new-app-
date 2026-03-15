@@ -1,4 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
+// @ts-nocheck
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,15 +17,16 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { phone_number, amount, gallery_id, reference } = await req.json();
+    const { phone_number, amount, gallery_id } = await req.json();
 
     if (!phone_number || !amount || !gallery_id) {
       throw new Error('Missing required fields');
     }
 
+    // 1. Verify gallery exists and is locked
     const { data: gallery, error: galleryError } = await supabase
       .from('galleries')
-      .select('id, owner_admin_id, client_id, price, access_code, name, is_paid')
+      .select('id, owner_admin_id, client_id, is_locked, is_paid, price, name')
       .eq('id', gallery_id)
       .single();
 
@@ -32,153 +34,170 @@ Deno.serve(async (req: Request) => {
       throw new Error('Gallery not found');
     }
 
-    if (gallery.is_paid) {
-      throw new Error('Gallery already paid. Download unlocked.');
+    if (!gallery.is_locked || gallery.is_paid) {
+      throw new Error('Gallery is already unlocked or paid');
     }
 
-    const ownerAdminId = gallery.owner_admin_id as string;
-    const clientId = gallery.client_id as string;
-    const amountToCharge = Number.isFinite(Number(amount)) ? Number(amount) : Number(gallery.price);
-    const accountReference = reference || gallery.access_code || gallery.name || 'Gallery';
-
-    const { data: reserved, error: reserveError } = await supabase.rpc('reserve_gallery_payment', {
-      p_gallery_id: gallery_id,
-      p_client_id: clientId,
-      p_client_phone: String(phone_number),
-      p_amount: amountToCharge,
-    });
-    if (reserveError) {
-      if (reserveError.message?.includes('GALLERY_ALREADY_PAID')) {
-        throw new Error('Gallery already paid. Download unlocked.');
-      }
-      if (reserveError.message?.includes('PAYMENT_IN_PROGRESS')) {
-        throw new Error('Payment already in progress. Please complete it.');
-      }
-      throw new Error('Unable to reserve payment');
-    }
-    const paymentId = typeof reserved === 'string' ? reserved : Array.isArray(reserved) ? reserved[0] : reserved;
-    if (!paymentId) {
-      throw new Error('Unable to reserve payment');
-    }
-
-    // 1. Get Payment Config (scoped to the gallery owner admin)
-    const { data: config, error: configError } = await supabase
-      .from('payment_config')
-      .select('*')
-      .eq('admin_id', ownerAdminId)
+    // 2. Prevent duplicate payments
+    // If status = success -> reject
+    // If status = pending AND created < 10 mins -> reject
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: existingTx, error: txError } = await supabase
+      .from('mpesa_transactions')
+      .select('id, status, created_at')
+      .eq('gallery_id', gallery_id)
+      .or(`status.eq.success,and(status.eq.pending,created_at.gt.${tenMinutesAgo})`)
       .maybeSingle();
 
-    if (configError || !config) {
-      console.error('Payment config missing:', configError);
-      throw new Error('Payment configuration not found');
-    }
-
-    const shortcode = config.mpesa_shortcode;
-    const passkey = Deno.env.get('MPESA_PASSKEY'); // Environment Variable
-    const consumerKey = Deno.env.get('MPESA_CONSUMER_KEY'); // Environment Variable
-    const consumerSecret = Deno.env.get('MPESA_CONSUMER_SECRET'); // Environment Variable
-    const callbackUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/mpesa-callback`;
-
-    // 2. Mock STK Push if no credentials (for dev/demo)
-    if (!passkey || !consumerKey || !consumerSecret) {
-      console.log('Missing M-Pesa credentials, using mock response');
-      
-      const mockCheckoutRequestID = `ws_CO_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-      
-      const { error: paymentError } = await supabase
-        .from('payments')
-        .update({
-          checkout_request_id: mockCheckoutRequestID,
-          mpesa_checkout_request_id: mockCheckoutRequestID,
-          phone_number: phone_number,
-          client_phone: phone_number,
-        })
-        .eq('id', paymentId);
-
-      if (paymentError) {
-        console.error('Failed to update payment record:', paymentError);
-        throw new Error('Failed to record payment');
+    if (existingTx) {
+      if (existingTx.status === 'success') {
+        throw new Error('Gallery already paid');
       }
-
-      // Simulate callback after 5 seconds (optional, for testing without real callback)
-      // In production, we just return and wait for real callback.
-      
-      return new Response(
-        JSON.stringify({
-          checkout_request_id: mockCheckoutRequestID,
-          MerchantRequestID: `MR-${Date.now()}`,
-          CheckoutRequestID: mockCheckoutRequestID,
-          ResponseCode: '0',
-          ResponseDescription: 'Success. Request accepted for processing',
-          CustomerMessage: 'Success. Request accepted for processing',
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      throw new Error('A payment is already pending. Please wait 10 minutes before retrying.');
     }
 
-    // 3. Real STK Push Implementation
-    
-    // A. Get Access Token
-    const auth = btoa(`${consumerKey}:${consumerSecret}`);
-    const tokenRes = await fetch('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
+    // 3. Get Payment Settings for the admin
+    let mpesaSettings = null;
+
+    // First try Simple Payment Settings
+    const { data: simpleSettings } = await supabase
+      .from('simple_payment_settings')
+      .select('*')
+      .eq('admin_id', gallery.owner_admin_id)
+      .maybeSingle();
+
+    if (simpleSettings && simpleSettings.mpesa_number) {
+      // Use platform-wide credentials but log the admin's number
+      mpesaSettings = {
+        environment: 'sandbox', // Or production
+        consumer_key: Deno.env.get('PLATFORM_MPESA_CONSUMER_KEY') || Deno.env.get('MPESA_CONSUMER_KEY'),
+        consumer_secret: Deno.env.get('PLATFORM_MPESA_CONSUMER_SECRET') || Deno.env.get('MPESA_CONSUMER_SECRET'),
+        shortcode: Deno.env.get('PLATFORM_MPESA_SHORTCODE') || Deno.env.get('MPESA_SHORTCODE'),
+        passkey: Deno.env.get('PLATFORM_MPESA_PASSKEY') || Deno.env.get('MPESA_PASSKEY'),
+      };
+    } else {
+      // Fallback to advanced Daraja settings
+      const { data: advancedSettings, error: settingsError } = await supabase
+        .from('payment_settings')
+        .select('*')
+        .eq('admin_id', gallery.owner_admin_id)
+        .single();
+
+      if (settingsError || !advancedSettings) {
+        console.error('Payment settings missing for admin:', gallery.owner_admin_id);
+        throw new Error('M-PESA is not configured for this gallery. Please set up payment in admin settings.');
+      }
+      mpesaSettings = advancedSettings;
+    }
+
+    const {
+      environment,
+      consumer_key,
+      consumer_secret,
+      shortcode,
+      passkey,
+    } = mpesaSettings;
+
+    if (!consumer_key || !consumer_secret || !shortcode || !passkey) {
+      throw new Error('M-PESA configuration is incomplete');
+    }
+
+    const baseUrl = environment === 'production'
+      ? 'https://api.safaricom.co.ke'
+      : 'https://sandbox.safaricom.co.ke';
+
+    // 4. Generate Access Token
+    const auth = btoa(`${consumer_key}:${consumer_secret}`);
+    const tokenRes = await fetch(`${baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
       headers: { 'Authorization': `Basic ${auth}` }
     });
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
 
     if (!accessToken) {
-      await supabase.from('payments').update({ status: 'failed' }).eq('id', paymentId);
-      throw new Error('Failed to generate M-Pesa access token');
+      throw new Error('Failed to authenticate with Safaricom');
     }
 
-    // B. Generate Password
+    // 5. Generate Password and Timestamp
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
     const password = btoa(`${shortcode}${passkey}${timestamp}`);
 
-    // C. Send Request
-    const stkRes = await fetch('https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest', {
+    // 6. Initiate STK Push
+    const callbackUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/mpesa-callback`;
+    const stkBody = {
+      BusinessShortCode: shortcode,
+      Password: password,
+      Timestamp: timestamp,
+      TransactionType: "CustomerPayBillOnline",
+      Amount: Math.max(1, Math.round(Number(amount))),
+      PartyA: phone_number,
+      PartyB: shortcode,
+      PhoneNumber: phone_number,
+      CallBackURL: callbackUrl,
+      AccountReference: `GAL-${gallery_id.slice(0, 8).toUpperCase()}`,
+      TransactionDesc: `Unlocking Gallery: ${gallery.name}`
+    };
+
+    // Log request
+    await supabase.from('mpesa_logs').insert({ request_payload: stkBody });
+
+    const stkRes = await fetch(`${baseUrl}/mpesa/stkpush/v1/processrequest`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        BusinessShortCode: shortcode,
-        Password: password,
-        Timestamp: timestamp,
-        TransactionType: "CustomerPayBillOnline",
-        Amount: Math.max(1, Math.round(amountToCharge)),
-        PartyA: phone_number,
-        PartyB: shortcode,
-        PhoneNumber: phone_number,
-        CallBackURL: callbackUrl,
-        AccountReference: accountReference,
-        TransactionDesc: `Payment for Gallery ${gallery_id}`
-      })
+      body: JSON.stringify(stkBody)
     });
 
     const stkData = await stkRes.json();
+    
+    // Log response
+    await supabase.from('mpesa_logs').insert({ response_payload: stkData });
 
     if (stkData.ResponseCode !== "0") {
-      await supabase.from('payments').update({ status: 'failed' }).eq('id', paymentId);
       throw new Error(stkData.ResponseDescription || 'STK Push failed');
     }
 
-    await supabase
-      .from('payments')
-      .update({
-        checkout_request_id: stkData.CheckoutRequestID,
-        merchant_request_id: stkData.MerchantRequestID,
-        mpesa_checkout_request_id: stkData.CheckoutRequestID,
+    // 7. Create transaction and payment records
+    const { error: insertError } = await supabase
+      .from('mpesa_transactions')
+      .insert({
+        gallery_id: gallery_id,
+        client_id: gallery.client_id,
         phone_number: phone_number,
-        client_phone: phone_number,
-      })
-      .eq('id', paymentId);
+        amount: Number(amount),
+        merchant_request_id: stkData.MerchantRequestID,
+        checkout_request_id: stkData.CheckoutRequestID,
+        status: 'pending'
+      });
+
+    if (insertError) {
+      console.error('Failed to record mpesa transaction:', insertError);
+    }
+
+    // Also add to global payments table for unified history/accounting
+    const { error: paymentError } = await supabase
+      .from('payments')
+      .insert({
+        owner_admin_id: gallery.owner_admin_id,
+        client_id: gallery.client_id,
+        gallery_id: gallery_id,
+        amount: Number(amount),
+        status: 'pending',
+        mpesa_checkout_request_id: stkData.CheckoutRequestID,
+        phone_number: phone_number
+      });
+
+    if (paymentError) {
+      console.error('Failed to record global payment:', paymentError);
+    }
 
     return new Response(
       JSON.stringify({
-        ...stkData,
+        message: 'STK Push sent successfully',
         checkout_request_id: stkData.CheckoutRequestID,
+        ...stkData
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

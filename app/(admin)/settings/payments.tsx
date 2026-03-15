@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, ScrollView, Alert, ActivityIndicator, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, CreditCard, Save, Smartphone, User, Hash } from 'lucide-react-native';
+import { ChevronLeft, CreditCard, Save, Smartphone, User, Hash, Clock } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -19,6 +19,16 @@ export default function PaymentConfigurationScreen() {
   const [referenceFormat, setReferenceFormat] = useState<'gallery_code' | 'client_name' | 'custom_text'>('gallery_code');
   const [recipientName, setRecipientName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [consumerKey, setConsumerKey] = useState('');
+  const [consumerSecret, setConsumerSecret] = useState('');
+  const [passkey, setPasskey] = useState('');
+  const [environment, setEnvironment] = useState<'sandbox' | 'live'>('sandbox');
+  const [callbackUrl, setCallbackUrl] = useState('');
+  const [confirmationUrl, setConfirmationUrl] = useState('');
+  const [validationUrl, setValidationUrl] = useState('');
+  const [initiatorName, setInitiatorName] = useState('');
+  const [initiatorPassword, setInitiatorPassword] = useState('');
+  const [defaultPrice, setDefaultPrice] = useState('0');
   const [configId, setConfigId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,7 +40,7 @@ export default function PaymentConfigurationScreen() {
     try {
       setIsLoading(true);
       const { data, error } = await supabase
-        .from('payment_config')
+        .from('payment_settings')
         .select('*')
         .eq('admin_id', adminId)
         .maybeSingle();
@@ -42,10 +52,16 @@ export default function PaymentConfigurationScreen() {
 
       if (data) {
         setConfigId(data.id);
-        setShortcode(data.mpesa_shortcode || '');
-        setReferenceFormat((data.reference_format as any) || 'gallery_code');
-        setRecipientName(data.payment_recipient_name || '');
-        setPhoneNumber(data.receiving_phone_number || '');
+        setShortcode(data.shortcode || '');
+        setConsumerKey(data.consumer_key || '');
+        setConsumerSecret(data.consumer_secret || '');
+        setPasskey(data.passkey || '');
+        setEnvironment((data.environment as any) || 'sandbox');
+        setCallbackUrl(data.callback_url || '');
+        setConfirmationUrl(data.confirmation_url || '');
+        setValidationUrl(data.validation_url || '');
+        setInitiatorName(data.initiator_name || '');
+        setInitiatorPassword(data.initiator_password || '');
       }
     } catch (e) {
       console.error('Exception loading config:', e);
@@ -77,23 +93,29 @@ export default function PaymentConfigurationScreen() {
 
       const payload = {
         admin_id: user.id,
-        mpesa_shortcode: shortcode,
-        receiving_phone_number: phoneNumber,
-        payment_recipient_name: recipientName,
-        reference_format: referenceFormat,
+        shortcode: shortcode,
+        consumer_key: consumerKey,
+        consumer_secret: consumerSecret,
+        passkey: passkey,
+        environment: environment,
+        callback_url: callbackUrl,
+        confirmation_url: confirmationUrl,
+        validation_url: validationUrl,
+        initiator_name: initiatorName,
+        initiator_password: initiatorPassword,
         updated_at: new Date().toISOString(),
       };
 
       let error;
       if (configId) {
         const { error: updateError } = await supabase
-          .from('payment_config')
+          .from('payment_settings')
           .update(payload)
           .eq('id', configId);
         error = updateError;
       } else {
         const { error: insertError } = await supabase
-          .from('payment_config')
+          .from('payment_settings')
           .insert([payload]);
         error = insertError;
       }
@@ -117,7 +139,12 @@ export default function PaymentConfigurationScreen() {
           <ChevronLeft size={24} color={Colors.textPrimary} />
         </Pressable>
         <Text style={styles.headerTitle}>Payments Configuration</Text>
-        <View style={{ width: 24 }} />
+        <Pressable 
+          onPress={() => router.push('/(admin)/settings/mpesa-transactions')} 
+          style={styles.historyButton}
+        >
+          <Clock size={20} color={Colors.gold} />
+        </Pressable>
       </View>
 
       <KeyboardAvoidingView
@@ -199,9 +226,157 @@ export default function PaymentConfigurationScreen() {
                       style={styles.input}
                       value={phoneNumber}
                       onChangeText={setPhoneNumber}
-                      placeholder="e.g. 254712345678"
+                      placeholder="2547XXXXXXXX"
                       placeholderTextColor={Colors.textMuted}
                       keyboardType="phone-pad"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>System Callbacks</Text>
+                  <Text style={styles.helperText}>Used for automated gallery unlocking</Text>
+                  
+                  <View style={styles.subInputGroup}>
+                    <Text style={styles.subLabel}>STK Push Callback URL (HTTPS Highly Recommended)</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={callbackUrl}
+                      onChangeText={setCallbackUrl}
+                      placeholder="https://your-api.com/mpesa/callback"
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                  </View>
+
+                  <View style={styles.subInputGroup}>
+                    <Text style={styles.subLabel}>C2B Confirmation URL</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={confirmationUrl}
+                      onChangeText={setConfirmationUrl}
+                      placeholder="https://your-api.com/mpesa/confirmation"
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                  </View>
+
+                  <View style={styles.subInputGroup}>
+                    <Text style={styles.subLabel}>C2B Validation URL</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={validationUrl}
+                      onChangeText={setValidationUrl}
+                      placeholder="https://your-api.com/mpesa/validation"
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.divider} />
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>M-Pesa API Credentials</Text>
+                  <Text style={styles.helperText}>Get these from Safaricom Daraja Portal</Text>
+
+                  <View style={styles.subInputGroup}>
+                    <Text style={styles.subLabel}>Consumer Key</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={consumerKey}
+                      onChangeText={setConsumerKey}
+                      placeholder="Daraja Consumer Key"
+                      placeholderTextColor={Colors.textMuted}
+                      secureTextEntry
+                    />
+                  </View>
+
+                  <View style={styles.subInputGroup}>
+                    <Text style={styles.subLabel}>Consumer Secret</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={consumerSecret}
+                      onChangeText={setConsumerSecret}
+                      placeholder="Daraja Consumer Secret"
+                      placeholderTextColor={Colors.textMuted}
+                      secureTextEntry
+                    />
+                  </View>
+
+                  <View style={styles.subInputGroup}>
+                    <Text style={styles.subLabel}>Online Passkey</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={passkey}
+                      onChangeText={setPasskey}
+                      placeholder="Daraja Online Passkey"
+                      placeholderTextColor={Colors.textMuted}
+                      secureTextEntry
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>B2C / Initiator Credentials</Text>
+                  <View style={styles.subInputGroup}>
+                    <Text style={styles.subLabel}>Initiator Name</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={initiatorName}
+                      onChangeText={setInitiatorName}
+                      placeholder="e.g. photog_api"
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                  </View>
+                  <View style={styles.subInputGroup}>
+                    <Text style={styles.subLabel}>Initiator Password</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={initiatorPassword}
+                      onChangeText={setInitiatorPassword}
+                      placeholder="Encrypted password from portal"
+                      placeholderTextColor={Colors.textMuted}
+                      secureTextEntry
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Environment</Text>
+                  <View style={styles.row}>
+                    {(['sandbox', 'live'] as const).map((env) => (
+                      <Pressable
+                        key={env}
+                        style={[
+                          styles.chip,
+                          environment === env && styles.chipActive
+                        ]}
+                        onPress={() => setEnvironment(env)}
+                      >
+                        <Text style={[
+                          styles.chipText,
+                          environment === env && styles.chipTextActive
+                        ]}>
+                          {env.toUpperCase()}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Default Unlock Price (KES)</Text>
+                  <View style={styles.inputContainer}>
+                    <Hash size={18} color={Colors.textMuted} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={defaultPrice}
+                      onChangeText={setDefaultPrice}
+                      placeholder="50"
+                      placeholderTextColor={Colors.textMuted}
+                      keyboardType="number-pad"
                     />
                   </View>
                 </View>
@@ -251,6 +426,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: Colors.textPrimary,
+  },
+  historyButton: {
+    padding: 8,
+    marginRight: -8,
   },
   content: {
     padding: 20,
@@ -353,5 +532,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#000',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginVertical: 20,
+  },
+  subInputGroup: {
+    marginBottom: 12,
+  },
+  subLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 4,
+  },
+  textInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 12,
+    height: 40,
+    color: Colors.textPrimary,
   },
 });

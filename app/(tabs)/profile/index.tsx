@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Alert, Activit
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Settings, ChevronRight, CreditCard, FileText, Download, Heart, Shield, Bell, HelpCircle, LogOut, Award, Camera, Gift, CheckCircle, AlertCircle, Share2, User } from 'lucide-react-native';
+import { Settings, ChevronRight, CreditCard, FileText, Download, Heart, Shield, Bell, HelpCircle, LogOut, Award, Camera, Gift, CheckCircle, AlertCircle, Share2, User, Star, Clock } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -12,6 +12,8 @@ import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 import ProfileEditModal from '@/components/ProfileEditModal';
+
+import { useBranding } from '@/contexts/BrandingContext';
 
 type PaymentRow = Database['public']['Tables']['payments']['Row'];
 type GalleryRow = Database['public']['Tables']['galleries']['Row'];
@@ -82,18 +84,26 @@ function InvoiceCard({ payment }: { payment: PaymentRow }) {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, profile, logout } = useAuth();
+  const { shareAppLink } = useBranding();
   const [showInvoices, setShowInvoices] = useState<boolean>(false);
-  
+
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [galleries, setGalleries] = useState<GalleryRow[]>([]);
+  const [nextBooking, setNextBooking] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isEditModalVisible, setEditModalVisible] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const isSharingRef = useRef(false);
+
+  useEffect(() => {
+    setAvatarUrl((profile as any)?.avatar_url ?? null);
+  }, [profile]);
 
   useEffect(() => {
     async function loadData() {
       if (!user) return;
-      
+
       try {
         setLoading(true);
         // Get client ID
@@ -103,37 +113,69 @@ export default function ProfileScreen() {
           .eq('user_id', user.id)
           .maybeSingle();
 
-        if (clientData) {
-          const { data: paymentsData } = await supabase
-            .from('payments')
-            .select('*')
-            .eq('client_id', clientData.id)
-            .order('created_at', { ascending: false });
-          
-          if (paymentsData) setPayments(paymentsData);
-          
-          const { data: galleriesData } = await supabase
-            .from('galleries')
-            .select('*')
-            .eq('client_id', clientData.id);
+          if (clientData) {
+            const { data: paymentsData } = await supabase
+              .from('payments')
+              .select('*')
+              .eq('client_id', clientData.id)
+              .order('created_at', { ascending: false });
+
+            if (paymentsData) setPayments(paymentsData);
+
+            const { data: galleriesData } = await supabase
+              .from('galleries')
+              .select('*')
+              .eq('client_id', clientData.id);
+
+            if (galleriesData) setGalleries(galleriesData);
+
+            // Fetch next booking
+            const now = new Date().toISOString();
+            const { data: bookingData } = await supabase
+              .from('bookings')
+              .select('date, time, location')
+              .eq('user_id', user.id)
+              .gte('date', now)
+              .order('date', { ascending: true })
+              .limit(1)
+              .maybeSingle();
             
-          if (galleriesData) setGalleries(galleriesData);
-        }
+            setNextBooking(bookingData);
+          }
       } catch (e) {
         console.error('Error loading profile data:', e);
       } finally {
         setLoading(false);
       }
     }
-    
+
     loadData();
   }, [user]);
 
   const unlockedGalleries = galleries.filter(g => !g.is_locked);
   // Note: GalleryRow doesn't have photoCount, so we default to 0 for now.
   // Ideally we would fetch photo counts via a joined query or view.
-  const totalPhotos = 0; 
+  const totalPhotos = 0;
   const totalSpent = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
+  const metadata = (user?.user_metadata as any) ?? {};
+  const displayName =
+    profile?.name ||
+    metadata.display_name ||
+    metadata.name ||
+    (user?.email ? user.email.split('@')[0] : null) ||
+    'Guest';
+  const displayEmail = profile?.email || user?.email || 'Not signed in';
+  const resolvedAvatarUrl = (() => {
+    const candidate = avatarUrl;
+    if (!candidate) return null;
+    if (candidate.startsWith('http')) return candidate;
+    try {
+      const { data } = supabase.storage.from('avatars').getPublicUrl(candidate);
+      return data.publicUrl;
+    } catch {
+      return candidate;
+    }
+  })();
 
   const handleAvatarUpdate = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -141,20 +183,17 @@ export default function ProfileScreen() {
   };
 
   const handleModalOptionSelect = async (option: 'camera' | 'library' | 'remove') => {
-    // Modal closes automatically or we can force close if needed, but usually handled by onClose prop
-    // However, for the actions, we might want to wait. 
-    // The Modal component calls this and then closes.
-    
     switch (option) {
       case 'remove':
         if (!user) return;
         try {
           setLoading(true);
           const { error } = await supabase
-             .from('user_profiles')
-             .update({ avatar_url: null })
-             .eq('id', user.id);
+            .from('user_profiles')
+            .update({ avatar_url: null })
+            .eq('id', user.id);
           if (error) throw error;
+          setAvatarUrl(null);
           Alert.alert('Success', 'Profile picture removed.');
         } catch (e: any) {
           Alert.alert('Error', e.message);
@@ -162,7 +201,7 @@ export default function ProfileScreen() {
           setLoading(false);
         }
         break;
-        
+
       case 'library':
         const libraryResult = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -170,107 +209,133 @@ export default function ProfileScreen() {
           aspect: [1, 1],
           quality: 0.5,
         });
-        
+
         if (!libraryResult.canceled && libraryResult.assets[0]) {
-           uploadAvatar(libraryResult.assets[0]);
+          uploadAvatar(libraryResult.assets[0]);
         }
         break;
-        
+
       case 'camera':
-         const permission = await ImagePicker.requestCameraPermissionsAsync();
-         if (permission.status !== 'granted') {
-            Alert.alert('Permission needed', 'Camera permission is required to take photos.');
-            return;
-         }
-         const cameraResult = await ImagePicker.launchCameraAsync({
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (permission.status !== 'granted') {
+          Alert.alert('Permission needed', 'Camera permission is required to take photos.');
+          return;
+        }
+        const cameraResult = await ImagePicker.launchCameraAsync({
           allowsEditing: true,
           aspect: [1, 1],
           quality: 0.5,
         });
-         if (!cameraResult.canceled && cameraResult.assets[0]) {
-           uploadAvatar(cameraResult.assets[0]);
+        if (!cameraResult.canceled && cameraResult.assets[0]) {
+          uploadAvatar(cameraResult.assets[0]);
         }
         break;
     }
   };
 
   const uploadAvatar = async (asset: ImagePicker.ImagePickerAsset) => {
-     try {
-       setLoading(true);
-       
-       // Ensure bucket exists
-       await supabase.functions.invoke('ensure_buckets', {
-         body: { buckets: ['avatars'], public: true }
-       });
-       
-       if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
-          Alert.alert('Error', 'Image must be smaller than 5MB.');
-          setLoading(false);
-          return;
-       }
+    try {
+      setLoading(true);
 
-       const arrayBuffer = await fetch(asset.uri).then(res => res.arrayBuffer());
-       const fileExt = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg';
-       if (!user) return;
-       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-       
-       const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(fileName, arrayBuffer, {
-             contentType: asset.mimeType ?? 'image/jpeg',
-             upsert: true,
-          });
+      // Attempt to ensure bucket exists via Edge Function
+      try {
+        await supabase.functions.invoke('ensure_buckets', {
+          body: { buckets: ['avatars'], public: true }
+        });
+      } catch (invokeError) {
+        console.warn('Failed to invoke ensure_buckets:', invokeError);
+      }
 
-       if (uploadError) {
-         const msg = (uploadError as any)?.message || String(uploadError);
-         if (msg.includes('Bucket') && msg.includes('not found')) {
-           Alert.alert('Storage Error', 'Bucket "avatars" not found. Please create it in Supabase Storage.');
-           throw uploadError;
-         }
-         if (msg.toLowerCase().includes('forbidden') || msg.toLowerCase().includes('unauthorized')) {
-           Alert.alert('Storage Error', 'Permission denied. Check storage bucket access policies and API keys.');
-           throw uploadError;
-         }
-         throw uploadError;
-       }
-
-       const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
-
-       const { error: updateError } = await supabase
-          .from('user_profiles')
-          .update({ avatar_url: publicUrl })
-          .eq('id', user.id);
-
-       if (updateError) throw updateError;
-       
-       Alert.alert('Success', 'Profile picture updated.');
-
-     } catch (e: any) {
-        Alert.alert('Error', e.message || 'Failed to upload image.');
-     } finally {
+      if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+        Alert.alert('Error', 'Image must be smaller than 5MB.');
         setLoading(false);
-     }
+        return;
+      }
+
+      const response = await fetch(asset.uri);
+      const arrayBuffer = await response.arrayBuffer();
+      const fileExt = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to update your profile.');
+        return;
+      }
+
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, arrayBuffer, {
+          contentType: asset.mimeType ?? 'image/jpeg',
+          upsert: true,
+        });
+
+      if (uploadError) {
+        const msg = (uploadError as any)?.message || String(uploadError);
+        const lowerMsg = msg.toLowerCase();
+
+        if (lowerMsg.includes('bucket') && lowerMsg.includes('not found')) {
+          Alert.alert(
+            'Storage Error',
+            'The "avatars" bucket was not found. Please create it manually in your Supabase Dashboard > Storage with "Public" access enabled.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        if (lowerMsg.includes('forbidden') || lowerMsg.includes('unauthorized') || lowerMsg.includes('permission denied')) {
+          Alert.alert(
+            'Permission Denied',
+            'You do not have permission to upload to the "avatars" bucket. Check your Supabase Storage RLS policies.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        throw uploadError;
+      }
+
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
+
+      const { error: updateError } = await supabase
+        .from('user_profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+      setAvatarUrl(publicUrl);
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success', 'Profile picture updated.');
+
+    } catch (e: any) {
+      console.error('Avatar upload failed:', e);
+      Alert.alert('Upload Failed', e.message || 'An unexpected error occurred during upload.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleReferral = async () => {
-     if (!user) return;
-     const referralCode = user.id.substring(0, 8).toUpperCase();
-     const url = `https://rork.app/refer/${referralCode}`;
-     const message = `Hey! Use my code ${referralCode} to get KES 2,000 off your next booking with Epix Visuals Studios.co! ${url}`;
-     
-     try {
-       const result = await Share.share({
-         message,
-         url, // iOS only
-         title: 'Refer a Friend',
-       });
-       
-       if (result.action === Share.sharedAction) {
-          // Track analytics if needed
-       }
-     } catch (error: any) {
-       Alert.alert('Error', error.message);
-     }
+    if (!user) return;
+    // Guard against concurrent share calls which cause 'earlier share not completed' error
+    if (isSharingRef.current) return;
+    isSharingRef.current = true;
+    const url = shareAppLink;
+    const message = `Check out our studio! View our portfolio and app here: ${url}`;
+    try {
+      await Share.share({
+        message,
+        url, // iOS only
+        title: 'Share Studio',
+      });
+    } catch (error: any) {
+      if (!error?.message?.includes('share has not yet completed')) {
+        Alert.alert('Error', error.message);
+      }
+    } finally {
+      isSharingRef.current = false;
+    }
   };
 
   const handleLogout = useCallback(() => {
@@ -291,7 +356,6 @@ export default function ProfileScreen() {
               router.replace('/login');
             } catch (e) {
               console.error('Logout failed:', e);
-              // Force navigation even if API fails
               router.replace('/login');
             }
           },
@@ -301,16 +365,16 @@ export default function ProfileScreen() {
   }, [logout, router]);
 
   const accountItems: MenuItem[] = [
-    {
-      icon: <Award size={20} color={Colors.gold} />,
-      label: 'Member Benefits',
-      subtitle: '10% off & more',
-      action: () => router.push('/profile/settings/member-benefits'),
-    },
+    ...(profile?.role === 'admin' ? [{
+      icon: <Shield size={20} color={Colors.gold} />,
+      label: 'Admin Dashboard',
+      subtitle: 'Manage your studio',
+      action: () => router.push('/(admin)/dashboard'),
+    }] : []),
     {
       icon: <Share2 size={20} color={Colors.gold} />,
-      label: 'Refer to Friend',
-      subtitle: 'Both get KES 2,000 off',
+      label: 'Share Studio',
+      subtitle: 'Spread the word',
       action: handleReferral,
     },
     {
@@ -319,22 +383,14 @@ export default function ProfileScreen() {
       subtitle: `Total spent: KES ${totalSpent.toLocaleString()}`,
       action: () => setShowInvoices(!showInvoices),
     },
-    { 
-      icon: <FileText size={20} color={Colors.gold} />, 
-      label: 'Invoices', 
-      subtitle: `${payments.length} invoices`, 
-      badge: String(payments.filter(p => p.status === 'pending').length || ''), 
-      action: () => router.push('/profile/settings/invoices') 
-    },
     { icon: <Download size={20} color={Colors.gold} />, label: 'Downloads', subtitle: 'Re-download past galleries', badge: String(unlockedGalleries.length), action: () => router.push('/profile/settings/downloads') },
-    { icon: <Heart size={20} color={Colors.gold} />, label: 'Favorites', subtitle: 'Your liked photos', badge: '12', action: () => router.push('/profile/settings/favorites') },
   ];
 
   const settingsItems: MenuItem[] = [
     { icon: <Bell size={20} color={Colors.textSecondary} />, label: 'Notifications', subtitle: 'Manage push preferences', action: () => router.push('/profile/settings/notifications') },
     { icon: <Shield size={20} color={Colors.textSecondary} />, label: 'Privacy & Security', subtitle: 'Password, data controls', action: () => router.push('/profile/settings/privacy-security') },
     { icon: <Settings size={20} color={Colors.textSecondary} />, label: 'App Settings', subtitle: 'Storage, data, display', action: () => router.push('/profile/settings/app-settings') },
-    { icon: <HelpCircle size={20} color={Colors.textSecondary} />, label: 'Help & Support', subtitle: 'FAQs, contact us', action: () => router.push('/profile/settings/help-support') },
+    { icon: <HelpCircle size={20} color={Colors.textSecondary} />, label: 'Help & Support', subtitle: 'Chat with us', action: () => router.push('/chat') },
   ];
 
   return (
@@ -342,20 +398,28 @@ export default function ProfileScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={[styles.profileHeader, { paddingTop: insets.top + 16 }]}>
           <View style={styles.avatarContainer}>
-            <Image
-              source={{ uri: user?.avatar || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop' }}
-              style={styles.avatar}
-            />
+            {resolvedAvatarUrl ? (
+              <Image
+                source={{ uri: resolvedAvatarUrl }}
+                style={styles.avatar}
+              />
+            ) : (
+              <LinearGradient colors={[Colors.gold, '#D4AF37']} style={styles.avatar} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                <Text style={styles.avatarInitials}>
+                  {(displayName.split(' ')[0][0] || displayName[0] || 'U').toUpperCase()}
+                </Text>
+              </LinearGradient>
+            )}
             <Pressable style={styles.editAvatarButton} onPress={handleAvatarUpdate}>
               <Camera size={14} color={Colors.white} />
             </Pressable>
           </View>
-          <Text style={styles.userName}>{user?.name || 'Guest'}</Text>
-          <Text style={styles.userEmail}>{user?.email || 'Not signed in'}</Text>
+          <Text style={styles.userName}>{displayName}</Text>
+          <Text style={styles.userEmail}>{displayEmail}</Text>
 
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{user?.totalBookings || 0}</Text>
+              <Text style={styles.statValue}>{0}</Text>
               <Text style={styles.statLabel}>Sessions</Text>
             </View>
             <View style={styles.statDivider} />
@@ -391,6 +455,26 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        <View style={styles.referralCard}>
+          <LinearGradient
+            colors={['rgba(59,130,246,0.15)', 'rgba(59,130,246,0.05)']}
+            style={styles.referralGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.referralIcon}>
+              <Share2 size={22} color="#3B82F6" />
+            </View>
+            <View style={styles.referralInfo}>
+              <Text style={styles.referralTitle}>Love our work?</Text>
+              <Text style={styles.referralDesc}>Share the experience with your friends</Text>
+            </View>
+            <Pressable style={styles.referralCta} onPress={handleReferral}>
+              <Text style={styles.referralCtaText}>Share</Text>
+            </Pressable>
+          </LinearGradient>
+        </View>
+
         {showInvoices && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -420,6 +504,58 @@ export default function ProfileScreen() {
           ))}
         </View>
 
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>ACTIVITY</Text>
+          </View>
+          <View style={styles.activityCard}>
+            <View style={styles.activityItem}>
+              <View style={[styles.activityIconBox, { backgroundColor: 'rgba(212,175,55,0.1)' }]}>
+                <Star size={18} color={Colors.gold} fill={Colors.gold} />
+              </View>
+              <View style={styles.activityInfo}>
+                <Text style={styles.activityLabel}>Average Rating</Text>
+                <View style={styles.ratingRow}>
+                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
+                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
+                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
+                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
+                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
+                  <Text style={styles.ratingText}>5.0</Text>
+                </View>
+              </View>
+            </View>
+            <View style={styles.activityDivider} />
+            <View style={styles.activityItem}>
+              <View style={[styles.activityIconBox, { backgroundColor: 'rgba(102,102,102,0.1)' }]}>
+                <Clock size={18} color={Colors.textMuted} />
+              </View>
+              <View style={styles.activityInfo}>
+                <Text style={styles.activityLabel}>Member Since</Text>
+                <Text style={styles.activityValue}>
+                  {user?.created_at 
+                    ? new Date(user.created_at).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+                    : 'Explorer'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.activityDivider} />
+            <View style={styles.activityItem}>
+              <View style={[styles.activityIconBox, { backgroundColor: 'rgba(212,175,55,0.1)' }]}>
+                <Camera size={18} color={Colors.gold} />
+              </View>
+              <View style={styles.activityInfo}>
+                <Text style={styles.activityLabel}>Next Shoot</Text>
+                <Text style={styles.activityValue}>
+                  {nextBooking 
+                    ? `${new Date(nextBooking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} • ${nextBooking.location}`
+                    : 'No upcoming shoots'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
         <Pressable style={styles.logoutButton} onPress={handleLogout}>
           <LogOut size={20} color={Colors.error} />
           <Text style={styles.logoutText}>Sign Out</Text>
@@ -430,7 +566,7 @@ export default function ProfileScreen() {
         visible={isEditModalVisible}
         onClose={() => setEditModalVisible(false)}
         onOptionSelect={handleModalOptionSelect}
-        hasCurrentPhoto={!!user?.avatar}
+        hasCurrentPhoto={!!avatarUrl}
       />
     </View>
   );
@@ -457,6 +593,13 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     borderWidth: 2,
     borderColor: Colors.gold,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarInitials: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: Colors.white,
   },
   editAvatarButton: {
     position: 'absolute',
@@ -545,11 +688,12 @@ const styles = StyleSheet.create({
   referralCard: {
     marginHorizontal: 20,
     marginTop: 16,
-    marginBottom: 24,
+    marginBottom: 8,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(59,130,246,0.2)',
+    backgroundColor: 'rgba(59,130,246,0.03)',
   },
   referralGradient: {
     flexDirection: 'row',
@@ -560,8 +704,8 @@ const styles = StyleSheet.create({
   referralIcon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(59,130,246,0.1)',
+    borderRadius: 12,
+    backgroundColor: 'rgba(59,130,246,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -577,17 +721,73 @@ const styles = StyleSheet.create({
   referralDesc: {
     fontSize: 12,
     color: Colors.textSecondary,
+    opacity: 0.9,
   },
   referralCta: {
     backgroundColor: '#3B82F6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 10,
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
   referralCtaText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     color: Colors.white,
+  },
+  activityCard: {
+    marginHorizontal: 20,
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  activityIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityInfo: {
+    flex: 1,
+  },
+  activityLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 2,
+  },
+  activityValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  ratingText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.white,
+    marginLeft: 6,
+  },
+  activityDivider: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginVertical: 12,
+    marginLeft: 48,
   },
   menuContainer: {
     marginTop: 10,

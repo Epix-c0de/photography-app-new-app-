@@ -1,10 +1,12 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated, FlatList } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Images, CreditCard, Calendar, Megaphone, Bell, Check, Trash2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 
 const iconMap: Record<string, React.ReactNode> = {
   gallery: <Images size={20} color="#3B82F6" />,
@@ -22,19 +24,17 @@ const bgMap: Record<string, string> = {
   system: 'rgba(160,160,160,0.12)',
 };
 
-function NotificationItem({ item, onMarkRead }: { item: Notification; onMarkRead: (id: string) => void }) {
+function NotificationItem({ item, onPress }: { item: Notification; onPress: (notification: Notification) => void }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (!item.read) {
-      onMarkRead(item.id);
-    }
+    onPress(item);
     Animated.sequence([
       Animated.timing(scaleAnim, { toValue: 0.97, duration: 80, useNativeDriver: true }),
       Animated.timing(scaleAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
     ]).start();
-  }, [item, onMarkRead, scaleAnim]);
+  }, [item, onPress, scaleAnim]);
 
   return (
     <Pressable onPress={handlePress}>
@@ -70,28 +70,184 @@ interface Notification {
   read: boolean;
   timestamp: string;
   actionLabel?: string;
+  // Deep linking fields
+  access_code?: string;
+  gallery_id?: string;
+  client_id?: string;
+  bts_id?: string;
+  announcement_id?: string;
 }
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
   const [notifs, setNotifs] = useState<Notification[]>([]);
 
   const unreadCount = notifs.filter(n => !n.read).length;
 
-  const markRead = useCallback((id: string) => {
-    setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  const markRead = useCallback(async (id: string) => {
+    try {
+      setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      // Permanently mark as read in database
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', id);
+      if (error) throw error;
+    } catch (e) {
+      console.error('Failed to mark notification as read:', e);
+    }
   }, []);
 
-  const markAllRead = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setNotifs(prev => prev.map(n => ({ ...n, read: true })));
-  }, []);
+  const handleNotificationPress = useCallback((notification: Notification) => {
+    // Mark as read
+    if (!notification.read) {
+      markRead(notification.id);
+    }
+
+    // Handle deep linking based on type
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    switch (notification.type) {
+      case 'gallery':
+        if (notification.access_code) {
+          router.push({
+            pathname: '/(tabs)/gallery',
+            params: {
+              accessCode: notification.access_code,
+              autoUnlock: 'true'
+            }
+          });
+        } else {
+          router.push('/(tabs)/gallery');
+        }
+        break;
+      
+      case 'booking':
+        router.push('/(tabs)/bookings');
+        break;
+
+      case 'payment':
+        // If it's a package update notification, redirect to packages
+        if (notification.title.toLowerCase().includes('package')) {
+          router.push('/(tabs)/home'); // Assuming packages are on home or a sub-page
+        } else {
+          router.push('/(tabs)/profile');
+        }
+        break;
+
+      case 'promo':
+        if (notification.bts_id) {
+          router.push(`/bts/${notification.bts_id}` as any);
+        } else if (notification.announcement_id) {
+          router.push(`/announcements/${notification.announcement_id}` as any);
+        } else {
+          router.push('/(tabs)/home');
+        }
+        break;
+
+      default:
+        router.push('/(tabs)/home');
+    }
+  }, [markRead, router]);
+
+  const markAllRead = useCallback(async () => {
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setNotifs(prev => prev.map(n => ({ ...n, read: true })));
+      
+      if (!user) return;
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', user.id)
+        .eq('read', false);
+      if (error) throw error;
+    } catch (e) {
+      console.error('Failed to mark all as read:', e);
+    }
+  }, [user]);
 
   const clearAll = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setNotifs([]);
   }, []);
+
+  // Load notifications and set up real-time subscription
+  useEffect(() => {
+    if (!user) return;
+
+    const loadNotifications = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (error) throw error;
+
+        const formattedNotifs: Notification[] = (data || []).map(n => ({
+          id: n.id,
+          title: n.title,
+          body: n.body,
+          type: n.type as any,
+          read: n.read,
+          timestamp: new Date(n.created_at).toLocaleDateString(),
+          actionLabel: n.type === 'gallery' ? 'View Gallery' : (n.type === 'promo' ? 'Check it out' : undefined),
+          access_code: (n.data as any)?.accessCode,
+          gallery_id: (n.data as any)?.galleryId,
+          client_id: (n.data as any)?.clientId,
+          bts_id: (n.data as any)?.btsId,
+          announcement_id: (n.data as any)?.announcementId,
+        }));
+
+        setNotifs(formattedNotifs);
+      } catch (error) {
+        console.error('Failed to load notifications:', error);
+      }
+    };
+
+    loadNotifications();
+
+    // Set up real-time subscription
+    const channel = supabase
+      .channel('user_notifications')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`
+      }, (payload) => {
+        const newNotif = payload.new;
+        const formattedNotif: Notification = {
+          id: newNotif.id,
+          title: newNotif.title,
+          body: newNotif.body,
+          type: newNotif.type,
+          read: newNotif.read,
+          timestamp: new Date(newNotif.created_at).toLocaleDateString(),
+          actionLabel: newNotif.type === 'gallery' ? 'View Gallery' : (newNotif.type === 'promo' ? 'Check it out' : undefined),
+          access_code: newNotif.data?.accessCode,
+          gallery_id: newNotif.data?.galleryId,
+          client_id: newNotif.data?.clientId,
+          bts_id: newNotif.data?.btsId,
+          announcement_id: newNotif.data?.announcementId,
+        };
+
+        setNotifs(prev => [formattedNotif, ...prev]);
+
+        // Haptic feedback for new notification
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   return (
     <View style={styles.container}>
@@ -133,7 +289,7 @@ export default function NotificationsScreen() {
         <FlatList
           data={notifs}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <NotificationItem item={item} onMarkRead={markRead} />}
+          renderItem={({ item }) => <NotificationItem item={item} onPress={handleNotificationPress} />}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={styles.separator} />}

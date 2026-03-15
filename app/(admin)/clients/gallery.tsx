@@ -133,7 +133,32 @@ export default function ClientGalleryScreen() {
 
       const urlMap = new Map(signedUrls?.map(s => [s.path, s.signedUrl]) || []);
 
-      const mappedPhotos = galleryPhotos.map((photo: any) => {
+      // Fetch thumbnails in parallel
+      const thumbnailPromises = galleryPhotos.map(async (photo: any) => {
+        const photoNameParts = photo.photo_url.split('.');
+        const photoNameNoExt = photoNameParts.slice(0, -1).join('.');
+        const thumbnailPath = `${photoNameNoExt}_thumb.png`;
+        
+        try {
+          const { data: thumbData, error: thumbError } = await supabase.storage
+            .from('thumbnails')
+            .createSignedUrl(thumbnailPath, 3600);
+
+          if (!thumbError && thumbData?.signedUrl) {
+            console.log(`[Admin Gallery] ✓ Loaded thumbnail for ${photo.file_name}`);
+            return thumbData.signedUrl;
+          }
+        } catch (err) {
+          console.warn(`[Admin Gallery] Thumbnail not found for ${photo.file_name}`);
+        }
+        
+        // Fallback to full image
+        return urlMap.get(photo.photo_url) || '';
+      });
+
+      const thumbnailUrls = await Promise.all(thumbnailPromises);
+
+      const mappedPhotos = galleryPhotos.map((photo: any, index: number) => {
         const gallery = galleryMap.get(photo.gallery_id);
         const url = urlMap.get(photo.photo_url) || '';
         
@@ -142,7 +167,7 @@ export default function ClientGalleryScreen() {
           gallery_id: photo.gallery_id,
           storage_path: photo.photo_url,
           url: url,
-          thumbnailUrl: url, // Fallback to full URL since batch transform is not supported
+          thumbnailUrl: thumbnailUrls[index] || url,
           filename: photo.file_name || photo.photo_url.split('/').pop() || 'photo.jpg',
           size: photo.file_size || 0,
           uploaded_at: photo.created_at,

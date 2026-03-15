@@ -1,129 +1,126 @@
-import { createClient } from "@supabase/supabase-js";
+// @ts-nocheck
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-type StkCallbackItem = {
-  Name: string;
-  Value?: string | number;
-};
-
-type StkCallbackPayload = {
-  CheckoutRequestID: string;
-  MerchantRequestID?: string;
-  ResultCode: number;
-  ResultDesc: string;
-  CallbackMetadata?: {
-    Item?: StkCallbackItem[];
-  };
-};
-
-type MpesaCallbackBody = {
-  Body?: {
-    stkCallback?: StkCallbackPayload;
-  };
-};
-
-const parseMpesaTimestamp = (value?: string | number) => {
-  if (!value) return null;
-  const raw = String(value);
-  if (raw.length !== 14) return null;
-  const year = raw.slice(0, 4);
-  const month = raw.slice(4, 6);
-  const day = raw.slice(6, 8);
-  const hour = raw.slice(8, 10);
-  const minute = raw.slice(10, 12);
-  const second = raw.slice(12, 14);
-  return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`).toISOString();
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   try {
     const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const payload: MpesaCallbackBody = await req.json();
+    const payload = await req.json();
+    
+    // Log the incoming callback
+    await supabase.from('mpesa_logs').insert({ response_payload: payload });
+
     const stkCallback = payload.Body?.stkCallback;
     if (!stkCallback) {
-      return new Response("Invalid payload", { status: 400 });
+      throw new Error('Invalid M-PESA callback payload');
     }
 
-    const { CheckoutRequestID, ResultCode, MerchantRequestID } = stkCallback;
+    const {
+      CheckoutRequestID,
+      ResultCode,
+      ResultDesc,
+      CallbackMetadata
+    } = stkCallback;
 
-    const items = stkCallback.CallbackMetadata?.Item ?? [];
-    const receiptItem = items.find((item) => item.Name === "MpesaReceiptNumber");
-    const phoneItem = items.find((item) => item.Name === "PhoneNumber");
-    const dateItem = items.find((item) => item.Name === "TransactionDate");
-    const receiptNumber = typeof receiptItem?.Value === "string" ? receiptItem.Value : null;
-    const phoneNumber =
-      typeof phoneItem?.Value === "number" ? String(phoneItem.Value) : typeof phoneItem?.Value === "string" ? phoneItem.Value : null;
-    const transactionDateIso = parseMpesaTimestamp(dateItem?.Value);
+    // 1. Locate the transaction
+    const { data: transaction, error: txError } = await supabase
+      .from('mpesa_transactions')
+      .select('*')
+      .eq('checkout_request_id', CheckoutRequestID)
+      .single();
 
-    const { data: result, error: callbackError } = await supabase.rpc("handle_mpesa_callback", {
-      p_checkout_request_id: CheckoutRequestID,
-      p_merchant_request_id: MerchantRequestID ?? null,
-      p_result_code: ResultCode,
-      p_receipt_number: receiptNumber,
-      p_transaction_date: transactionDateIso,
-      p_phone: phoneNumber,
-      p_raw_payload: payload,
+    if (txError || !transaction) {
+      console.error('Transaction not found for CheckoutRequestID:', CheckoutRequestID);
+      return new Response('Transaction not found', { status: 200 }); // Still return 200 to Safaricom
+    }
+
+    if (ResultCode === 0) {
+      // Payment Successful
+      let mpesaReceipt = '';
+      const items = CallbackMetadata?.Item || [];
+      const receiptItem = items.find((i: any) => i.Name === 'MpesaReceiptNumber');
+      if (receiptItem) {
+        mpesaReceipt = receiptItem.Value;
+      }
+
+      // 2. Update transaction status
+      await supabase
+        .from('mpesa_transactions')
+        .update({
+          status: 'success',
+          mpesa_receipt: mpesaReceipt,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', transaction.id);
+
+      // Also update global payments table for unified history
+      await supabase
+        .from('payments')
+        .update({
+          status: 'paid',
+          mpesa_receipt_number: mpesaReceipt,
+          updated_at: new Date().toISOString()
+        })
+        .eq('mpesa_checkout_request_id', CheckoutRequestID);
+
+      // 3. Unlock the gallery
+      if (transaction.gallery_id) {
+        const { error: unlockError } = await supabase
+          .from('galleries')
+          .update({
+            is_paid: true,
+            is_locked: false
+          })
+          .eq('id', transaction.gallery_id);
+
+        if (unlockError) {
+          console.error('Failed to unlock gallery:', unlockError);
+        } else {
+          console.log(`Gallery ${transaction.gallery_id} unlocked successfully via M-PESA payment.`);
+        }
+      }
+    } else {
+      // Payment Failed
+      await supabase
+        .from('mpesa_transactions')
+        .update({
+          status: 'failed',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', transaction.id);
+
+      // Also update global payments table
+      await supabase
+        .from('payments')
+        .update({
+          status: 'failed',
+          updated_at: new Date().toISOString()
+        })
+        .eq('mpesa_checkout_request_id', CheckoutRequestID);
+      
+      console.warn(`M-PESA Payment failed for transaction ${transaction.id}: ${ResultDesc}`);
+    }
+
+    return new Response(JSON.stringify({ ResultCode: 0, ResultDesc: "Accepted" }), {
+      headers: { 'Content-Type': 'application/json' }
     });
-    if (callbackError) {
-      return new Response("Callback processing failed", { status: 200 });
-    }
-    const info = Array.isArray(result) ? result[0] : result;
-    if (!info || !info.processed) {
-      return new Response("Ignored", { status: 200 });
-    }
 
-    if (info.status === "success") {
-      if (info.client_id) {
-        await supabase.rpc("create_client_notification", {
-          p_client_id: info.client_id,
-          p_gallery_id: info.gallery_id,
-          p_type: "payment_success",
-          p_title: "Payment Received",
-          p_message: "Your payment was successful. You can now download your photos.",
-        });
-      }
-      await supabase.rpc("emit_event", {
-        p_event_name: "PAYMENT_SUCCESS",
-        p_payload: payload,
-        p_gallery_id: info.gallery_id,
-        p_client_id: info.client_id,
-        p_admin_id: null,
-      });
-      await supabase.rpc("emit_event", {
-        p_event_name: "GALLERY_UNLOCKED",
-        p_payload: payload,
-        p_gallery_id: info.gallery_id,
-        p_client_id: info.client_id,
-        p_admin_id: null,
-      });
-    } else if (info.status === "failed") {
-      if (info.client_id) {
-        await supabase.rpc("create_client_notification", {
-          p_client_id: info.client_id,
-          p_gallery_id: info.gallery_id,
-          p_type: "payment_failed",
-          p_title: "Payment Failed",
-          p_message: "Your payment failed. Please try again.",
-        });
-      }
-      await supabase.rpc("emit_event", {
-        p_event_name: "PAYMENT_FAILED",
-        p_payload: payload,
-        p_gallery_id: info.gallery_id,
-        p_client_id: info.client_id,
-        p_admin_id: null,
-      });
-    }
-
-    return new Response("OK", { status: 200 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
+  } catch (error: unknown) {
+    console.error('Callback error:', error);
+    return new Response(JSON.stringify({ ResultCode: 1, ResultDesc: "Internal Error" }), {
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 });

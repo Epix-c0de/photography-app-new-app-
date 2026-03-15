@@ -1,0 +1,85 @@
+# Engagement Features & Admin Redesign Implementation Plan
+
+This plan outlines the steps to implement dynamic profile activity, referral program modifications, interactive portfolio features, a premium admin dashboard redesign, and simplified M-PESA configuration.
+
+## User Review Required
+
+> [!IMPORTANT]
+> - New database tables (`portfolio_likes`, `simple_payment_settings`) and columns will be added to support these features.
+> - The M-PESA payment pipeline will be updated to prioritize simple settings if configured.
+
+## Proposed Changes
+
+---
+
+### [Component] Database & Schema
+#### [NEW] Migration: `20260313_simple_payment_parity.sql`
+- Add `likes_count` and `shares_count` to `portfolio_items`.
+- Create `portfolio_likes` table.
+- Create `simple_payment_settings` with `payment_mode`, [currency](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload.tsx#463-506), `gallery_price_default`.
+- Update `clients` table: make `owner_admin_id` and `name` nullable for onboarding.
+- Add RLS policy for clients to insert themselves.
+
+---
+
+### [Component] User Experience (Discovery & Loyalty)
+#### [MODIFY] [profile/index.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(tabs)/profile/index.tsx)
+- Fetch `Member Since` from `user_profiles.created_at`.
+- Fetch `Next Shoot` from `bookings` table for the current user.
+- Remove discount text from Referral card.
+- Use dynamic app share link from `admin_settings`.
+
+#### [MODIFY] [gallery/index.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(tabs)/gallery/index.tsx)
+- Enhance [PortfolioCard](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/%28tabs%29/gallery/index.tsx#176-231) with Heart (Like) and Share2 icons.
+- Add Like/Share logic to [PhotoCard](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/%28tabs%29/gallery/index.tsx#30-175) used in Top Rated section.
+
+#### [MODIFY] [home/index.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(tabs)/home/index.tsx)
+- Ensure Golden Ring effect on BTS posts is visually premium and pulsating.
+
+---
+
+### [Component] Admin Command Center
+#### [MODIFY] [dashboard/index.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(admin)/dashboard/index.tsx)
+- Redesign with a premium, detailed layout.
+- Add granular engagement analytics (Portfolio likes/shares).
+- High-fidelity visual accents (Glassmorphism, curated gradients).
+
+#### [NEW] [simple-mpesa.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(admin)/settings/simple-mpesa.tsx)
+- Unified screen for quick M-PESA number & business name configuration.
+
+#### [MODIFY] [upload.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(admin)/upload.tsx)
+- Add "Next Shoot" date picker to sync with client profile activity.
+
+---
+
+### [Component] Payment Pipeline
+#### [MODIFY] [mpesa-stk-push](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/supabase/functions/mpesa-stk-push/index.ts)
+- Check `simple_payment_settings` as a fallback or primary source for M-PESA credentials.
+
+---
+
+### [Component] Settings Parity & Feature Completion
+#### [MODIFY] [admin settings](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(admin)/settings/index.tsx)
+- Connect "Refill SMS" and "Test SMS" to real backend functionality (or realistic simulation).
+- Implement Biometric security toggles logic using `Expo.LocalAuthentication`.
+- Connect "Branding" save button to `BrandingContext`.
+
+#### [MODIFY] [user settings](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(tabs)/profile/settings/privacy-security.tsx)
+- Redesign with a premium look matching the admin dashboard.
+- Add Biometric lock settings (App wide).
+- Implement "Change Password" and "Change Email" flows similar to the admin side.
+
+#### [MODIFY] [user app settings](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(tabs)/profile/settings/app-settings.tsx)
+- Add "App Theme" (Dark/Light/Auto) parity.
+- Add "Notification Preferences" parity.
+
+## Verification Plan
+
+### Automated Tests
+- Verify portfolio like/share count increments via Supabase real-time updates.
+- Test STK push triggering with both Simple and Advanced M-PESA settings.
+
+### Manual Verification
+- Confirm Profile screen shows correct "Member Since" and "Next Shoot" dates.
+- Validate Referral sharing content on a real device.
+- Review Admin Dashboard layout across different screen sizes.

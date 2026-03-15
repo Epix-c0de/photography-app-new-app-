@@ -62,7 +62,7 @@ export default function SplashScreen() {
         router.replace('/onboarding');
       } else if (!isLoggedIn) {
         router.replace('/login');
-      } else if (profile?.role === 'admin') {
+      } else if (profile?.role === 'admin' || profile?.role === 'super_admin') {
         router.replace('/(admin)/dashboard');
       } else {
         router.replace('/(tabs)/home');

@@ -9,23 +9,25 @@ import * as ScreenCapture from 'expo-screen-capture';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
-import { ClientService, type Photo as ClientPhoto } from '@/services/client';
+import { ClientService, type Photo as ClientPhoto, type PortfolioItem } from '@/services/client';
 import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
 import PaymentModal from '@/components/PaymentModal';
 import { LocalSmsGateway } from '@lenzart/local-sms-gateway';
+import { useLocalSearchParams } from 'expo-router';
 
 const { width } = Dimensions.get('window');
 const COL_GAP = 8;
 const PADDING = 16;
 const COL_WIDTH = (width - PADDING * 2 - COL_GAP) / 2;
 
-type TabType = 'my-galleries' | 'top-rated' | 'unlock';
+type TabType = 'my-galleries' | 'portfolio' | 'top-rated' | 'unlock';
 
 type GalleryRow = Database['public']['Tables']['galleries']['Row'];
 type PhotoRow = ClientPhoto;
+type BTSPost = Database['public']['Tables']['bts_posts']['Row'];
 
-function PhotoCard({ photo, index, onLike, isLiked, showWatermark }: { photo: PhotoRow; index: number; onLike: (id: string) => void; isLiked: boolean; showWatermark: boolean }) {
+function PhotoCard({ photo, index, onLike, isLiked, showWatermark, isBlurred }: { photo: PhotoRow; index: number; onLike: (id: string) => void; isLiked: boolean; showWatermark: boolean; isBlurred?: boolean }) {
   const {
     brandName,
     watermarkText,
@@ -94,10 +96,18 @@ function PhotoCard({ photo, index, onLike, isLiked, showWatermark }: { photo: Ph
     <Animated.View style={[styles.photoCard, { opacity: cardFade }]}>
       <Pressable onPress={handleDoubleTap} onLongPress={handleShare}>
         <Image
-          source={{ uri: photo.url }}
-          style={[styles.photoImage, { height: imageHeight }]}
+          source={{ uri: photo.thumbnailUrl || photo.url }}
+          style={[styles.photoImage, { height: imageHeight }, isBlurred && { opacity: 0.7 }]}
           contentFit="cover"
+          cachePolicy="memory-disk"
+          priority={index < 10 ? "high" : "low" }
+          blurRadius={isBlurred ? 15 : 0}
         />
+        {isBlurred && (
+          <View style={styles.blurOverlay}>
+            <Lock size={20} color={Colors.white} />
+          </View>
+        )}
         {shouldShowWatermark && (
           <View style={styles.watermarkOverlay} pointerEvents="none">
             {watermarkPosition === 'grid' ? (
@@ -163,12 +173,62 @@ function PhotoCard({ photo, index, onLike, isLiked, showWatermark }: { photo: Ph
   );
 }
 
+function PortfolioCard({ item, index, onLike, onShare }: { item: PortfolioItem; index: number; onLike: (id: string, isPortfolio: boolean) => void; onShare: (item: PortfolioItem) => void }) {
+  const cardFade = useRef(new Animated.Value(0)).current;
+  const heartScale = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(cardFade, { toValue: 1, duration: 400, delay: index * 80, useNativeDriver: true }).start();
+  }, [cardFade, index]);
+
+  const handleLike = useCallback(() => {
+    onLike(item.id, true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Animated.sequence([
+      Animated.spring(heartScale, { toValue: 1, friction: 3, useNativeDriver: true }),
+      Animated.timing(heartScale, { toValue: 0, duration: 600, delay: 400, useNativeDriver: true }),
+    ]).start();
+  }, [heartScale, onLike, item.id]);
+
+  const handleShare = useCallback(() => {
+    onShare(item);
+  }, [onShare, item]);
+
+  return (
+    <Animated.View style={[styles.photoCard, { opacity: cardFade, marginBottom: 12 }]}>
+      <Pressable onPress={handleLike} onLongPress={handleShare}>
+        <Image source={{ uri: item.image_url || item.media_url }} style={[styles.photoImage, { height: COL_WIDTH * 1.5 }]} contentFit="cover" />
+        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.galleryTileOverlay} />
+        <View style={{ position: 'absolute', bottom: 10, left: 10, right: 10 }}>
+          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }} numberOfLines={2}>{item.title}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Heart size={10} color={Colors.gold} fill={Colors.gold} />
+              <Text style={{ color: Colors.gold, fontSize: 10, fontWeight: '700' }}>{item.likes_count || 0}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Pressable onPress={handleShare}>
+                <Share2 size={10} color={Colors.white} />
+              </Pressable>
+              <Text style={{ color: Colors.white, fontSize: 10, fontWeight: '600' }}>{item.shares_count || 0}</Text>
+            </View>
+          </View>
+        </View>
+        <Animated.View style={[styles.heartOverlay, { transform: [{ scale: heartScale }], opacity: heartScale }]}>
+          <Heart size={40} color={Colors.gold} fill={Colors.gold} />
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 export default function GalleryScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { brandName, blockScreenshots, setActiveAdminId } = useBranding();
+  const searchParams = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<TabType>('my-galleries');
-  const [accessCode, setAccessCode] = useState<string>('');
+  const [accessCode, setAccessCode] = useState<string>((searchParams.accessCode as string) || '');
   const smsAutofillLastTriedAt = useRef<number>(0);
   const [selectedGallery, setSelectedGallery] = useState<GalleryRow | null>(null);
   const [likedPhotos, setLikedPhotos] = useState<Set<string>>(new Set());
@@ -181,11 +241,113 @@ export default function GalleryScreen() {
   const [photos, setPhotos] = useState<PhotoRow[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [photosError, setPhotosError] = useState<string | null>(null);
-
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [paymentGallery, setPaymentGallery] = useState<GalleryRow | null>(null);
+  const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [topRatedItems, setTopRatedItems] = useState<PortfolioItem[]>([]);
+  const [topRatedLoading, setTopRatedLoading] = useState(false);
 
   const favoritesCount = likedPhotos.size;
+
+  useEffect(() => {
+    if (activeTab === 'portfolio') {
+      setPortfolioLoading(true);
+      ClientService.portfolio.list()
+        .then(setPortfolioItems)
+        .catch(console.error)
+        .finally(() => setPortfolioLoading(false));
+    } else if (activeTab === 'top-rated') {
+      setTopRatedLoading(true);
+      ClientService.portfolio.listTopRated()
+        .then(setTopRatedItems)
+        .catch(console.error)
+        .finally(() => setTopRatedLoading(false));
+    }
+  }, [activeTab]);
+
+  const fetchPhotosForGallery = useCallback(async (galleryId: string) => {
+    setPhotosLoading(true);
+    setPhotosError(null);
+
+    try {
+      const data = await ClientService.gallery.getPhotos(galleryId);
+      setPhotos(data);
+
+      // Track gallery view
+      try {
+        await supabase.from('gallery_views').insert({
+          gallery_id: galleryId,
+          user_id: user?.id,
+          viewed_at: new Date().toISOString()
+        });
+      } catch (viewError) {
+        console.warn('Failed to track gallery view:', viewError);
+      }
+    } catch (error) {
+      setPhotos([]);
+      setPhotosError('Failed to load photos.');
+      console.error('Failed to load photos:', error);
+    } finally {
+      setPhotosLoading(false);
+    }
+  }, [user?.id]);
+
+  const handleUnlock = useCallback(async () => {
+    if (!accessCode.trim()) {
+      Alert.alert('Enter Code', 'Please enter your gallery access code.');
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Animated.sequence([
+      Animated.timing(unlockAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.timing(unlockAnim, { toValue: 0, duration: 300, delay: 1500, useNativeDriver: true }),
+    ]).start();
+    const normalizedCode = accessCode.trim().toUpperCase();
+    try {
+      await ClientService.tempUploads.syncByAccessCode(normalizedCode);
+    } catch (syncError) {
+      console.warn('Temporary upload sync failed:', syncError);
+    }
+    const { data, error } = await supabase
+      .from('galleries')
+      .select('*')
+      .eq('access_code', normalizedCode)
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) {
+      Alert.alert('Invalid Code', 'We could not find a gallery for that access code.');
+      return;
+    }
+
+    setAccessCode('');
+    setSelectedGallery(data);
+    fetchPhotosForGallery(data.id);
+
+    try {
+      await supabase.rpc('sync_temp_uploads_for_user', { p_access_code: normalizedCode });
+    } catch (unlockError) {
+      console.warn('Failed to save unlocked gallery:', unlockError);
+    }
+  }, [accessCode, unlockAnim, fetchPhotosForGallery]);
+
+  useEffect(() => {
+    const notificationAccessCode = searchParams.accessCode as string;
+    const autoUnlock = searchParams.autoUnlock === 'true';
+
+    if (notificationAccessCode) {
+      setActiveTab('unlock');
+      setAccessCode(notificationAccessCode.toUpperCase());
+      
+      if (autoUnlock) {
+        const timer = setTimeout(() => {
+          handleUnlock();
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [searchParams, handleUnlock]);
 
   const maybeAutofillAccessCodeFromSms = useCallback(async () => {
     if (Platform.OS !== 'android') return;
@@ -215,17 +377,46 @@ export default function GalleryScreen() {
     }
   }, [accessCode]);
 
-  const handleLikePhoto = useCallback((id: string) => {
-    setLikedPhotos(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
+  const handleLikePhoto = useCallback(async (id: string, isPortfolio: boolean = false) => {
+    if (isPortfolio) {
+      try {
+        const isLikedNow = await ClientService.portfolio.toggleLike(id);
+        if (activeTab === 'portfolio') {
+          const items = await ClientService.portfolio.list();
+          setPortfolioItems(items);
+        } else if (activeTab === 'top-rated') {
+          const items = await ClientService.portfolio.listTopRated();
+          setTopRatedItems(items);
+        }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (err) {
+        console.error('Failed to toggle portfolio like:', err);
       }
-      return next;
-    });
-  }, []);
+    } else {
+      setLikedPhotos(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        return next;
+      });
+    }
+  }, [activeTab]);
+
+  const handleShareItem = useCallback(async (item: PortfolioItem) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      await Share.share({
+        message: `Check out this from ${brandName}: ${item.title || 'Portfolio Item'}`,
+        url: item.media_url,
+      });
+      await ClientService.portfolio.incrementShare(item.id);
+    } catch (error) {
+      console.error('Failed to share portfolio item:', error);
+    }
+  }, [brandName]);
 
   useEffect(() => {
     if (activeTab !== 'unlock' || selectedGallery) return;
@@ -269,75 +460,58 @@ export default function GalleryScreen() {
 
     const { data, error } = await supabase
       .from('galleries')
-      .select('*')
-      .eq('client_id', activeClientId)
+      .select(`
+        *,
+        unlocked_galleries!inner(user_id)
+      `)
+      .or(`client_id.eq.${activeClientId},unlocked_galleries.user_id.eq.${user?.id}`)
       .order('created_at', { ascending: false });
 
     if (error || !data) {
+      console.error('Failed to load galleries:', error);
       setGalleries([]);
       setGalleriesError('Failed to load galleries.');
       setGalleriesLoading(false);
       return;
     }
 
-    setGalleries(data);
+    const uniqueGalleries = data.filter((gallery, index, self) =>
+      index === self.findIndex(g => g.id === gallery.id)
+    );
+
+    setGalleries(uniqueGalleries);
+
+    if (selectedGallery) {
+      const updated = uniqueGalleries.find(g => g.id === selectedGallery.id);
+      if (updated && (updated.is_paid !== selectedGallery.is_paid || updated.is_locked !== selectedGallery.is_locked)) {
+        setSelectedGallery(updated);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    }
+
     setGalleriesLoading(false);
-  }, [clientId, fetchClientId]);
-
-  const fetchPhotosForGallery = useCallback(async (galleryId: string) => {
-    setPhotosLoading(true);
-    setPhotosError(null);
-
-    try {
-      const data = await ClientService.gallery.getPhotos(galleryId);
-      setPhotos(data);
-    } catch (error) {
-      setPhotos([]);
-      setPhotosError('Failed to load photos.');
-      console.error('Failed to load photos:', error);
-    } finally {
-      setPhotosLoading(false);
-    }
-  }, []);
-
-  const handleUnlock = useCallback(async () => {
-    if (!accessCode.trim()) {
-      Alert.alert('Enter Code', 'Please enter your gallery access code.');
-      return;
-    }
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Animated.sequence([
-      Animated.timing(unlockAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.timing(unlockAnim, { toValue: 0, duration: 300, delay: 1500, useNativeDriver: true }),
-    ]).start();
-    const normalizedCode = accessCode.trim().toUpperCase();
-    try {
-      await ClientService.tempUploads.syncByAccessCode(normalizedCode);
-    } catch (syncError) {
-      console.warn('Temporary upload sync failed:', syncError);
-    }
-    const { data, error } = await supabase
-      .from('galleries')
-      .select('*')
-      .eq('access_code', normalizedCode)
-      .limit(1)
-      .maybeSingle();
-
-    if (error || !data) {
-      Alert.alert('Invalid Code', 'We could not find a gallery for that access code.');
-      return;
-    }
-
-    setAccessCode('');
-    setSelectedGallery(data);
-    fetchPhotosForGallery(data.id);
-  }, [accessCode, unlockAnim, fetchPhotosForGallery]);
+  }, [clientId, fetchClientId, user?.id, selectedGallery]);
 
   const handlePayGallery = useCallback((gallery: GalleryRow) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setPaymentGallery(gallery);
     setPaymentModalVisible(true);
   }, []);
+
+  const handlePaymentSuccess = useCallback(() => {
+    if (paymentGallery) {
+      setGalleries(prev => prev.map(g => 
+        g.id === paymentGallery.id ? { ...g, is_paid: true, is_locked: false } : g
+      ));
+
+      if (selectedGallery?.id === paymentGallery.id) {
+        setSelectedGallery(prev => prev ? { ...prev, is_paid: true, is_locked: false } : null);
+        setPhotos(prev => prev.map(p => ({ ...p, variant: 'clean' })));
+      }
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [paymentGallery, selectedGallery]);
 
   const handleShareGallery = useCallback(async (gallery: GalleryRow) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -379,7 +553,7 @@ export default function GalleryScreen() {
         .channel(`client-galleries-${activeClientId}`)
         .on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'galleries', filter: `client_id=eq.${activeClientId}` },
+          { event: '*', schema: 'public', table: 'galleries', filter: `client_id=eq.${activeClientId}` },
           () => {
             fetchGalleries();
           }
@@ -392,6 +566,25 @@ export default function GalleryScreen() {
       if (channel) supabase.removeChannel(channel);
     };
   }, [clientId, fetchClientId, fetchGalleries]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`client-unlocked-galleries-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'unlocked_galleries', filter: `user_id=eq.${user.id}` },
+        () => {
+          fetchGalleries();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchGalleries, user?.id]);
 
   useEffect(() => {
     setActiveAdminId(selectedGallery?.owner_admin_id ?? null);
@@ -476,9 +669,19 @@ export default function GalleryScreen() {
                 <Text style={styles.headerTitle} numberOfLines={1}>{selectedGallery.name}</Text>
                 <Text style={styles.galleryDetailSub}>{photos.length} photos • {selectedGallery.shoot_type ?? 'Gallery'}</Text>
               </View>
-              <Pressable onPress={() => handleShareGallery(selectedGallery)} hitSlop={8}>
-                <Share2 size={20} color={Colors.gold} />
-              </Pressable>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                {canViewClean && (
+                  <Pressable
+                    onPress={() => Alert.alert('Download', 'Preparing high-resolution gallery for download...')}
+                    hitSlop={8}
+                  >
+                    <Download size={20} color={Colors.gold} />
+                  </Pressable>
+                )}
+                <Pressable onPress={() => handleShareGallery(selectedGallery)} hitSlop={8}>
+                  <Share2 size={20} color={Colors.gold} />
+                </Pressable>
+              </View>
             </View>
           ) : (
             <>
@@ -503,18 +706,33 @@ export default function GalleryScreen() {
         </View>
 
         {!selectedGallery && (
-          <View style={styles.tabs}>
-            {(['my-galleries', 'top-rated', 'unlock'] as TabType[]).map((tab) => (
+          <View style={styles.tabsWrapper}>
+            <View style={styles.tabsContent}>
               <Pressable
-                key={tab}
-                style={[styles.tab, activeTab === tab && styles.tabActive]}
-                onPress={() => { setActiveTab(tab); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                style={[styles.tab, activeTab === 'my-galleries' && styles.tabActive]}
+                onPress={() => { setActiveTab('my-galleries'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
               >
-                <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                  {tab === 'my-galleries' ? 'My Galleries' : tab === 'top-rated' ? 'Portfolio' : 'Unlock'}
-                </Text>
+                <Text style={[styles.tabText, activeTab === 'my-galleries' && styles.tabTextActive]} numberOfLines={1}>Galleries</Text>
               </Pressable>
-            ))}
+              <Pressable
+                style={[styles.tab, activeTab === 'portfolio' && styles.tabActive]}
+                onPress={() => { setActiveTab('portfolio'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              >
+                <Text style={[styles.tabText, activeTab === 'portfolio' && styles.tabTextActive]} numberOfLines={1}>Portfolio</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.tab, activeTab === 'top-rated' && styles.tabActive]}
+                onPress={() => { setActiveTab('top-rated'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              >
+                <Text style={[styles.tabText, activeTab === 'top-rated' && styles.tabTextActive]} numberOfLines={1}>Top Rated</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.tab, activeTab === 'unlock' && styles.tabActive]}
+                onPress={() => { setActiveTab('unlock'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              >
+                <Text style={[styles.tabText, activeTab === 'unlock' && styles.tabTextActive]} numberOfLines={1}>Unlock</Text>
+              </Pressable>
+            </View>
           </View>
         )}
 
@@ -647,7 +865,59 @@ export default function GalleryScreen() {
           )
         )}
 
-        {(activeTab === 'top-rated' || selectedGallery) && (
+        {activeTab === 'portfolio' && (
+          portfolioLoading ? (
+            <View style={styles.stateContainer}>
+              <ActivityIndicator color={Colors.gold} />
+            </View>
+          ) : portfolioItems.length === 0 ? (
+            <View style={styles.stateContainer}>
+              <Text style={styles.stateText}>No portfolio items found.</Text>
+            </View>
+          ) : (
+            <View style={styles.masonryGrid}>
+              <View style={styles.masonryColumn}>
+                {portfolioItems.filter((_, i) => i % 2 === 0).map((item, i) => (
+                  <PortfolioCard key={item.id} item={item} index={i * 2} onLike={(id) => handleLikePhoto(id, true)} onShare={handleShareItem} />
+                ))}
+              </View>
+              <View style={styles.masonryColumn}>
+                {portfolioItems.filter((_, i) => i % 2 !== 0).map((item, i) => (
+                  <PortfolioCard key={item.id} item={item} index={i * 2 + 1} onLike={(id) => handleLikePhoto(id, true)} onShare={handleShareItem} />
+                ))}
+              </View>
+            </View>
+          )
+        )}
+
+        {activeTab === 'top-rated' && !selectedGallery && (
+          topRatedLoading ? (
+            <View style={styles.stateContainer}>
+              <ActivityIndicator color={Colors.gold} />
+            </View>
+          ) : topRatedItems.length === 0 ? (
+            <View style={styles.stateContainer}>
+              <Text style={styles.stateText}>No top-rated items yet.</Text>
+            </View>
+          ) : (
+            <View>
+              <View style={styles.masonryGrid}>
+                <View style={styles.masonryColumn}>
+                  {topRatedItems.filter((_, i) => i % 2 === 0).map((item, i) => (
+                    <PortfolioCard key={item.id} item={item} index={i * 2} onLike={(id) => handleLikePhoto(id, true)} onShare={handleShareItem} />
+                  ))}
+                </View>
+                <View style={styles.masonryColumn}>
+                  {topRatedItems.filter((_, i) => i % 2 !== 0).map((item, i) => (
+                    <PortfolioCard key={item.id} item={item} index={i * 2 + 1} onLike={(id) => handleLikePhoto(id, true)} onShare={handleShareItem} />
+                  ))}
+                </View>
+              </View>
+            </View>
+          )
+        )}
+
+        {selectedGallery && (
           photosLoading ? (
             <View style={styles.stateContainer}>
               <ActivityIndicator color={Colors.gold} />
@@ -657,31 +927,59 @@ export default function GalleryScreen() {
               <Text style={styles.stateText}>{photosError}</Text>
             </View>
           ) : (
-            <View style={styles.masonryGrid}>
-              <View style={styles.masonryColumn}>
-                {leftColumn.map((photo, i) => (
-                  <PhotoCard
-                    key={photo.id}
-                    photo={photo}
-                    index={i * 2}
-                    onLike={handleLikePhoto}
-                    isLiked={likedPhotos.has(photo.id)}
-                    showWatermark={!canViewClean}
-                  />
-                ))}
+            <View>
+              <View style={styles.masonryGrid}>
+                <View style={styles.masonryColumn}>
+                  {leftColumn.map((photo, i) => (
+                    <PhotoCard
+                      key={photo.id}
+                      photo={photo}
+                      index={i * 2}
+                      onLike={handleLikePhoto}
+                      isLiked={likedPhotos.has(photo.id)}
+                      showWatermark={!canViewClean}
+                      isBlurred={!canViewClean && (i * 2) >= 3}
+                    />
+                  ))}
+                </View>
+                <View style={styles.masonryColumn}>
+                  {rightColumn.map((photo, i) => (
+                    <PhotoCard
+                      key={photo.id}
+                      photo={photo}
+                      index={i * 2 + 1}
+                      onLike={handleLikePhoto}
+                      isLiked={likedPhotos.has(photo.id)}
+                      showWatermark={!canViewClean}
+                      isBlurred={!canViewClean && (i * 2 + 1) >= 3}
+                    />
+                  ))}
+                </View>
               </View>
-              <View style={styles.masonryColumn}>
-                {rightColumn.map((photo, i) => (
-                  <PhotoCard
-                    key={photo.id}
-                    photo={photo}
-                    index={i * 2 + 1}
-                    onLike={handleLikePhoto}
-                    isLiked={likedPhotos.has(photo.id)}
-                    showWatermark={!canViewClean}
-                  />
-                ))}
-              </View>
+
+              {selectedGallery && !selectedGallery.is_paid && selectedGallery.is_locked && (
+                <View style={styles.payToUnlockContainer}>
+                  <LinearGradient
+                    colors={['rgba(212,175,55,0.1)', 'rgba(212,175,55,0.02)']}
+                    style={styles.payToUnlockGradient}
+                  >
+                    <Lock size={32} color={Colors.gold} style={{ marginBottom: 12 }} />
+                    <Text style={styles.payToUnlockTitle}>Unlock Full Resolution</Text>
+                    <Text style={styles.payToUnlockDesc}>
+                      Purchase this gallery to remove watermarks and enable high-quality downloads for all {photos.length} photos.
+                    </Text>
+                    <Pressable
+                      style={styles.floatingPayButton}
+                      onPress={() => handlePayGallery(selectedGallery)}
+                    >
+                      <CreditCard size={20} color={Colors.background} />
+                      <Text style={styles.floatingPayButtonText}>
+                        Pay KES {selectedGallery.price?.toLocaleString()}
+                      </Text>
+                    </Pressable>
+                  </LinearGradient>
+                </View>
+              )}
             </View>
           )
         )}
@@ -691,14 +989,8 @@ export default function GalleryScreen() {
         visible={paymentModalVisible}
         onClose={() => setPaymentModalVisible(false)}
         gallery={paymentGallery}
-        clientPhone={user?.phone}
-        onSuccess={() => {
-          // Refresh galleries to show unlocked status
-          fetchGalleries();
-          if (paymentGallery) {
-            setSelectedGallery({ ...paymentGallery, is_paid: true, is_locked: false });
-          }
-        }}
+        clientPhone={user?.user_metadata?.phone || user?.phone}
+        onSuccess={handlePaymentSuccess}
       />
     </View>
   );
@@ -759,28 +1051,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.white,
   },
-  tabs: {
-    flexDirection: 'row' as const,
-    paddingHorizontal: 20,
-    gap: 8,
+  tabsWrapper: {
+    flexGrow: 0,
     marginBottom: 16,
   },
+  tabsContent: {
+    paddingHorizontal: 8,
+    flexDirection: 'row',
+    gap: 4,
+    alignItems: 'center',
+    paddingVertical: 4,
+    justifyContent: 'space-between',
+  },
   tab: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 10,
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   tabActive: {
     backgroundColor: Colors.goldMuted,
     borderColor: Colors.gold,
   },
   tabText: {
-    fontSize: 13,
-    fontWeight: '500' as const,
+    fontSize: 11,
+    fontWeight: '700' as const,
     color: Colors.textMuted,
+    textAlign: 'center',
   },
   tabTextActive: {
     color: Colors.gold,
@@ -1003,7 +1305,12 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  blurOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   watermarkGrid: {
     width: '100%',
@@ -1048,5 +1355,50 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  payToUnlockContainer: {
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
+  },
+  payToUnlockGradient: {
+    alignItems: 'center',
+    padding: 30,
+  },
+  payToUnlockTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  payToUnlockDesc: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  floatingPayButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.gold,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 30,
+    gap: 10,
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  floatingPayButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.background,
   },
 });

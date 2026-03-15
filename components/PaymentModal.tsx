@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, Modal, TextInput, ActivityIndicator, Pressable, Alert, Animated } from 'react-native';
+import { View, Text, StyleSheet, Modal, TextInput, ActivityIndicator, Pressable, Alert, Animated, Image, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { X, Smartphone, CheckCircle, AlertCircle } from 'lucide-react-native';
+import { X, Smartphone, CheckCircle, AlertCircle, CreditCard } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -17,13 +17,14 @@ interface PaymentModalProps {
   onSuccess: () => void;
 }
 
-type PaymentState = 'idle' | 'processing' | 'success' | 'failed';
+type PaymentState = 'idle' | 'initiating' | 'waiting' | 'verifying' | 'success' | 'failed';
 
 export default function PaymentModal({ visible, onClose, gallery, clientPhone, onSuccess }: PaymentModalProps) {
   const [paymentState, setPaymentState] = useState<PaymentState>('idle');
   const [phoneNumber, setPhoneNumber] = useState(clientPhone || '');
   const [errorMessage, setErrorMessage] = useState('');
   const [recipientName, setRecipientName] = useState('');
+  const [paymentSettings, setPaymentSettings] = useState<any>(null);
 
   const readString = useCallback((value: unknown, key: string): string | null => {
     if (!value || typeof value !== 'object') return null;
@@ -31,7 +32,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     const raw = record[key];
     return typeof raw === 'string' ? raw : null;
   }, []);
-  
+
   // Animation values
   const scaleAnim = useState(new Animated.Value(0.9))[0];
   const opacityAnim = useState(new Animated.Value(0))[0];
@@ -41,8 +42,8 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       setPaymentState('idle');
       setErrorMessage('');
       setPhoneNumber(clientPhone || '');
-      loadRecipientName();
-      
+      loadPaymentSettings();
+
       Animated.parallel([
         Animated.spring(scaleAnim, {
           toValue: 1,
@@ -72,19 +73,36 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     }
   }, [visible, clientPhone]);
 
-  const loadRecipientName = async () => {
+  const loadPaymentSettings = async () => {
     try {
-      const { data } = await supabase
-        .from('payment_config')
-        .select('payment_recipient_name')
-        .limit(1)
+      if (!gallery?.owner_admin_id) return;
+
+      // Try simple settings first
+      const { data: simple } = await supabase
+        .from('simple_payment_settings')
+        .select('*')
+        .eq('admin_id', gallery.owner_admin_id)
         .maybeSingle();
       
-      if (data?.payment_recipient_name) {
-        setRecipientName(data.payment_recipient_name);
+      if (simple) {
+        setPaymentSettings(simple);
+        setRecipientName(simple.business_name || 'Photographer');
+        return;
+      }
+
+      // Try advanced settings
+      const { data: advanced } = await supabase
+        .from('payment_settings')
+        .select('*')
+        .eq('admin_id', gallery.owner_admin_id)
+        .maybeSingle();
+
+      if (advanced) {
+        setPaymentSettings(advanced);
+        setRecipientName(`Paybill/Till: ${advanced.shortcode}`);
       }
     } catch (e) {
-      console.error('Error loading recipient name:', e);
+      console.error('Error loading payment settings:', e);
     }
   };
 
@@ -95,8 +113,8 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       return;
     }
 
-    setPaymentState('processing');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setPaymentState('initiating');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       // 1. Trigger STK Push via Edge Function
@@ -120,6 +138,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         throw new Error('Payment initiated but missing checkout request id.');
       }
 
+      setPaymentState('waiting');
       startPolling(checkoutRequestId, gallery.id);
 
     } catch (e: any) {
@@ -131,45 +150,55 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
   };
 
   const startPolling = async (checkoutRequestId: string, galleryId: string) => {
-    // Poll every 3 seconds for 2 minutes
-    const pollInterval = 3000;
-    const maxAttempts = 40; // 2 minutes
+    // Poll every 2 seconds for 1.5 minutes (Daraja timeout is usually 60s)
+    const pollInterval = 2000;
+    const maxAttempts = 45; 
     let attempts = 0;
 
     const interval = setInterval(async () => {
       attempts++;
       
+      // After 20 seconds of waiting, switch UI to "verifying"
+      if (attempts > 10 && paymentState === 'waiting') {
+        setPaymentState('verifying');
+      }
+
       try {
         const { data, error } = await supabase
-          .from('payments')
-          .select('status')
-          .eq('mpesa_checkout_request_id', checkoutRequestId)
+          .from('mpesa_transactions')
+          .select('status, result_desc')
+          .eq('checkout_request_id', checkoutRequestId)
           .eq('gallery_id', galleryId)
-          .eq('status', 'paid')
-          .gt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()) // last 5 mins
+          .gt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
           .maybeSingle();
 
         if (error) throw error;
 
-        if (data) {
+        if (data?.status === 'success') {
           clearInterval(interval);
           setPaymentState('success');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           setTimeout(() => {
             onSuccess();
             onClose();
-          }, 2000);
+          }, 3000); // Give time for celebration
+        } else if (data?.status === 'failed' || data?.status === 'cancelled') {
+          clearInterval(interval);
+          setPaymentState('failed');
+          setErrorMessage(data.result_desc || 'Payment was unsuccessful.');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         } else if (attempts >= maxAttempts) {
           clearInterval(interval);
           setPaymentState('failed');
-          setErrorMessage('Payment timed out. Please try again.');
+          setErrorMessage('Payment verification timed out. If you have been charged, please contact support.');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
       } catch (e) {
         console.error('Polling error:', e);
       }
     }, pollInterval);
   };
-  
+
   // For demo/dev purposes, let's allow a "Simulate Success" if long press on title
   const handleSimulateSuccess = () => {
     if (__DEV__) {
@@ -199,10 +228,10 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
           <BlurView intensity={20} style={StyleSheet.absoluteFill} tint="dark" />
         </Pressable>
 
-        <Animated.View 
+        <Animated.View
           style={[
-            styles.modalContainer, 
-            { 
+            styles.modalContainer,
+            {
               transform: [{ scale: scaleAnim }],
               opacity: opacityAnim
             }
@@ -221,6 +250,21 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
             {paymentState === 'idle' && (
               <>
                 <View style={styles.summaryContainer}>
+                  {gallery.cover_photo_url ? (
+                    <View style={styles.previewWrapper}>
+                      <Image
+                        source={{ uri: gallery.cover_photo_url }}
+                        style={styles.previewImage}
+                        blurRadius={Platform.OS === 'ios' ? 10 : 5}
+                      />
+                      <BlurView intensity={30} style={StyleSheet.absoluteFill} tint="dark" />
+                    </View>
+                  ) : (
+                    <View style={[styles.previewWrapper, { backgroundColor: Colors.background }]}>
+                      <CreditCard size={40} color={Colors.textMuted} style={{ opacity: 0.3 }} />
+                    </View>
+                  )}
+
                   <Text style={styles.summaryLabel}>Total Amount</Text>
                   <Text style={styles.summaryAmount}>KES {gallery.price?.toLocaleString()}</Text>
                   <Text style={styles.summaryDescription}>
@@ -234,48 +278,125 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                   </View>
                 ) : null}
 
-                <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>M-Pesa Phone Number</Text>
-                  <View style={styles.inputWrapper}>
-                    <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.input}
-                      value={phoneNumber}
-                      onChangeText={setPhoneNumber}
-                      placeholder="e.g. 0712345678"
-                      placeholderTextColor={Colors.textMuted}
-                      keyboardType="phone-pad"
-                      autoFocus={false}
-                    />
-                  </View>
-                </View>
+                {paymentSettings?.payment_mode === 'STK_PUSH' || !paymentSettings?.payment_mode ? (
+                  <>
+                    <View style={styles.inputContainer}>
+                      <Text style={styles.inputLabel}>M-Pesa Phone Number</Text>
+                      <View style={styles.inputWrapper}>
+                        <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.input}
+                          value={phoneNumber}
+                          onChangeText={setPhoneNumber}
+                          placeholder="e.g. 0712345678"
+                          placeholderTextColor={Colors.textMuted}
+                          keyboardType="phone-pad"
+                          autoFocus={false}
+                        />
+                      </View>
+                    </View>
 
-                <Pressable style={styles.payButton} onPress={handlePay}>
-                  <Text style={styles.payButtonText}>Pay Now (M-Pesa)</Text>
-                </Pressable>
+                    <Pressable style={styles.payButton} onPress={handlePay}>
+                      <Text style={styles.payButtonText}>Pay via STK Push</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <View style={styles.instructionContainer}>
+                    <Text style={styles.instructionTitle}>Manual Payment Instructions</Text>
+                    <View style={styles.instructionBox}>
+                      <Text style={styles.instructionStep}>1. Go to M-Pesa menu</Text>
+                      <Text style={styles.instructionStep}>2. Select Lipa na M-Pesa</Text>
+                      <Text style={styles.instructionStep}>
+                        3. Select {paymentSettings.payment_mode === 'PAYBILL' ? 'Paybill' : 'Buy Goods'}
+                      </Text>
+                      <Text style={styles.instructionStep}>
+                        4. {paymentSettings.payment_mode === 'PAYBILL' ? 'Enter Business No: ' : 'Enter Till No: '}
+                        <Text style={{ fontWeight: 'bold', color: Colors.gold }}>{paymentSettings.mpesa_number}</Text>
+                      </Text>
+                      {paymentSettings.payment_mode === 'PAYBILL' && (
+                        <Text style={styles.instructionStep}>
+                          5. Enter Account: <Text style={{ fontWeight: 'bold', color: Colors.gold }}>{gallery.access_code}</Text>
+                        </Text>
+                      )}
+                      <Text style={styles.instructionStep}>
+                        {paymentSettings.payment_mode === 'PAYBILL' ? '6.' : '5.'} Enter Amount: <Text style={{ fontWeight: 'bold', color: Colors.gold }}>{gallery.price}</Text>
+                      </Text>
+                    </View>
+                    <Text style={styles.instructionHint}>
+                      Your gallery will be unlocked automatically once the payment is confirmed.
+                    </Text>
+                    <Pressable 
+                      style={[styles.payButton, { backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.gold }]} 
+                      onPress={() => setPaymentState('verifying')}
+                    >
+                      <Text style={[styles.payButtonText, { color: Colors.gold }]}>I have paid, check status</Text>
+                    </Pressable>
+                  </View>
+                )}
               </>
             )}
 
-            {paymentState === 'processing' && (
+            {paymentState === 'initiating' && (
+              <View style={styles.stateContainer}>
+                <ActivityIndicator size="large" color={Colors.gold} style={styles.spinner} />
+                <Text style={styles.stateTitle}>Initiating Secure Payment</Text>
+                <Text style={styles.stateDescription}>
+                  Connecting to M-Pesa...
+                </Text>
+                <View style={styles.progressSteps}>
+                  <View style={[styles.stepDot, styles.stepDotActive]} />
+                  <View style={styles.stepDot} />
+                  <View style={styles.stepDot} />
+                </View>
+              </View>
+            )}
+
+            {paymentState === 'waiting' && (
               <View style={styles.stateContainer}>
                 <ActivityIndicator size="large" color={Colors.gold} style={styles.spinner} />
                 <Text style={styles.stateTitle}>Check your phone!</Text>
                 <Text style={styles.stateDescription}>
-                  We have sent an M-Pesa prompt to {phoneNumber}. Please enter your PIN to complete the payment.
+                  We've sent an M-Pesa prompt to {phoneNumber}. Enter your PIN to confirm.
                 </Text>
+                <View style={styles.progressSteps}>
+                  <View style={[styles.stepDot, styles.stepDotCompleted]} />
+                  <View style={[styles.stepDot, styles.stepDotActive]} />
+                  <View style={styles.stepDot} />
+                </View>
                 <View style={styles.loaderBar}>
-                  <View style={styles.loaderProgress} />
+                  <Animated.View style={[styles.loaderProgress, { width: '60%' }]} />
+                </View>
+              </View>
+            )}
+
+            {paymentState === 'verifying' && (
+              <View style={styles.stateContainer}>
+                <ActivityIndicator size="large" color={Colors.gold} style={styles.spinner} />
+                <Text style={styles.stateTitle}>Verifying Payment</Text>
+                <Text style={styles.stateDescription}>
+                  Waiting for M-Pesa to confirm your transaction. This usually takes a few seconds...
+                </Text>
+                <View style={styles.progressSteps}>
+                  <View style={[styles.stepDot, styles.stepDotCompleted]} />
+                  <View style={[styles.stepDot, styles.stepDotCompleted]} />
+                  <View style={[styles.stepDot, styles.stepDotActive]} />
                 </View>
               </View>
             )}
 
             {paymentState === 'success' && (
               <View style={styles.stateContainer}>
-                <CheckCircle size={64} color="#4CAF50" style={styles.stateIcon} />
-                <Text style={styles.stateTitle}>Payment Received!</Text>
+                <Animated.View style={{ transform: [{ scale: 1.2 }] }}>
+                  <CheckCircle size={80} color="#4CAF50" style={styles.stateIcon} />
+                </Animated.View>
+                <Text style={[styles.stateTitle, { color: '#4CAF50' }]}>Payment Successful!</Text>
                 <Text style={styles.stateDescription}>
-                  Unlocking your gallery...
+                  Your gallery is being unlocked right now. Get ready to enjoy your photos!
                 </Text>
+                <View style={styles.celebrationContainer}>
+                   <ActivityIndicator size="small" color="#4CAF50" />
+                   <Text style={{color: '#4CAF50', marginLeft: 8, fontWeight: '600'}}>Applying access...</Text>
+                </View>
               </View>
             )}
 
@@ -286,9 +407,14 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                 <Text style={styles.stateDescription}>
                   {errorMessage || 'Something went wrong. Please try again.'}
                 </Text>
-                <Pressable style={styles.retryButton} onPress={handleRetry}>
-                  <Text style={styles.retryButtonText}>Retry Payment</Text>
-                </Pressable>
+                <View style={styles.failedActions}>
+                  <Pressable style={styles.retryButton} onPress={handleRetry}>
+                    <Text style={styles.retryButtonText}>Try Again</Text>
+                  </Pressable>
+                  <Pressable style={[styles.retryButton, {borderColor: 'transparent'}]} onPress={onClose}>
+                    <Text style={[styles.retryButtonText, {color: Colors.textMuted}]}>Cancel</Text>
+                  </Pressable>
+                </View>
               </View>
             )}
           </View>
@@ -342,6 +468,25 @@ const styles = StyleSheet.create({
   summaryContainer: {
     alignItems: 'center',
     marginBottom: 20,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  previewWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
   summaryLabel: {
     fontSize: 14,
@@ -458,9 +603,68 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   loaderProgress: {
-    width: '40%',
     height: '100%',
     backgroundColor: Colors.gold,
     borderRadius: 2,
+  },
+  progressSteps: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+  },
+  stepDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: Colors.border,
+  },
+  stepDotActive: {
+    backgroundColor: Colors.gold,
+    width: 24,
+  },
+  stepDotCompleted: {
+    backgroundColor: '#4CAF50',
+  },
+  celebrationContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 30,
+    marginTop: 10,
+  },
+  failedActions: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  instructionContainer: {
+    gap: 16,
+  },
+  instructionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.white,
+    textAlign: 'center',
+  },
+  instructionBox: {
+    backgroundColor: Colors.background,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  instructionStep: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 8,
+    lineHeight: 20,
+  },
+  instructionHint: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
 });

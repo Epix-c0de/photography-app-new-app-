@@ -8,14 +8,16 @@ import { ClientService } from '@/services/client';
 
 interface UserProfile {
   id: string;
-  role: 'admin' | 'client';
+  role: 'admin' | 'client' | 'super_admin';
   name: string | null;
   email: string | null;
   phone: string | null;
+  avatar_url: string | null;
   pin_hash: string | null;
   biometric_enabled: boolean | null;
   client_type: string | null;
   profile_complete: boolean;
+  created_at: string;
 }
 
 interface AuthState {
@@ -299,10 +301,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
       if (profile) {
+        const isAdminProfile = profile.role === 'admin' || profile.role === 'super_admin';
+        const hasSecurity = profile.pin_hash !== null || profile.biometric_enabled === true;
+        
+        let requiresSecuritySetup = false;
+        if (!isAdminProfile && !hasSecurity && !profile.profile_complete) {
+          const lastPrompt = await SecureStore.getItemAsync('last_security_prompt');
+          const now = Date.now();
+          if (!lastPrompt || now - parseInt(lastPrompt) > 24 * 60 * 60 * 1000) {
+            requiresSecuritySetup = true;
+            await SecureStore.setItemAsync('last_security_prompt', now.toString());
+          }
+        }
+
         setState(prev => ({
           ...prev,
           profile,
-          requiresSecuritySetup: !profile.profile_complete,
+          requiresSecuritySetup,
+          requiresAuthOnLaunch: isAdminProfile ? false : hasSecurity,
         }));
       }
     }
@@ -324,7 +340,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw error;
     }
 
-    const authRole = (data.user?.app_metadata as any)?.role;
+    const authRole =
+      (data.user?.app_metadata as any)?.role ??
+      (data.user?.user_metadata as any)?.role;
     const isAdminByAuth = authRole === 'admin' || authRole === 'super_admin';
 
     const { data: profile, error: profileError } = await supabase
@@ -333,7 +351,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .eq('id', data.user.id)
       .single();
 
-    const isAdminByProfile = profile?.role === 'admin';
+    const isAdminByProfile = profile?.role === 'admin' || profile?.role === 'super_admin';
     if (!isAdminByProfile && !isAdminByAuth) {
       await supabase.auth.signOut();
       if (normalizedEmail === 'admin@lexnart.com') {
@@ -351,11 +369,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name: null,
       email: data.user.email ?? normalizedEmail,
       phone: null,
+      avatar_url: null,
       pin_hash: null,
       biometric_enabled: null,
       client_type: null,
       profile_complete: true,
+      created_at: new Date().toISOString(),
     };
+
+    const hasSecurity = resolvedProfile.pin_hash !== null || resolvedProfile.biometric_enabled === true;
+    let requiresSecuritySetup = false;
+    if (!hasSecurity && !resolvedProfile.profile_complete) {
+      const lastPrompt = await SecureStore.getItemAsync('last_security_prompt');
+      const now = Date.now();
+      if (!lastPrompt || now - parseInt(lastPrompt) > 24 * 60 * 60 * 1000) {
+        requiresSecuritySetup = true;
+        await SecureStore.setItemAsync('last_security_prompt', now.toString());
+      }
+    }
 
     setState(prev => ({
       ...prev,
@@ -363,7 +394,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       session: data.session,
       profile: resolvedProfile,
       isAuthenticated: true,
-      requiresSecuritySetup: !resolvedProfile.profile_complete,
+      requiresSecuritySetup: false, // Admin never requires security setup via this flow
+      requiresAuthOnLaunch: false,
     }));
   }, []);
 
@@ -393,7 +425,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (error) throw error;
     if (!data.user) throw new Error('No user data returned');
 
-    const authRole = (data.user?.app_metadata as any)?.role;
+    const authRole =
+      (data.user?.app_metadata as any)?.role ??
+      (data.user?.user_metadata as any)?.role;
     const isAdminByAuth = authRole === 'admin' || authRole === 'super_admin';
 
     const { data: profile, error: profileError } = await supabase
@@ -402,7 +436,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .eq('id', data.user.id)
       .single();
 
-    const isAdminByProfile = profile?.role === 'admin';
+    const isAdminByProfile = profile?.role === 'admin' || profile?.role === 'super_admin';
     if (!isAdminByProfile && !isAdminByAuth) {
       await supabase.auth.signOut();
       if (normalizedEmail === 'admin@lexnart.com') {
@@ -420,11 +454,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       name: null,
       email: data.user.email ?? normalizedEmail,
       phone: null,
+      avatar_url: null,
       pin_hash: null,
       biometric_enabled: null,
       client_type: null,
       profile_complete: true,
+      created_at: new Date().toISOString(),
     };
+
+    const hasSecurity = resolvedProfile.pin_hash !== null || resolvedProfile.biometric_enabled === true;
+    let requiresSecuritySetup = false;
+    if (!hasSecurity && !resolvedProfile.profile_complete) {
+      const lastPrompt = await SecureStore.getItemAsync('last_security_prompt');
+      const now = Date.now();
+      if (!lastPrompt || now - parseInt(lastPrompt) > 24 * 60 * 60 * 1000) {
+        requiresSecuritySetup = true;
+        await SecureStore.setItemAsync('last_security_prompt', now.toString());
+      }
+    }
 
     setState(prev => ({
       ...prev,
@@ -432,7 +479,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       session: data.session,
       profile: resolvedProfile,
       isAuthenticated: true,
-      requiresSecuritySetup: !resolvedProfile.profile_complete,
+      requiresSecuritySetup: false, // Admin never requires security setup from verifyOtp
+      requiresAuthOnLaunch: false,
     }));
   }, []);
 
@@ -496,8 +544,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const isAdminByAuth = authRole === 'admin' || authRole === 'super_admin';
 
       if (profile) {
-        const requiresSecuritySetup = !profile.profile_complete;
-        const requiresAuthOnLaunch = profile.pin_hash !== null || profile.biometric_enabled === true;
+        const isAdminProfile = profile.role === 'admin' || profile.role === 'super_admin';
+        const hasSecurity = profile.pin_hash !== null || profile.biometric_enabled === true;
+        
+        let requiresSecuritySetup = false;
+        if (!isAdminProfile && !hasSecurity && !profile.profile_complete) {
+          const lastPrompt = await SecureStore.getItemAsync('last_security_prompt');
+          const now = Date.now();
+          if (!lastPrompt || now - parseInt(lastPrompt) > 24 * 60 * 60 * 1000) {
+            requiresSecuritySetup = true;
+            await SecureStore.setItemAsync('last_security_prompt', now.toString());
+          }
+        }
+        
+        const requiresAuthOnLaunch = isAdminProfile ? false : hasSecurity;
 
         setState(prev => ({
           ...prev,
@@ -516,6 +576,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else if (requiresAuthOnLaunch) {
           router.replace('/auth-required' as any);
         }
+        if (profile.role === 'client') {
+          try {
+            await ClientService.clients.ensureLinkedRecordsForCurrentUser();
+          } catch {}
+        }
       } else if (isAdminByAuth) {
         const resolvedProfile: UserProfile = {
           id: session.user.id,
@@ -523,10 +588,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           name: null,
           email: session.user.email ?? null,
           phone: null,
+        avatar_url: null,
           pin_hash: null,
           biometric_enabled: null,
           client_type: null,
           profile_complete: true,
+          created_at: new Date().toISOString(),
         };
 
         setState(prev => ({
@@ -577,17 +644,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .single();
 
           if (profile) {
+            const isAdminProfile = profile.role === 'admin' || profile.role === 'super_admin';
+            const hasSecurity = profile.pin_hash !== null || profile.biometric_enabled === true;
+            
+            let requiresSecuritySetup = false;
+            if (!isAdminProfile && !hasSecurity && !profile.profile_complete) {
+              const lastPrompt = await SecureStore.getItemAsync('last_security_prompt');
+              const now = Date.now();
+              if (!lastPrompt || now - parseInt(lastPrompt) > 24 * 60 * 60 * 1000) {
+                requiresSecuritySetup = true;
+                await SecureStore.setItemAsync('last_security_prompt', now.toString());
+              }
+            }
+
             setState(prev => ({
               ...prev,
               user: session.user,
               profile,
               session,
               isAuthenticated: true,
-              requiresSecuritySetup: !profile.profile_complete,
-              requiresAuthOnLaunch: profile.pin_hash !== null || profile.biometric_enabled === true,
+              requiresSecuritySetup,
+              requiresAuthOnLaunch: isAdminProfile ? false : hasSecurity,
             }));
             if (profile.role === 'client') {
               await syncTemporaryUploads();
+              try {
+                await ClientService.clients.ensureLinkedRecordsForCurrentUser();
+              } catch {}
             }
           }
         }

@@ -1,117 +1,170 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Dimensions, Animated, FlatList, Modal, TextInput, KeyboardAvoidingView, Platform, Keyboard } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Dimensions,
+  FlatList,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableOpacity,
+  Share,
+  ViewToken,
+  ActivityIndicator,
+  Pressable,
+  Alert,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import {
+  Heart,
+  MessageCircle,
+  Share2,
+  Calendar,
+  X,
+  Send,
+  ChevronLeft,
+  Volume2,
+  VolumeX,
+} from 'lucide-react-native';
 import { Image } from 'expo-image';
-import { Audio, Video, ResizeMode } from 'expo-av';
-import * as Clipboard from 'expo-clipboard';
-import { Heart, MessageCircle, Share2, Calendar, X, Send, MoreHorizontal } from 'lucide-react-native';
+import { Video, ResizeMode, Audio } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Database } from '@/types/supabase';
 
-type BTSPost = Database['public']['Tables']['bts_posts']['Row'];
-type BTSComment = Database['public']['Tables']['bts_comments']['Row'] & {
-  user_profiles: {
-    name: string | null;
-    avatar_url: string | null;
-  } | null;
-};
-
 const { width, height } = Dimensions.get('window');
-const LIKED_BTS_KEY = 'liked_bts_post_ids_v1';
 
-async function loadLikedSet() {
-  const raw = await AsyncStorage.getItem(LIKED_BTS_KEY);
-  if (!raw) return new Set<string>();
-  try {
-    const ids = JSON.parse(raw);
-    if (Array.isArray(ids)) return new Set(ids.filter((v) => typeof v === 'string'));
-    return new Set<string>();
-  } catch {
-    return new Set<string>();
-  }
+type BTSPostRow = Database['public']['Tables']['bts_posts']['Row'];
+
+interface BTSWithSocial extends BTSPostRow {
+  isLiked: boolean;
+  likesCount: number;
+  commentsCount: number;
+  isBookmarked: boolean;
 }
 
-async function persistLikedSet(set: Set<string>) {
-  await AsyncStorage.setItem(LIKED_BTS_KEY, JSON.stringify(Array.from(set)));
-}
-
-function relativeTime(iso: string) {
-  const d = new Date(iso).getTime();
-  const diff = Date.now() - d;
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return 'Just now';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `${days}d`;
+interface BTSComment {
+  id: string;
+  user_name: string;
+  user_avatar?: string;
+  comment: string;
+  created_at: string;
 }
 
 export default function BTSViewerScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
+  const { id: initialId } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user } = useAuth();
-  
-  const [posts, setPosts] = useState<BTSPost[]>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
-  const [showComments, setShowComments] = useState(false);
-  const [comments, setComments] = useState<BTSComment[]>([]);
-  const [commentText, setCommentText] = useState('');
-  const [loadingComments, setLoadingComments] = useState(false);
-  const [activePostId, setActivePostId] = useState<string | null>(null);
+
+  const [posts, setPosts] = useState<BTSWithSocial[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
 
-  const flatListRef = useRef<FlatList<BTSPost>>(null);
+  // Comment sheet state
+  const [showComments, setShowComments] = useState<BTSWithSocial | null>(null);
+  const [commentText, setCommentText] = useState('');
+  const [comments, setComments] = useState<BTSComment[]>([]);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [postingComment, setPostingComment] = useState(false);
 
-  const fetchPosts = useCallback(async () => {
-    const nowIso = new Date().toISOString();
-    const { data, error } = await supabase
-      .from('bts_posts')
-      .select('*')
-      .eq('is_active', true)
-      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-      .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
-      .order('created_at', { ascending: false })
-      .limit(50);
+  // Paging state
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [activePostId, setActivePostId] = useState<string | null>(null);
+  const flatListRef = useRef<FlatList>(null);
 
-    if (error || !data) return;
+  const fetchPosts = useCallback(async (showRefresh = false) => {
+    try {
+      if (showRefresh) setRefreshing(true);
+      else setLoading(true);
 
-    setPosts(data);
-    
-    // Find index of the requested post
-    if (id) {
-      const idx = data.findIndex(p => p.id === id);
-      if (idx !== -1) {
-        setActiveIndex(idx);
-        setActivePostId(data[idx].id);
-        // We can't scroll immediately here reliably, but initialScrollIndex on FlatList works
-      } else {
-        setActivePostId(data[0]?.id);
+      const nowIso = new Date().toISOString();
+      const { data, error } = await supabase
+        .from('bts_posts')
+        .select('*')
+        .eq('is_active', true)
+        .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+        .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const withSocial = await Promise.all(
+        (data || []).map(async (p) => {
+          const [likeRow, bookmarkRow, likesCount, commentsCount] = await Promise.allSettled([
+            supabase
+              .from('bts_likes')
+              .select('id')
+              .eq('bts_id', p.id)
+              .eq('user_id', user?.id ?? '')
+              .maybeSingle(),
+            supabase
+              .from('bts_bookmarks')
+              .select('id')
+              .eq('bts_id', p.id)
+              .eq('user_id', user?.id ?? '')
+              .maybeSingle(),
+            supabase
+              .from('bts_likes')
+              .select('*', { count: 'exact', head: true })
+              .eq('bts_id', p.id),
+            supabase
+              .from('bts_comments')
+              .select('*', { count: 'exact', head: true })
+              .eq('bts_id', p.id),
+          ]);
+
+          return {
+            ...p,
+            isLiked: likeRow.status === 'fulfilled' && !!likeRow.value.data,
+            likesCount: likesCount.status === 'fulfilled' ? (likesCount.value.count ?? 0) : 0,
+            commentsCount: commentsCount.status === 'fulfilled' ? (commentsCount.value.count ?? 0) : 0,
+            isBookmarked: bookmarkRow.status === 'fulfilled' && !!bookmarkRow.value.data,
+          } as BTSWithSocial;
+        })
+      );
+
+      setPosts(withSocial);
+
+      if (initialId && withSocial.length > 0) {
+        const idx = withSocial.findIndex(p => p.id === initialId);
+        if (idx !== -1) {
+          setActiveIndex(idx);
+          setActivePostId(withSocial[idx].id);
+        } else {
+          setActivePostId(withSocial[0].id);
+        }
+      } else if (withSocial.length > 0) {
+        setActivePostId(withSocial[0].id);
       }
+    } catch (err) {
+      console.error('[BTS] Fetch error:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  }, [id]);
+  }, [user?.id, initialId]);
 
   useEffect(() => {
     fetchPosts();
-    loadLikedSet().then(setLikedIds);
   }, [fetchPosts]);
 
-  // View Tracking & Music
+  // View tracking & Music
   useEffect(() => {
     if (!activePostId) return;
-    
-    // 1. Increment View
-    (supabase as any).rpc('increment_views', { row_id: activePostId, table_name: 'bts_posts' });
 
-    // 2. Play Music
+    // Increment View Count via RPC
+    (supabase as any).rpc('increment_views', { row_id: activePostId, table_name: 'bts_posts' })
+      .then(({ error }: any) => { if (error) console.error('[BTS] View tracking failed:', error); });
+
     const playMusic = async () => {
       if (sound) {
         await sound.unloadAsync();
@@ -121,111 +174,119 @@ export default function BTSViewerScreen() {
       const post = posts.find(p => p.id === activePostId);
       if (post && post.music_url) {
         try {
-            const { sound: newSound } = await Audio.Sound.createAsync(
+          const { sound: newSound } = await Audio.Sound.createAsync(
             { uri: post.music_url },
-            { shouldPlay: true, isLooping: true, volume: 0.2 }
-            );
-            setSound(newSound);
+            { shouldPlay: true, isLooping: true, volume: 0.2, isMuted }
+          );
+          setSound(newSound);
         } catch (e) {
-            console.log('Music play error', e);
+          console.log('[BTS] Music error:', e);
         }
       }
     };
     playMusic();
 
     return () => {
-        if (sound) sound.unloadAsync();
+      if (sound) sound.unloadAsync();
     };
-  }, [activePostId]); // Note: adding posts/sound to deps might cause loops, keeping simple
+  }, [activePostId]);
 
-  // Cleanup sound on unmount
+  useEffect(() => {
+    if (sound) {
+      sound.setIsMutedAsync(isMuted);
+    }
+  }, [isMuted, sound]);
+
+  // Clean up sound on unmount
   useEffect(() => {
     return () => {
-        if (sound) sound.unloadAsync();
+      if (sound) sound.unloadAsync();
     };
   }, []);
 
-  // Comments fetching
-  const fetchComments = useCallback(async (postId: string) => {
+  const fetchComments = async (postId: string) => {
     setLoadingComments(true);
-    const { data, error } = await supabase
-      .from('bts_comments')
-      .select('*, user_profiles(name, avatar_url)')
-      .eq('bts_id', postId)
-      .order('created_at', { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from('bts_comments')
+        .select(`*, user_profiles:client_id (name, avatar_url)`)
+        .eq('bts_id', postId)
+        .order('created_at', { ascending: false });
 
-    if (!error && data) {
-      setComments(data as any);
+      if (error) throw error;
+
+      const mapped: BTSComment[] = (data || []).map((c: any) => ({
+        id: c.id,
+        user_name: c.user_profiles?.name || 'User',
+        user_avatar: c.user_profiles?.avatar_url,
+        comment: c.comment,
+        created_at: c.created_at,
+      }));
+      setComments(mapped);
+    } catch (err) {
+      console.error('[BTS] Comments error:', err);
+    } finally {
+      setLoadingComments(false);
     }
-    setLoadingComments(false);
-  }, []);
+  };
 
-  useEffect(() => {
-    if (showComments && activePostId) {
-      fetchComments(activePostId);
-      
-      const channel = supabase
-        .channel(`bts_comments_${activePostId}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bts_comments', filter: `bts_id=eq.${activePostId}` }, (payload) => {
-           // Optimistically fetch or just append if we have user details (which we don't in payload)
-           fetchComments(activePostId);
-        })
-        .subscribe();
-        
-      return () => { supabase.removeChannel(channel); };
+  const handleLike = async (post: BTSWithSocial) => {
+    if (!user) {
+      Alert.alert('Login Required', 'Please login to like posts');
+      return;
     }
-  }, [showComments, activePostId, fetchComments]);
-
-  const toggleLike = async (post: BTSPost) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const isLiked = likedIds.has(post.id);
-    const newSet = new Set(likedIds);
-    
-    if (isLiked) {
-      newSet.delete(post.id);
-      // DB remove
-      if (user) {
-        await supabase.from('bts_likes').delete().match({ user_id: user.id, bts_id: post.id });
+
+    setPosts(prev => prev.map(p => p.id === post.id ? {
+      ...p,
+      isLiked: !p.isLiked,
+      likesCount: p.isLiked ? p.likesCount - 1 : p.likesCount + 1,
+    } : p));
+
+    try {
+      if (post.isLiked) {
+        await supabase.from('bts_likes').delete().match({ bts_id: post.id, user_id: user.id });
+      } else {
+        await supabase.from('bts_likes').insert({ bts_id: post.id, user_id: user.id });
       }
-    } else {
-      newSet.add(post.id);
-      // DB add
-      if (user) {
-        await supabase.from('bts_likes').insert({ user_id: user.id, bts_id: post.id });
-      }
+    } catch {
+      // Revert on error
+      setPosts(prev => prev.map(p => p.id === post.id ? post : p));
     }
-    
-    setLikedIds(newSet);
-    persistLikedSet(newSet);
   };
 
   const submitComment = async () => {
-    if (!commentText.trim() || !activePostId || !user) return;
-    
-    const text = commentText.trim();
-    setCommentText('');
-    Keyboard.dismiss();
-
-    const { error } = await supabase.from('bts_comments').insert({
-      bts_id: activePostId,
-      client_id: user.id,
-      comment: text,
-    });
-
-    if (error) {
-      // Handle error (maybe toast)
-    } else {
-      // fetchComments(activePostId); // Realtime should handle this
+    if (!user || !showComments || !commentText.trim()) return;
+    setPostingComment(true);
+    try {
+      const { error } = await supabase.from('bts_comments').insert({
+        bts_id: showComments.id,
+        client_id: user.id,
+        comment: commentText.trim(),
+      });
+      if (error) throw error;
+      
+      setCommentText('');
+      fetchComments(showComments.id);
+      
+      setPosts(prev => prev.map(p => p.id === showComments.id ? {
+        ...p,
+        commentsCount: p.commentsCount + 1,
+      } : p));
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert('Error', 'Failed to post comment');
+    } finally {
+      setPostingComment(false);
     }
   };
 
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     if (viewableItems.length > 0) {
-      const idx = viewableItems[0].index;
-      if (idx !== null && idx !== undefined) {
-        setActiveIndex(idx);
-        setActivePostId(posts[idx]?.id);
-      }
+      const idx = viewableItems[0].index ?? 0;
+      setActiveIndex(idx);
+      setActivePostId(viewableItems[0].item?.id);
     }
   }).current;
 
@@ -233,20 +294,22 @@ export default function BTSViewerScreen() {
     itemVisiblePercentThreshold: 50,
   }).current;
 
-  const renderItem = ({ item, index }: { item: BTSPost; index: number }) => {
+  const renderItem = ({ item, index }: { item: BTSWithSocial; index: number }) => {
     const isActive = index === activeIndex;
-    const isLiked = likedIds.has(item.id);
+    const isVideo = item.media_type === 'video';
 
     return (
       <View style={{ width, height, backgroundColor: 'black' }}>
-        {item.media_type === 'video' ? (
+        {isVideo ? (
           <Video
             source={{ uri: item.media_url }}
             style={StyleSheet.absoluteFill}
             resizeMode={ResizeMode.COVER}
             shouldPlay={isActive}
             isLooping
-            isMuted={false}
+            isMuted={isMuted}
+            posterSource={(item as any).video_thumbnail_url ? { uri: (item as any).video_thumbnail_url } : undefined}
+            usePoster={!!(item as any).video_thumbnail_url}
           />
         ) : (
           <Image
@@ -255,73 +318,85 @@ export default function BTSViewerScreen() {
             contentFit="cover"
           />
         )}
-        
-        {/* Overlay Gradient */}
+
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.8)']}
+          colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
           style={StyleSheet.absoluteFill}
-          locations={[0.5, 0.8, 1]}
+          locations={[0.4, 0.7, 1]}
         />
 
-        {/* Top Controls */}
-        <View style={[styles.topControls, { top: insets.top + 10 }]}>
-           <Pressable onPress={() => router.back()} style={styles.iconButton}>
-             <X size={28} color="white" />
-           </Pressable>
+        {/* Back Button */}
+        <View style={[styles.topOverlay, { top: insets.top + 10 }]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <ChevronLeft size={28} color="white" />
+          </TouchableOpacity>
         </View>
 
-        {/* Right Sidebar Actions */}
-        <View style={[styles.rightActions, { bottom: insets.bottom + 100 }]}>
-          <Pressable style={styles.actionButton} onPress={() => toggleLike(item)}>
-            <Heart size={32} color={isLiked ? Colors.error : 'white'} fill={isLiked ? Colors.error : 'transparent'} />
-            <Text style={styles.actionText}>{item.likes_count + (isLiked ? 1 : 0)}</Text>
-          </Pressable>
-          
-          <Pressable style={styles.actionButton} onPress={() => setShowComments(true)}>
-            <MessageCircle size={32} color="white" />
-            <Text style={styles.actionText}>{item.comments_count}</Text>
-          </Pressable>
+        {/* Vertical Actions (Right) */}
+        <View style={[styles.rightOverlay, { bottom: insets.bottom + 100 }]}>
+          <TouchableOpacity style={styles.actionBtn} onPress={() => handleLike(item)}>
+            <Heart 
+              size={34} 
+              color={item.isLiked ? Colors.error : 'white'} 
+              fill={item.isLiked ? Colors.error : 'transparent'} 
+            />
+            <Text style={styles.actionCount}>{item.likesCount}</Text>
+          </TouchableOpacity>
 
-          <Pressable style={styles.actionButton} onPress={() => {
-            Share2
-            Clipboard.setStringAsync(`Check out this BTS: ${item.title}`);
-            // Simple toast or feedback
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          <TouchableOpacity style={styles.actionBtn} onPress={() => {
+            setShowComments(item);
+            fetchComments(item.id);
           }}>
-            <Share2 size={32} color="white" />
-            <Text style={styles.actionText}>Share</Text>
-          </Pressable>
+            <MessageCircle size={34} color="white" />
+            <Text style={styles.actionCount}>{item.commentsCount}</Text>
+          </TouchableOpacity>
 
-          <Pressable style={styles.actionButton} onPress={() => {
-            // Track conversion
-            (supabase as any).rpc('increment_clicks', { row_id: item.id, table_name: 'bts_posts' });
-            router.push('/(tabs)/bookings');
+          <TouchableOpacity style={styles.actionBtn} onPress={() => {
+            Share.share({ message: `Check out this BTS: ${item.title}` });
+            (supabase as any).rpc('increment_shares', { row_id: item.id, table_name: 'bts_posts' });
           }}>
-            <View style={styles.bookButton}>
-               <Calendar size={20} color="black" />
+            <Share2 size={34} color="white" />
+            <Text style={styles.actionCount}>Share</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionBtn} onPress={() => {
+             router.push('/(tabs)/bookings');
+             (supabase as any).rpc('increment_clicks', { row_id: item.id, table_name: 'bts_posts' });
+          }}>
+            <View style={styles.bookIconWrapper}>
+              <Calendar size={20} color="black" />
             </View>
-            <Text style={styles.actionText}>Book</Text>
-          </Pressable>
+            <Text style={styles.actionCount}>Book</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.actionBtn} onPress={() => setIsMuted(!isMuted)}>
+             {isMuted ? <VolumeX size={28} color="white" /> : <Volume2 size={28} color="white" />}
+          </TouchableOpacity>
         </View>
 
-        {/* Bottom Info */}
-        <View style={[styles.bottomInfo, { bottom: insets.bottom + 20 }]}>
-          {item.shoot_type && (
-            <View style={styles.tagBadge}>
-              <Text style={styles.tagText}>{item.shoot_type}</Text>
+        {/* Info Layout (Bottom) */}
+        <View style={[styles.bottomOverlay, { bottom: insets.bottom + 40 }]}>
+          {item.category && (
+            <View style={styles.categoryBadge}>
+              <Text style={styles.categoryText}>{item.category}</Text>
             </View>
           )}
-          <Text style={styles.postTitle}>{item.title || 'Behind the Scenes'}</Text>
-          <Text style={styles.postTime}>{relativeTime(item.created_at)}</Text>
+          <Text style={styles.postTitle} numberOfLines={2}>{item.title}</Text>
+          {(item as any).caption && (
+            <Text style={styles.postCaption} numberOfLines={3}>{(item as any).caption}</Text>
+          )}
+          <Text style={styles.postTime}>
+            {new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+          </Text>
         </View>
       </View>
     );
   };
 
-  if (posts.length === 0) {
+  if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <Text style={{ color: 'white' }}>Loading BTS...</Text>
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color={Colors.gold} />
       </View>
     );
   }
@@ -332,74 +407,87 @@ export default function BTSViewerScreen() {
         ref={flatListRef}
         data={posts}
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={item => item.id}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        initialNumToRender={1}
-        maxToRenderPerBatch={2}
-        windowSize={3}
         initialScrollIndex={activeIndex}
-        getItemLayout={(data, index) => ({
+        getItemLayout={(_, index) => ({
           length: height,
           offset: height * index,
           index,
         })}
       />
 
-      {/* Comments Modal */}
+      {/* Comment Bottom Sheet */}
       <Modal
-        visible={showComments}
+        visible={!!showComments}
         animationType="slide"
         transparent
-        onRequestClose={() => setShowComments(false)}
+        onRequestClose={() => setShowComments(null)}
       >
         <KeyboardAvoidingView 
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalContainer}
         >
-          <Pressable style={styles.modalOverlay} onPress={() => setShowComments(false)} />
-          <View style={[styles.modalContent, { paddingBottom: insets.bottom }]}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setShowComments(null)} />
+          <View style={[styles.modalContent, { paddingBottom: insets.bottom + 10 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Comments</Text>
-              <Pressable onPress={() => setShowComments(false)}>
-                <X size={24} color={Colors.textPrimary} />
-              </Pressable>
+              <TouchableOpacity onPress={() => setShowComments(null)}>
+                <X size={24} color={Colors.text} />
+              </TouchableOpacity>
             </View>
-            
+
             <FlatList
               data={comments}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={{ padding: 16 }}
+              keyExtractor={item => item.id}
+              contentContainerStyle={{ padding: 16, gap: 16 }}
               renderItem={({ item }) => (
-                <View style={styles.commentItem}>
-                  <Image source={{ uri: item.user_profiles?.avatar_url || 'https://via.placeholder.com/40' }} style={styles.commentAvatar} />
-                  <View style={styles.commentTextContainer}>
-                    <Text style={styles.commentUser}>{item.user_profiles?.name || 'User'}</Text>
-                    <Text style={styles.commentBody}>{item.comment}</Text>
-                    <Text style={styles.commentTime}>{relativeTime(item.created_at)}</Text>
+                <View style={styles.commentRow}>
+                  {item.user_avatar ? (
+                    <Image source={{ uri: item.user_avatar }} style={styles.commentAvatar} />
+                  ) : (
+                    <View style={styles.commentAvatarPlaceholder}>
+                      <Text style={styles.avatarInitial}>{item.user_name.charAt(0).toUpperCase()}</Text>
+                    </View>
+                  )}
+                  <View style={styles.commentBody}>
+                    <Text style={styles.commentName}>{item.user_name}</Text>
+                    <Text style={styles.commentText}>{item.comment}</Text>
                   </View>
                 </View>
               )}
               ListEmptyComponent={
-                <Text style={styles.emptyComments}>No comments yet. Be the first!</Text>
+                loadingComments ? (
+                  <ActivityIndicator style={{ marginTop: 40 }} color={Colors.gold} />
+                ) : (
+                  <Text style={styles.emptyComments}>No comments yet. Start the conversation!</Text>
+                )
               }
             />
 
-            <View style={styles.commentInputContainer}>
+            <View style={styles.inputArea}>
               <TextInput
-                style={styles.commentInput}
-                placeholder="Add a comment..."
+                style={styles.textInput}
+                placeholder="Say something nice…"
                 placeholderTextColor="#999"
                 value={commentText}
                 onChangeText={setCommentText}
-                returnKeyType="send"
-                onSubmitEditing={submitComment}
+                multiline
               />
-              <Pressable onPress={submitComment} disabled={!commentText.trim()}>
-                <Send size={24} color={commentText.trim() ? Colors.gold : '#ccc'} />
-              </Pressable>
+              <TouchableOpacity 
+                onPress={submitComment} 
+                disabled={!commentText.trim() || postingComment}
+                style={[styles.sendBtn, !commentText.trim() && { opacity: 0.5 }]}
+              >
+                {postingComment ? (
+                  <ActivityIndicator size="small" color={Colors.gold} />
+                ) : (
+                  <Send size={24} color={Colors.gold} />
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -409,49 +497,43 @@ export default function BTSViewerScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: 'black',
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: 'black',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  topControls: {
+  container: { flex: 1, backgroundColor: 'black' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'black' },
+  
+  // Overlays
+  topOverlay: {
     position: 'absolute',
     left: 20,
     zIndex: 10,
   },
-  iconButton: {
+  backButton: {
     width: 44,
     height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderRadius: 22,
   },
-  rightActions: {
+  rightOverlay: {
     position: 'absolute',
-    right: 16,
+    right: 12,
     zIndex: 10,
     alignItems: 'center',
-    gap: 20,
+    gap: 22,
   },
-  actionButton: {
+  actionBtn: {
     alignItems: 'center',
   },
-  actionText: {
+  actionCount: {
     color: 'white',
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     marginTop: 4,
-    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
   },
-  bookButton: {
+  bookIconWrapper: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -459,116 +541,96 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  bottomInfo: {
+  bottomOverlay: {
     position: 'absolute',
     left: 16,
-    right: 80, // Leave room for right actions
+    right: 60,
     zIndex: 10,
   },
-  tagBadge: {
+  categoryBadge: {
     backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
     alignSelf: 'flex-start',
     marginBottom: 8,
   },
-  tagText: {
+  categoryText: {
     color: 'white',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
   postTitle: {
     color: 'white',
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.5)',
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 6,
+    textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
   },
+  postCaption: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 14,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
   postTime: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 12,
   },
-  // Modal Styles
-  modalContainer: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
+
+  // Modal
+  modalContainer: { flex: 1, justifyContent: 'flex-end' },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
   modalContent: {
     backgroundColor: Colors.background,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    height: '60%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: '70%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: Colors.border,
   },
-  modalTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textPrimary,
+  modalTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  emptyComments: { textAlign: 'center', color: Colors.textMuted, marginTop: 40, fontSize: 15 },
+  commentRow: { flexDirection: 'row', gap: 12 },
+  commentAvatar: { width: 38, height: 38, borderRadius: 19 },
+  commentAvatarPlaceholder: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: Colors.cardLight,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  commentItem: {
-    flexDirection: 'row',
-    marginBottom: 16,
-  },
-  commentAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 12,
-    backgroundColor: '#eee',
-  },
-  commentTextContainer: {
-    flex: 1,
-  },
-  commentUser: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  commentBody: {
-    fontSize: 14,
-    color: Colors.textPrimary,
-    lineHeight: 20,
-  },
-  commentTime: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 4,
-  },
-  emptyComments: {
-    textAlign: 'center',
-    color: Colors.textMuted,
-    marginTop: 40,
-  },
-  commentInputContainer: {
+  avatarInitial: { color: Colors.gold, fontWeight: '700', fontSize: 16 },
+  commentBody: { flex: 1, gap: 2 },
+  commentName: { fontSize: 13, fontWeight: '700', color: Colors.textSecondary },
+  commentText: { fontSize: 14, color: Colors.text, lineHeight: 19 },
+  inputArea: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
-    backgroundColor: Colors.background,
+    borderTopColor: Colors.border,
+    backgroundColor: Colors.card,
   },
-  commentInput: {
+  textInput: {
     flex: 1,
-    height: 40,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Colors.inputBg,
     borderRadius: 20,
     paddingHorizontal: 16,
-    marginRight: 12,
-    color: Colors.textPrimary,
+    paddingVertical: 10,
+    marginRight: 10,
+    color: Colors.text,
+    maxHeight: 100,
   },
+  sendBtn: { padding: 4 },
 });

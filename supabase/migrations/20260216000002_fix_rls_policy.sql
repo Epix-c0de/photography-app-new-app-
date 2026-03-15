@@ -53,7 +53,7 @@ CREATE POLICY "Admins can upload client photos"
   ON storage.objects FOR INSERT
   WITH CHECK (
     bucket_id = 'client-photos'
-    AND (storage.foldername(name))[1] = 'clients'
+    AND (storage.foldername(name))[1] IN ('clients', 'galleries')
     AND EXISTS (
       SELECT 1 FROM public.user_profiles up
       WHERE up.id = auth.uid()

@@ -109,12 +109,8 @@ export default function SecuritySetupScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { error } = await supabase
-          .from('user_profiles')
-          .update({ profile_complete: true })
-          .eq('id', user.id);
-
-        if (error) throw error;
+        // Remove the profile_complete update so the user can be prompted again tomorrow.
+        // We do nothing to the profile here.
 
         Alert.alert(
           'Security Warning',

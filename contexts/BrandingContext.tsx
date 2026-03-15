@@ -33,9 +33,11 @@ interface BrandingState {
   embedClientName: boolean;
   embedGalleryCode: boolean;
   blockScreenshots: boolean;
+  shareAppLink: string;
+  accessCodeLink: string;
 }
 
-const DEFAULTS = {
+export const DEFAULTS = {
   brandName: 'Epix Visuals Studios.co',
   appDisplayName: 'Epix Visuals Studios.co',
   watermarkText: 'Epix Visuals Studios.co',
@@ -46,6 +48,8 @@ const DEFAULTS = {
   embedClientName: true,
   embedGalleryCode: true,
   blockScreenshots: true,
+  shareAppLink: 'https://rork.app',
+  accessCodeLink: 'epix-visuals://gallery?autoUnlock=true&accessCode=',
 };
 
 export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(() => {
@@ -199,6 +203,8 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       embedClientName: settings?.embed_client_name ?? DEFAULTS.embedClientName,
       embedGalleryCode: settings?.embed_gallery_code ?? DEFAULTS.embedGalleryCode,
       blockScreenshots: settings?.block_screenshots ?? DEFAULTS.blockScreenshots,
+      shareAppLink: settings?.share_app_link ?? DEFAULTS.shareAppLink,
+      accessCodeLink: settings?.access_code_link ?? DEFAULTS.accessCodeLink,
     };
   }, [settings]);
 

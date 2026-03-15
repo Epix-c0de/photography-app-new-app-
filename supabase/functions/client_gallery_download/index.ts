@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -80,6 +80,13 @@ Deno.serve(async (req: Request) => {
     if (signedError || !signed?.signedUrl) {
       throw new Error("Failed to sign URL");
     }
+    const cdnBase = Deno.env.get("STORAGE_CDN_BASE_URL") ?? "";
+    const signedUrl = (() => {
+      if (!cdnBase) return signed.signedUrl;
+      const parsed = new URL(signed.signedUrl);
+      const base = cdnBase.endsWith("/") ? cdnBase.slice(0, -1) : cdnBase;
+      return `${base}${parsed.pathname}${parsed.search}`;
+    })();
 
     await adminClient.rpc("emit_event", {
       p_event_name: "PHOTO_DOWNLOAD",
@@ -91,7 +98,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        signed_url: signed.signedUrl,
+        signed_url: signedUrl,
         file_name: photo.file_name,
         file_size: photo.file_size,
         mime_type: photo.mime_type,

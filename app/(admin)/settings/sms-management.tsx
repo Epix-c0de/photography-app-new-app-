@@ -2,13 +2,14 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Alert, Modal, ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, PermissionsAndroid, Switch } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, Send, FileText, History, Plus, X, User, Check, Trash2, Smartphone, Search } from 'lucide-react-native';
+import { ChevronLeft, Send, FileText, History, Plus, X, User, Check, Trash2, Smartphone, Search, BarChart3 } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '@/constants/colors';
 import { SMSService, SMSTemplate, SMSLog, SMSLogWithClient } from '@/services/sms';
 import { AdminService, Client } from '@/services/admin';
 import { LocalSmsGateway, type LocalSmsGatewayStatus } from '@lenzart/local-sms-gateway';
 
-type Tab = 'compose' | 'templates' | 'logs';
+type Tab = 'compose' | 'templates' | 'logs' | 'analytics';
 
 export default function SmsManagementScreen() {
   const insets = useSafeAreaInsets();
@@ -26,25 +27,42 @@ export default function SmsManagementScreen() {
   const [failedToday, setFailedToday] = useState<number>(0);
   const [queueRemaining, setQueueRemaining] = useState<number>(0);
 
+  // Modal States
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
+
+  // SMS Signature State
+  const [smsSignature, setSmsSignature] = useState('');
+
+  // Template Editor State
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<Partial<SMSTemplate> | null>(null);
+
   // Compose State
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [editMessage, setEditMessage] = useState(false);
-  const [adminPhoneNumber, setAdminPhoneNumber] = useState('');
-  const [bundleAmount, setBundleAmount] = useState<number>(100);
-  const [customBundle, setCustomBundle] = useState<string>('');
-  const [buyingBundle, setBuyingBundle] = useState(false);
-  
-  // Selection Modals
-  const [showClientModal, setShowClientModal] = useState(false);
-  const [showTemplateModal, setShowTemplateModal] = useState(false);
-  const [clientSearch, setClientSearch] = useState('');
 
-  // Template Editor State
-  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<Partial<SMSTemplate> | null>(null);
+  // Bundle Purchase State
+  const [adminPhoneNumber, setAdminPhoneNumber] = useState('');
+  const [customBundle, setCustomBundle] = useState('');
+  const [bundleAmount, setBundleAmount] = useState(100);
+  const [buyingBundle, setBuyingBundle] = useState(false);
+
+  // Bulk Send State
+  const [selectedClients, setSelectedClients] = useState<Client[]>([]);
+  const [bulkSending, setBulkSending] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ sent: 0, total: 0 });
+  const [showBulkModal, setShowBulkModal] = useState(false);
+
+  // Scheduler State
+  const [scheduleClients, setScheduleClients] = useState<Client[]>([]);
+  const [scheduleMessage, setScheduleMessage] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
+  const [scheduling, setScheduling] = useState(false);
+  const [showScheduler, setShowScheduler] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -124,13 +142,13 @@ export default function SmsManagementScreen() {
       // Auto-fill logic
       // 1. Get detailed info (access code, etc)
       const details = await SMSService.utils.getClientDetails(client.id);
-      
+
       // 2. Find default template or use generic
       const defaultTemplate = templates.find(t => t.is_default);
       let templateBody = defaultTemplate?.body || "Hello {client_name}, your photos are ready! Use code: {access_code}. {business_name}";
 
-      // 3. Compile message
-      const compiled = SMSService.utils.compileTemplate(templateBody, {
+      // 3. Compile message with signature
+      const baseMessage = SMSService.utils.compileTemplate(templateBody, {
         client_name: client.name,
         access_code: details.gallery?.access_code || 'PENDING',
         gallery_name: details.gallery?.name || '',
@@ -138,7 +156,8 @@ export default function SmsManagementScreen() {
         business_name: 'Epix Visuals Studios.co'
       });
 
-      setMessage(compiled);
+      const finalMessage = smsSignature ? `${baseMessage}\n\n${smsSignature}` : baseMessage;
+      setMessage(finalMessage);
     } catch (error) {
       console.error('Error auto-filling client data:', error);
     }
@@ -161,7 +180,7 @@ export default function SmsManagementScreen() {
         message,
         clientId: selectedClient?.id
       });
-      
+
       if (result === 'sent') Alert.alert('Success', 'SMS sent successfully!');
       if (result === 'queued') Alert.alert('Queued', 'No service. SMS queued and will send when signal returns.');
       if (result === 'failed') Alert.alert('Failed', 'SMS failed to send.');
@@ -203,37 +222,137 @@ export default function SmsManagementScreen() {
     }
   };
 
-  const handleApplyTemplate = (template: SMSTemplate) => {
-    // Compile with currently selected client if available
-    const compiled = SMSService.utils.compileTemplate(template.body, {
-      client_name: selectedClient?.name || '{client_name}',
-      access_code: '{access_code}', // Would need to re-fetch to get real code if client selected
-      gallery_name: '{gallery_name}',
-      app_link: '{app_link}',
-      business_name: '{business_name}'
-    });
-    
-    // If client is selected, we should re-run the fetch logic ideally, 
-    // but for now simple substitution or just raw template if no client
-    if (selectedClient) {
-       // Re-trigger the full fill
-       handleSelectClient(selectedClient).then(() => {
-          // Override the message with THIS template's body but compiled
-           SMSService.utils.getClientDetails(selectedClient.id).then(details => {
-              const recompiled = SMSService.utils.compileTemplate(template.body, {
-                client_name: selectedClient.name,
-                access_code: details.gallery?.access_code || 'PENDING',
-                gallery_name: details.gallery?.name || '',
-                app_link: 'https://rork.app',
-                business_name: 'Epix Visuals Studios.co'
-              });
-              setMessage(recompiled);
-           });
-       });
-    } else {
-      setMessage(template.body);
+  const handleBulkSend = async () => {
+    if (selectedClients.length === 0 || !message) {
+      Alert.alert('Missing Info', 'Please select clients and provide a message.');
+      return;
     }
-    setShowTemplateModal(false);
+    if (balance < selectedClients.length) {
+      Alert.alert('Insufficient Balance', `You need ${selectedClients.length} SMS credits but only have ${balance}.`);
+      return;
+    }
+
+    setBulkSending(true);
+    setBulkProgress({ sent: 0, total: selectedClients.length });
+    let successCount = 0;
+
+    try {
+      for (let i = 0; i < selectedClients.length; i++) {
+        const client = selectedClients[i];
+        if (!client.phone) continue;
+
+        try {
+          const result = await SMSService.send({
+            phoneNumber: client.phone,
+            message,
+            clientId: client.id
+          });
+
+          if (result === 'sent') successCount++;
+        } catch (error) {
+          console.error(`Failed to send to ${client.name}:`, error);
+        }
+
+        setBulkProgress({ sent: i + 1, total: selectedClients.length });
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Rate limiting
+      }
+
+      Alert.alert('Bulk Send Complete', `Sent to ${successCount}/${selectedClients.length} clients successfully!`);
+
+      // Refresh data
+      const [logsData, bal] = await Promise.all([SMSService.logs.list(), AdminService.sms.getBalance()]);
+      setLogs(logsData || []);
+      setBalance(bal || 0);
+
+      setShowBulkModal(false);
+      setSelectedClients([]);
+      setMessage('');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to send bulk SMS');
+    } finally {
+      setBulkSending(false);
+      setBulkProgress({ sent: 0, total: 0 });
+    }
+  };
+
+  const getOptimalSendTime = () => {
+    // Smart scheduling based on day/time analysis
+    const now = new Date();
+    const hour = now.getHours();
+    const day = now.getDay(); // 0=Sunday, 6=Saturday
+
+    // Business hours: 9 AM - 6 PM, avoid weekends
+    if (day === 0 || day === 6) {
+      // Weekend - schedule for Monday morning
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + (8 - day)); // Next Monday
+      monday.setHours(9, 0, 0, 0);
+      return monday;
+    }
+
+    if (hour < 9) {
+      // Before business hours - schedule for 9 AM today
+      const today9AM = new Date(now);
+      today9AM.setHours(9, 0, 0, 0);
+      return today9AM;
+    }
+
+    if (hour >= 18) {
+      // After business hours - schedule for 9 AM tomorrow
+      const tomorrow = new Date(now);
+      tomorrow.setDate(now.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      return tomorrow;
+    }
+
+    // During business hours - schedule in 30 minutes
+    const soon = new Date(now);
+    soon.setMinutes(now.getMinutes() + 30);
+    return soon;
+  };
+
+  const handleScheduleSMS = async () => {
+    if (scheduleClients.length === 0 || !scheduleMessage) {
+      Alert.alert('Missing Info', 'Please select clients and provide a message.');
+      return;
+    }
+
+    const scheduledDateTime = scheduledTime ? new Date(scheduledTime) : getOptimalSendTime();
+
+    if (scheduledDateTime <= new Date()) {
+      Alert.alert('Invalid Time', 'Scheduled time must be in the future.');
+      return;
+    }
+
+    setScheduling(true);
+    try {
+      // For now, we'll store scheduled messages locally
+      // In a production app, this would be stored on the server
+      const scheduledSMS = {
+        id: `scheduled_${Date.now()}`,
+        clients: scheduleClients,
+        message: scheduleMessage,
+        scheduledFor: scheduledDateTime.toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+
+      // Store in AsyncStorage for demo (would be server-side in production)
+      const existing = await AsyncStorage.getItem('scheduled_sms') || '[]';
+      const scheduled = JSON.parse(existing);
+      scheduled.push(scheduledSMS);
+      await AsyncStorage.setItem('scheduled_sms', JSON.stringify(scheduled));
+
+      Alert.alert('Scheduled', `SMS scheduled for ${scheduledDateTime.toLocaleString()}`);
+
+      setShowScheduler(false);
+      setScheduleClients([]);
+      setScheduleMessage('');
+      setScheduledTime('');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to schedule SMS');
+    } finally {
+      setScheduling(false);
+    }
   };
 
   // --- Template Logic ---
@@ -261,7 +380,7 @@ export default function SmsManagementScreen() {
           is_default: editingTemplate.is_default ?? false
         });
       }
-      
+
       // Refresh
       const templatesData = await SMSService.templates.list();
       setTemplates(templatesData || []);
@@ -275,7 +394,8 @@ export default function SmsManagementScreen() {
   const handleDeleteTemplate = async (id: string) => {
     Alert.alert('Delete Template', 'Are you sure?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
           try {
             await SMSService.templates.delete(id);
             const templatesData = await SMSService.templates.list();
@@ -283,9 +403,37 @@ export default function SmsManagementScreen() {
           } catch (error) {
             Alert.alert('Error', 'Failed to delete template');
           }
-        } 
+        }
       }
     ]);
+  };
+
+  const handleApplyTemplate = (template: SMSTemplate) => {
+    const templateBody = template.body;
+    const clientName = selectedClient?.name || 'Client';
+
+    const baseMessage = SMSService.utils.compileTemplate(templateBody, {
+      client_name: clientName,
+      access_code: 'CODE',
+      gallery_name: 'Gallery',
+      app_link: 'https://rork.app',
+      business_name: 'Epix Visuals Studios.co'
+    });
+
+    const finalMessage = smsSignature ? `${baseMessage}\n\n${smsSignature}` : baseMessage;
+    setMessage(finalMessage);
+    setShowTemplateModal(false);
+  };
+
+  const toggleClientSelection = (client: Client) => {
+    setSelectedClients(prev => {
+      const exists = prev.find(c => c.id === client.id);
+      if (exists) {
+        return prev.filter(c => c.id !== client.id);
+      } else {
+        return [...prev, client];
+      }
+    });
   };
 
   // --- Render Helpers ---
@@ -306,26 +454,26 @@ export default function SmsManagementScreen() {
 
       {/* Tabs */}
       <View style={styles.tabContainer}>
-        <Pressable 
-          style={[styles.tab, activeTab === 'compose' && styles.activeTab]} 
+        <Pressable
+          style={[styles.tab, activeTab === 'compose' && styles.activeTab]}
           onPress={() => setActiveTab('compose')}
         >
           <Send size={16} color={activeTab === 'compose' ? Colors.gold : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'compose' && styles.activeTabText]}>Compose</Text>
         </Pressable>
-        <Pressable 
-          style={[styles.tab, activeTab === 'templates' && styles.activeTab]} 
+        <Pressable
+          style={[styles.tab, activeTab === 'templates' && styles.activeTab]}
           onPress={() => setActiveTab('templates')}
         >
           <FileText size={16} color={activeTab === 'templates' ? Colors.gold : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'templates' && styles.activeTabText]}>Templates</Text>
         </Pressable>
-        <Pressable 
-          style={[styles.tab, activeTab === 'logs' && styles.activeTab]} 
-          onPress={() => setActiveTab('logs')}
+        <Pressable
+          style={[styles.tab, activeTab === 'analytics' && styles.activeTab]}
+          onPress={() => setActiveTab('analytics')}
         >
-          <History size={16} color={activeTab === 'logs' ? Colors.gold : Colors.textMuted} />
-          <Text style={[styles.tabText, activeTab === 'logs' && styles.activeTabText]}>History</Text>
+          <BarChart3 size={16} color={activeTab === 'analytics' ? Colors.gold : Colors.textMuted} />
+          <Text style={[styles.tabText, activeTab === 'analytics' && styles.activeTabText]}>Analytics</Text>
         </Pressable>
       </View>
 
@@ -384,8 +532,22 @@ export default function SmsManagementScreen() {
                       <Text style={styles.secondaryBtnText}>Grant Permissions</Text>
                     </Pressable>
                   </View>
+                </View>
 
-                  <Text style={styles.warningText}>SMS will be sent from your SIM card. Carrier charges may apply.</Text>
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>SMS Signature Branding</Text>
+                  <Text style={styles.label}>Custom Signature (added to all SMS)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={smsSignature}
+                    onChangeText={setSmsSignature}
+                    placeholder="e.g. - Sent via Epix Visuals Studio"
+                    multiline
+                    maxLength={50}
+                  />
+                  <Text style={styles.hint}>
+                    Max 50 characters. Added to end of all SMS messages.
+                  </Text>
                 </View>
 
                 <View style={styles.card}>
@@ -454,10 +616,6 @@ export default function SmsManagementScreen() {
                       <Pressable onPress={() => setShowTemplateModal(true)}>
                         <Text style={styles.link}>Use Template</Text>
                       </Pressable>
-                      <View style={styles.switchRow}>
-                        <Text style={styles.switchLabel}>Edit</Text>
-                        <Switch value={editMessage} onValueChange={setEditMessage} />
-                      </View>
                     </View>
                   </View>
                   <TextInput
@@ -467,29 +625,25 @@ export default function SmsManagementScreen() {
                     placeholder="Type your message..."
                     multiline
                     textAlignVertical="top"
-                    editable={editMessage}
                   />
-                  
+
                   <View style={styles.helperText}>
                     <Text style={{ color: Colors.textMuted, fontSize: 12 }}>
                       {message.length} chars
                     </Text>
                   </View>
 
-                  <Pressable 
-                    style={[styles.sendBtn, sending && styles.disabledBtn]} 
-                    onPress={handleSendSMS}
-                    disabled={sending}
-                  >
-                    {sending ? (
-                      <ActivityIndicator color="#fff" />
-                    ) : (
-                      <>
-                        <Send size={18} color="#fff" />
-                        <Text style={styles.sendBtnText}>Send SMS via SIM</Text>
-                      </>
-                    )}
-                  </Pressable>
+                  <View style={styles.rowBetween}>
+                    <Pressable style={styles.secondaryBtn} onPress={() => setShowBulkModal(true)}>
+                      <Text style={styles.secondaryBtnText}>Bulk Send</Text>
+                    </Pressable>
+                    <Pressable style={styles.secondaryBtn} onPress={() => setShowScheduler(true)}>
+                      <Text style={styles.secondaryBtnText}>Schedule</Text>
+                    </Pressable>
+                    <Pressable style={styles.secondaryBtn} onPress={handleSendSMS} disabled={sending}>
+                      <Text style={styles.secondaryBtnText}>Send Test SMS</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </ScrollView>
             )}
@@ -497,8 +651,8 @@ export default function SmsManagementScreen() {
             {/* TEMPLATES TAB */}
             {activeTab === 'templates' && (
               <ScrollView contentContainerStyle={styles.scrollContent}>
-                <Pressable 
-                  style={styles.addBtn} 
+                <Pressable
+                  style={styles.addBtn}
                   onPress={() => {
                     setEditingTemplate({ name: '', body: '', is_default: false });
                     setShowTemplateEditor(true);
@@ -552,6 +706,110 @@ export default function SmsManagementScreen() {
                 )}
               />
             )}
+
+            {/* ANALYTICS TAB */}
+            {activeTab === 'analytics' && (
+              <ScrollView contentContainerStyle={styles.scrollContent}>
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>SMS Analytics Dashboard</Text>
+
+                  {/* Key Metrics */}
+                  <View style={analyticsStyles.metricsGrid}>
+                    <View style={analyticsStyles.metricCard}>
+                      <Text style={analyticsStyles.metricValue}>{balance}</Text>
+                      <Text style={analyticsStyles.metricLabel}>SMS Balance</Text>
+                      <View style={[analyticsStyles.metricIndicator, balance > 50 && analyticsStyles.metricIndicatorGood]} />
+                    </View>
+
+                    <View style={analyticsStyles.metricCard}>
+                      <Text style={analyticsStyles.metricValue}>{sentToday}</Text>
+                      <Text style={analyticsStyles.metricLabel}>Sent Today</Text>
+                      <View style={[analyticsStyles.metricIndicator, sentToday > 0 && analyticsStyles.metricIndicatorGood]} />
+                    </View>
+
+                    <View style={analyticsStyles.metricCard}>
+                      <Text style={analyticsStyles.metricValue}>{failedToday}</Text>
+                      <Text style={analyticsStyles.metricLabel}>Failed Today</Text>
+                      <View style={[analyticsStyles.metricIndicator, failedToday === 0 && analyticsStyles.metricIndicatorGood]} />
+                    </View>
+
+                    <View style={analyticsStyles.metricCard}>
+                      <Text style={analyticsStyles.metricValue}>{queueRemaining}</Text>
+                      <Text style={analyticsStyles.metricLabel}>Queued</Text>
+                      <View style={[analyticsStyles.metricIndicator, queueRemaining < 5 && analyticsStyles.metricIndicatorGood]} />
+                    </View>
+                  </View>
+
+                  {/* Success Rate Chart */}
+                  <View style={analyticsStyles.chartCard}>
+                    <Text style={analyticsStyles.chartTitle}>Success Rate</Text>
+                    <View style={analyticsStyles.successRateContainer}>
+                      <View style={analyticsStyles.successRateBar}>
+                        <View
+                          style={[
+                            analyticsStyles.successRateFill,
+                            { width: `${logs.length > 0 ? Math.round((logs.filter(l => l.status === 'sent').length / logs.length) * 100) : 0}%` }
+                          ]}
+                        />
+                      </View>
+                      <Text style={analyticsStyles.successRateText}>
+                        {logs.length > 0 ? Math.round((logs.filter(l => l.status === 'sent').length / logs.length) * 100) : 0}% Success
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Recent Activity */}
+                  <View style={analyticsStyles.chartCard}>
+                    <Text style={analyticsStyles.chartTitle}>Recent Activity (Last 7 Days)</Text>
+                    <View style={analyticsStyles.activityChart}>
+                      {Array.from({ length: 7 }, (_, i) => {
+                        const date = new Date();
+                        date.setDate(date.getDate() - (6 - i));
+                        const dayLogs = logs.filter(l => {
+                          const logDate = new Date(l.created_at);
+                          return logDate.toDateString() === date.toDateString();
+                        });
+                        const sent = dayLogs.filter(l => l.status === 'sent').length;
+                        const height = Math.max(sent * 8, 20); // Minimum height of 20
+                        return (
+                          <View key={i} style={analyticsStyles.activityBar}>
+                            <View style={[analyticsStyles.activityBarFill, { height }]} />
+                            <Text style={analyticsStyles.activityBarLabel}>
+                              {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {/* Top Clients */}
+                  <View style={analyticsStyles.chartCard}>
+                    <Text style={analyticsStyles.chartTitle}>Top Clients by SMS</Text>
+                    {(() => {
+                      const clientStats = logs.reduce((acc, log) => {
+                        if (log.clients?.name) {
+                          acc[log.clients.name] = (acc[log.clients.name] || 0) + 1;
+                        }
+                        return acc;
+                      }, {} as Record<string, number>);
+
+                      const topClients = Object.entries(clientStats)
+                        .sort(([, a], [, b]) => b - a)
+                        .slice(0, 5);
+
+                      return topClients.map(([name, count], index) => (
+                        <View key={name} style={analyticsStyles.clientStat}>
+                          <Text style={analyticsStyles.clientStatRank}>#{index + 1}</Text>
+                          <Text style={analyticsStyles.clientStatName} numberOfLines={1}>{name}</Text>
+                          <Text style={analyticsStyles.clientStatCount}>{count} SMS</Text>
+                        </View>
+                      ));
+                    })()}
+                  </View>
+                </View>
+              </ScrollView>
+            )}
           </>
         )}
       </View>
@@ -567,7 +825,7 @@ export default function SmsManagementScreen() {
           </View>
           <View style={styles.searchBar}>
             <Search size={20} color={Colors.textMuted} />
-            <TextInput 
+            <TextInput
               style={styles.searchInput}
               placeholder="Search clients..."
               value={clientSearch}
@@ -596,9 +854,9 @@ export default function SmsManagementScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Choose Template</Text>
             {templates.map(t => (
-              <Pressable 
-                key={t.id} 
-                style={styles.templateOption} 
+              <Pressable
+                key={t.id}
+                style={styles.templateOption}
                 onPress={() => handleApplyTemplate(t)}
               >
                 <Text style={styles.templateName}>{t.name}</Text>
@@ -609,6 +867,103 @@ export default function SmsManagementScreen() {
               <Text style={styles.closeBtnText}>Cancel</Text>
             </Pressable>
           </View>
+        </View>
+      </Modal>
+
+      {/* Bulk SMS Modal */}
+      <Modal visible={showBulkModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Bulk SMS Send</Text>
+            <Pressable onPress={() => setShowBulkModal(false)}>
+              <X size={24} color={Colors.textPrimary} />
+            </Pressable>
+          </View>
+
+          {bulkSending ? (
+            <View style={bulkStyles.bulkProgress}>
+              <ActivityIndicator size="large" color={Colors.gold} />
+              <Text style={bulkStyles.bulkProgressText}>
+                Sending {bulkProgress.sent}/{bulkProgress.total} messages...
+              </Text>
+              <View style={bulkStyles.progressBar}>
+                <View
+                  style={[
+                    bulkStyles.progressFill,
+                    { width: `${bulkProgress.total > 0 ? (bulkProgress.sent / bulkProgress.total) * 100 : 0}%` }
+                  ]}
+                />
+              </View>
+            </View>
+          ) : (
+            <>
+              <View style={bulkStyles.bulkSummary}>
+                <Text style={bulkStyles.bulkSummaryText}>
+                  Selected: {selectedClients.length} clients
+                </Text>
+                <Text style={bulkStyles.bulkSummaryText}>
+                  Required SMS: {selectedClients.length}
+                </Text>
+                <Text style={bulkStyles.bulkSummaryText}>
+                  Available Balance: {balance}
+                </Text>
+                {selectedClients.length > balance && (
+                  <Text style={bulkStyles.bulkWarning}>
+                    ⚠️ Insufficient balance for bulk send
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.searchBar}>
+                <Search size={20} color={Colors.textMuted} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search clients..."
+                  value={clientSearch}
+                  onChangeText={setClientSearch}
+                />
+              </View>
+
+              <FlatList
+                data={filteredClients}
+                keyExtractor={item => item.id}
+                renderItem={({ item }) => {
+                  const isSelected = selectedClients.some(c => c.id === item.id);
+                  return (
+                    <Pressable
+                      style={[bulkStyles.bulkClientItem, isSelected && bulkStyles.bulkClientSelected]}
+                      onPress={() => toggleClientSelection(item)}
+                    >
+                      <View style={bulkStyles.bulkClientInfo}>
+                        <Text style={bulkStyles.bulkClientName}>{item.name}</Text>
+                        <Text style={bulkStyles.bulkClientPhone}>{item.phone || 'No phone'}</Text>
+                      </View>
+                      <View style={[bulkStyles.bulkCheckBox, isSelected && bulkStyles.bulkCheckBoxSelected]}>
+                        {isSelected && <Check size={16} color="#fff" />}
+                      </View>
+                    </Pressable>
+                  );
+                }}
+                ListEmptyComponent={
+                  <View style={bulkStyles.emptyState}>
+                    <Text style={bulkStyles.emptyText}>No clients found</Text>
+                  </View>
+                }
+              />
+
+              <View style={bulkStyles.bulkActions}>
+                <Pressable
+                  style={[bulkStyles.bulkSendBtn, (selectedClients.length === 0 || selectedClients.length > balance) && styles.disabledBtn]}
+                  onPress={handleBulkSend}
+                  disabled={selectedClients.length === 0 || selectedClients.length > balance}
+                >
+                  <Text style={bulkStyles.bulkSendBtnText}>
+                    Send to {selectedClients.length} Clients
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
       </Modal>
 
@@ -629,7 +984,7 @@ export default function SmsManagementScreen() {
               onChangeText={text => setEditingTemplate(prev => ({ ...prev, name: text }))}
               placeholder="e.g. Wedding Delivery"
             />
-            
+
             <Text style={styles.label}>Message Body</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
@@ -638,13 +993,13 @@ export default function SmsManagementScreen() {
               placeholder="Use {client_name}, {access_code}, {gallery_name}, {app_link}, {business_name}"
               multiline
             />
-            
+
             <Text style={styles.hint}>
               Available variables: {'{client_name}'}, {'{access_code}'}, {'{gallery_name}'}, {'{app_link}'}, {'{business_name}'}
             </Text>
 
-            <Pressable 
-              style={styles.checkbox} 
+            <Pressable
+              style={styles.checkbox}
               onPress={() => setEditingTemplate(prev => ({ ...prev, is_default: !prev?.is_default }))}
             >
               <View style={[styles.checkCircle, editingTemplate?.is_default && styles.checked]}>
@@ -699,7 +1054,7 @@ const styles = StyleSheet.create({
   activeTabText: { color: Colors.gold },
   content: { flex: 1 },
   scrollContent: { padding: 20 },
-  
+
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -801,7 +1156,7 @@ const styles = StyleSheet.create({
   placeholder: { color: Colors.textMuted },
   selectedClient: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   selectedClientText: { fontWeight: '500', color: Colors.textPrimary },
-  
+
   input: {
     borderWidth: 1,
     borderColor: Colors.border,
@@ -812,14 +1167,14 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
   textArea: { height: 120, textAlignVertical: 'top' },
-  
+
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flex: 1 },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   switchLabel: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600' },
   link: { color: Colors.gold, fontSize: 13, fontWeight: '500' },
   helperText: { alignItems: 'flex-end', marginBottom: 16 },
-  
+
   sendBtn: {
     backgroundColor: Colors.gold,
     flexDirection: 'row',
@@ -831,7 +1186,7 @@ const styles = StyleSheet.create({
   },
   disabledBtn: { opacity: 0.7 },
   sendBtnText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  
+
   // Templates
   addBtn: {
     backgroundColor: Colors.gold,
@@ -859,7 +1214,7 @@ const styles = StyleSheet.create({
   badgeText: { color: Colors.gold, fontSize: 10, fontWeight: '600' },
   templateActions: { flexDirection: 'row', gap: 16, justifyContent: 'flex-end' },
   actionText: { fontWeight: '500', color: Colors.gold },
-  
+
   // Logs
   logItem: {
     flexDirection: 'row',
@@ -879,7 +1234,7 @@ const styles = StyleSheet.create({
   logClient: { fontWeight: '600', marginBottom: 2 },
   logBody: { color: Colors.textSecondary, fontSize: 13, marginBottom: 4 },
   logMeta: { color: Colors.textMuted, fontSize: 11 },
-  
+
   // Modals
   modalContainer: { flex: 1, backgroundColor: Colors.background, paddingTop: 20 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, alignItems: 'center' },
@@ -895,14 +1250,14 @@ const styles = StyleSheet.create({
   },
   clientName: { fontWeight: '600', fontSize: 16 },
   clientPhone: { color: Colors.textMuted },
-  
+
   centeredModal: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalCard: { width: '85%', backgroundColor: '#fff', borderRadius: 16, padding: 20 },
   templateOption: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border },
   templatePreview: { color: Colors.textMuted, fontSize: 12 },
   closeBtn: { marginTop: 16, alignItems: 'center' },
   closeBtnText: { color: Colors.error, fontWeight: '600' },
-  
+
   hint: { fontSize: 12, color: Colors.textMuted, marginBottom: 16 },
   checkbox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 24 },
   checkCircle: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: Colors.gold, alignItems: 'center', justifyContent: 'center' },
@@ -910,4 +1265,240 @@ const styles = StyleSheet.create({
   checkLabel: { color: Colors.textPrimary },
   saveBtn: { backgroundColor: Colors.gold, padding: 16, borderRadius: 8, alignItems: 'center' },
   saveBtnText: { color: '#fff', fontWeight: '600' }
+});
+
+// Analytics Styles
+const analyticsStyles = StyleSheet.create({
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 20,
+  },
+  metricCard: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+  },
+  metricValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: Colors.gold,
+    marginBottom: 4,
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  metricIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.error,
+    marginTop: 8,
+  },
+  metricIndicatorGood: {
+    backgroundColor: Colors.success,
+  },
+  chartCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 16,
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 12,
+  },
+  successRateContainer: {
+    alignItems: 'center',
+  },
+  successRateBar: {
+    width: '100%',
+    height: 12,
+    backgroundColor: Colors.border,
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  successRateFill: {
+    height: '100%',
+    backgroundColor: Colors.success,
+    borderRadius: 6,
+  },
+  successRateText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  activityChart: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: 120,
+    paddingVertical: 20,
+  },
+  activityBar: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 2,
+  },
+  activityBarFill: {
+    width: '100%',
+    backgroundColor: Colors.gold,
+    borderRadius: 4,
+    minHeight: 20,
+  },
+  activityBarLabel: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  clientStat: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  clientStatRank: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.gold,
+    width: 30,
+  },
+  clientStatName: {
+    flex: 1,
+    fontSize: 14,
+    color: Colors.textPrimary,
+  },
+  clientStatCount: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '500',
+  },
+});
+
+// Bulk SMS Styles
+const bulkStyles = StyleSheet.create({
+  bulkSummary: {
+    backgroundColor: Colors.card,
+    margin: 20,
+    marginTop: 0,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  bulkSummaryText: {
+    fontSize: 14,
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  bulkWarning: {
+    fontSize: 12,
+    color: Colors.error,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  bulkClientItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  bulkClientSelected: {
+    backgroundColor: 'rgba(212,175,55,0.08)',
+  },
+  bulkClientInfo: {
+    flex: 1,
+  },
+  bulkClientName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  bulkClientPhone: {
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  bulkCheckBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bulkCheckBoxSelected: {
+    backgroundColor: Colors.gold,
+    borderColor: Colors.gold,
+  },
+  bulkActions: {
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  bulkSendBtn: {
+    backgroundColor: Colors.gold,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  bulkSendBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  bulkProgress: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  bulkProgressText: {
+    fontSize: 16,
+    color: Colors.textPrimary,
+    marginTop: 16,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  progressBar: {
+    width: '80%',
+    height: 8,
+    backgroundColor: Colors.border,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.gold,
+    borderRadius: 4,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
 });

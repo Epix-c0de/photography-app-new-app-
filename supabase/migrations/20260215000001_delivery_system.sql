@@ -2,7 +2,12 @@
 create extension if not exists "pgcrypto";
 
 -- Delivery Gateways (SMS/WhatsApp Providers)
-create type gateway_type as enum ('http', 'smpp', 'whatsapp_cloud', 'local_modem');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'gateway_type') THEN
+    CREATE TYPE public.gateway_type AS ENUM ('http', 'smpp', 'whatsapp_cloud', 'local_modem');
+  END IF;
+END $$;
 
 create table if not exists delivery_gateways (
     id uuid default gen_random_uuid() primary key,
@@ -48,7 +53,12 @@ begin
 end $$;
 
 -- Delivery Logs (Audit Trail)
-create type delivery_status as enum ('pending', 'sent', 'delivered', 'failed', 'blocked');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'delivery_status') THEN
+    CREATE TYPE public.delivery_status AS ENUM ('pending', 'sent', 'delivered', 'failed', 'blocked');
+  END IF;
+END $$;
 
 create table if not exists delivery_logs (
     id uuid default gen_random_uuid() primary key,
@@ -66,22 +76,23 @@ create table if not exists delivery_logs (
 );
 
 -- Function to deduce credits on send
-create or replace function deduct_delivery_credit()
+create or replace function public.deduct_delivery_credit()
 returns trigger as $$
 begin
     if new.status = 'sent' and old.status != 'sent' then
-        update delivery_credits
+        update public.delivery_credits
         set balance = balance - new.cost
-        where id = (select id from delivery_credits limit 1);
+        where id = (select id from public.delivery_credits limit 1);
     end if;
     return new;
 end;
 $$ language plpgsql;
 
+drop trigger if exists on_delivery_sent on public.delivery_logs;
 create trigger on_delivery_sent
-    after update on delivery_logs
+    after update on public.delivery_logs
     for each row
-    execute function deduct_delivery_credit();
+    execute function public.deduct_delivery_credit();
 
 -- RLS Policies
 alter table delivery_gateways enable row level security;
