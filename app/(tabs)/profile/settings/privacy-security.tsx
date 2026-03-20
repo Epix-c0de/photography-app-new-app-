@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Switch, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -79,10 +79,16 @@ function SettingsToggle({ icon, label, description, value, onToggle, disabled }:
 
 export default function PrivacySecurity() {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [lockHiddenPhotos, setLockHiddenPhotos] = useState(false);
+
+  useEffect(() => {
+    if (profile) {
+      setBiometricEnabled(!!profile.biometric_enabled);
+    }
+  }, [profile]);
 
   const [changeEmailOpen, setChangeEmailOpen] = useState<boolean>(false);
   const [newEmail, setNewEmail] = useState<string>('');
@@ -121,12 +127,18 @@ export default function PrivacySecurity() {
       });
       if (result.success) {
         setBiometricEnabled(true);
+        if (user) {
+          await supabase.from('user_profiles').update({ biometric_enabled: true }).eq('id', user.id);
+        }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('App Lock Enabled', 'Biometric app lock is now active.');
       }
     } else {
       setBiometricEnabled(false);
       setLockHiddenPhotos(false);
+      if (user) {
+        await supabase.from('user_profiles').update({ biometric_enabled: false }).eq('id', user.id);
+      }
     }
   };
 

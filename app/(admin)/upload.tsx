@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, StyleSheet, TextInput, Pressable, ScrollView,
   Alert, Image, FlatList, ActivityIndicator, Modal, KeyboardAvoidingView, Platform, Switch, Linking
@@ -17,6 +18,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { SMSService } from '@/services/sms';
 import { AdminService } from '@/services/admin';
 import { supabase } from '@/lib/supabase';
 import { useBranding } from '@/contexts/BrandingContext';
@@ -181,11 +183,15 @@ export default function ClientPhotoUploadScreen() {
   useEffect(() => {
     if (phoneNumber.length >= 10) {
       checkClient(phoneNumber);
-    } else {
-      setClientData(null);
-      setIsNewClient(false);
+      return;
     }
-  }, [phoneNumber, checkClient]);
+    if (!phoneNumber && clientData?.id) {
+      setIsNewClient(false);
+      return;
+    }
+    setClientData(null);
+    setIsNewClient(false);
+  }, [phoneNumber, checkClient, clientData?.id]);
 
   useEffect(() => {
     if (!accessReady) return;
@@ -539,7 +545,7 @@ export default function ClientPhotoUploadScreen() {
   };
 
   const handleSetupGallery = async () => {
-    if (!phoneNumber) {
+    if (!phoneNumber && !clientData?.id) {
       Alert.alert('Missing Info', 'Please enter a client phone number.');
       return;
     }
@@ -555,7 +561,7 @@ export default function ClientPhotoUploadScreen() {
         setUploadStatus('Creating client...');
         const newClient = await AdminService.clients.create({
           name: resolvedName,
-          phone: phoneNumber,
+          phone: phoneNumber || '',
           email: email || undefined,
           notes
         } as any);
@@ -573,6 +579,9 @@ export default function ClientPhotoUploadScreen() {
       setUploadStatus('Creating gallery...');
       const galleryName = galleryTitle || `${shootType.charAt(0).toUpperCase() + shootType.slice(1)} ${new Date().getFullYear()}`;
 
+      const autoLock = await AsyncStorage.getItem('admin_autoLockGalleries');
+      const shouldLock = autoLock !== null ? autoLock === 'true' : true;
+
       const result = await AdminService.gallery.createSimple({
         clientId: clientId!,
         name: galleryName,
@@ -580,6 +589,7 @@ export default function ClientPhotoUploadScreen() {
         shootType,
         isPaid,
         accessCode,
+        isLocked: shouldLock,
       });
 
       setInitializedGallery({
@@ -635,7 +645,7 @@ export default function ClientPhotoUploadScreen() {
   };
 
   const handleUpload = async () => {
-    if (!phoneNumber) {
+    if (!phoneNumber && !clientData?.id) {
       Alert.alert('Missing Info', 'Please enter a client phone number.');
       return;
     }
@@ -704,6 +714,10 @@ export default function ClientPhotoUploadScreen() {
 
         // 2. Create gallery directly (no Edge Functions)
         setUploadStatus('Creating gallery...');
+
+        const autoLock = await AsyncStorage.getItem('admin_autoLockGalleries');
+        const shouldLock = autoLock !== null ? autoLock === 'true' : true;
+
         const gallery = await AdminService.gallery.createSimple({
           clientId: clientId!,
           name: galleryName,
@@ -711,6 +725,7 @@ export default function ClientPhotoUploadScreen() {
           shootType,
           isPaid,
           accessCode,
+          isLocked: shouldLock,
         });
         galleryId = gallery.id;
         sessionId = gallery.session_id;
@@ -730,21 +745,74 @@ export default function ClientPhotoUploadScreen() {
         setUploadStatus('Sending notifications...');
         try {
           const resolvedName = clientData?.name || resolveClientName();
-          
+          const templates = await SMSService.templates.list();
+          const titleTpl = templates?.find(t => t.name === 'In-App Notification Title')?.body
+            || `Hello ${resolvedName} 👋, your ${galleryName} gallery is ready!`;
+          const bodyTpl = templates?.find(t => t.name === 'In-App Notification Body')?.body
+            || `Your photos from ${galleryName} are now available. Tap to view your gallery.`;
+          const links = await SMSService.utils.getAdminLinks();
+          const appLinkBase = links?.access_code_delivery_link || links?.share_app_link || '';
+          const compiledTitle = SMSService.utils.compileTemplate(titleTpl, {
+            client_name: resolvedName,
+            gallery_name: galleryName,
+            access_code: finalAccessCode,
+            app_link: appLinkBase,
+            business_name: 'Epix Visuals Studios.co'
+          });
+          const compiledBody = SMSService.utils.compileTemplate(bodyTpl, {
+            client_name: resolvedName,
+            gallery_name: galleryName,
+            access_code: finalAccessCode,
+            app_link: appLinkBase,
+            business_name: 'Epix Visuals Studios.co'
+          });
+
           await AdminService.notifications.create(clientId as string, {
             clientId: clientId as string,
             galleryId: finalGalleryId,
             type: 'gallery_ready',
-            title: `Hello ${resolvedName} 👋, your ${galleryName} gallery is ready!`,
-            body: `Your photos from ${galleryName} are now available. Tap to view your gallery.`,
+            title: compiledTitle,
+            body: compiledBody,
             data: { galleryId: finalGalleryId, accessCode: finalAccessCode, clientName: resolvedName }
           });
         } catch (notifError: any) {
           console.warn('Notification sending failed (non-critical):', notifError?.message);
-          // Don't throw — upload already succeeded
         }
       }
 
+      // 5. Auto-SMS
+      try {
+        const autoSms = await AsyncStorage.getItem('admin_autoSmsOnUpload');
+        if (autoSms === 'true' && phoneNumber && finalAccessCode) {
+          setUploadStatus('Sending SMS...');
+          const templates = await SMSService.templates.list();
+          const smsTpl = templates?.find(t => t.name === 'Gallery Ready (SMS)')?.body
+            || 'Hello {client_name}, your photos are ready!\n\nDirect Link: {app_link}{access_code}\n\nUse code: {access_code} to unlock if the link doesn\'t open.\n\n{business_name}';
+          const links = await SMSService.utils.getAdminLinks();
+          const appLinkBase = links?.access_code_delivery_link || links?.share_app_link || accessLink;
+          const compiledSms = SMSService.utils.compileTemplate(smsTpl, {
+            client_name: clientData?.name || resolveClientName(),
+            access_code: finalAccessCode,
+            gallery_name: galleryName,
+            app_link: appLinkBase,
+            business_name: 'Epix Visuals Studios.co'
+          });
+          
+          await supabase.functions.invoke('send_sms', {
+            body: { phoneNumber, message: compiledSms }
+          });
+          
+          await supabase.from('sms_logs').insert({
+            owner_admin_id: user?.id,
+            client_id: clientId,
+            phone_number: phoneNumber,
+            message: compiledSms,
+            status: 'sent',
+          });
+        }
+      } catch (smsError) {
+        console.warn('Auto-SMS failed:', smsError);
+      }
 
       setAccessCode(finalAccessCode);
       setIsUploading(false);
@@ -785,7 +853,7 @@ export default function ClientPhotoUploadScreen() {
   // Render Helpers
   const renderPhotoItem = ({ item }: { item: Photo }) => (
     <View style={styles.photoItem}>
-      <Image source={{ uri: item.uri }} style={styles.photoThumb} />
+      <Image source={{ uri: item.uri }} style={styles.photoThumb} resizeMode="contain" />
       <Pressable
         style={styles.removePhotoBtn}
         onPress={() => removePhoto(item.id)}
@@ -1044,17 +1112,17 @@ export default function ClientPhotoUploadScreen() {
                   <Pressable
                     style={[
                       styles.setupGalleryBtn,
-                      (isInitializing || !phoneNumber) && styles.primaryBtnDisabled
+                      (isInitializing || (!phoneNumber && !clientData?.id)) && styles.primaryBtnDisabled
                     ]}
                     onPress={handleSetupGallery}
-                    disabled={isInitializing || !phoneNumber}
+                    disabled={isInitializing || (!phoneNumber && !clientData?.id)}
                   >
                     {isInitializing ? (
                       <ActivityIndicator color={Colors.background} size="small" />
                     ) : (
                       <>
                         <LinearGradient
-                          colors={!phoneNumber ? ['#333', '#333'] : ['#2563eb', '#1d4ed8']}
+                          colors={!phoneNumber && !clientData?.id ? ['#333', '#333'] : ['#2563eb', '#1d4ed8']}
                           style={StyleSheet.absoluteFillObject}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 1 }}
@@ -1837,6 +1905,7 @@ const styles = StyleSheet.create({
   photoThumb: {
     width: '100%',
     height: '100%',
+    backgroundColor: Colors.card,
   },
   deliverySection: {
     marginBottom: 20,

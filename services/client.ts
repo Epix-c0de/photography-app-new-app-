@@ -155,7 +155,7 @@ export const ClientService = {
      * Download/View Photos
      * Logic: Allowed ONLY if payment_status = PAID (or gallery is unlocked)
      */
-    getPhotos: async (galleryId: string): Promise<Photo[]> => {
+    getPhotos: async (galleryId: string, options?: { thumbnailsOnly?: boolean }): Promise<Photo[]> => {
       // 0. Get Current User
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
@@ -174,11 +174,19 @@ export const ClientService = {
         
       if (gError) throw gError;
       
-      // Strict Client Check
+      // Authorization: allow if this user owns the client record OR has unlocked the gallery
       // @ts-ignore - Supabase join types are complex
       const clientUserId = gallery.clients?.user_id;
       if (clientUserId !== user.id) {
-        throw new Error('Unauthorized access to gallery');
+        const { data: unlocked } = await supabase
+          .from('unlocked_galleries')
+          .select('id')
+          .eq('gallery_id', galleryId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (!unlocked) {
+          throw new Error('Unauthorized access to gallery');
+        }
       }
 
       // 2. Determine Variant
@@ -196,47 +204,86 @@ export const ClientService = {
       if (pError) throw pError;
 
       // 4. Generate Signed URLs for both full images and thumbnails
+      const thumbnailsOnly = options?.thumbnailsOnly === true;
       const photosWithUrls = await Promise.all(photos.map(async (p) => {
-        // Sign full image URL
-        const { data: fullData, error: fullError } = await supabase.storage
-          .from('client-photos')
-          .createSignedUrl(p.photo_url, 3600);
+        let fullUrl = '';
+        let thumbnailUrl = '';
+        const variant: 'clean' | 'watermarked' = canViewClean ? 'clean' : 'watermarked';
+        const getFullPhotoUrl = async () => {
+          try {
+            const { data: fullData, error: fullError } = await supabase.storage
+              .from('client-photos')
+              .createSignedUrl(p.photo_url, 3600);
+            
+            if (!fullError && fullData?.signedUrl) {
+              return fullData.signedUrl;
+            }
+            const { data: publicData } = supabase.storage.from('client-photos').getPublicUrl(p.photo_url);
+            return publicData.publicUrl;
+          } catch (e) {
+            console.warn(`[Gallery] Error getting full URL for ${p.photo_url}`, e);
+            return '';
+          }
+        };
+        
+        // Ensure photo_url is a relative path
+        const isUrl = p.photo_url.startsWith('http');
+        if (isUrl) {
+          if (!thumbnailsOnly) {
+            fullUrl = p.photo_url;
+          }
+          thumbnailUrl = p.photo_url;
+        } else {
+          if (!thumbnailsOnly) {
+            fullUrl = await getFullPhotoUrl();
+          }
 
-        if (fullError) {
-          console.warn(`Failed to sign URL for ${p.photo_url}`, fullError);
-          return { ...p, url: '', thumbnailUrl: '', variant };
+          // Try to sign thumbnail URL
+          // Thumbnail naming convention: remove extension and add _thumb.png
+          try {
+            const photoNameParts = p.photo_url.split('.');
+            // Handle case where no extension exists
+            const photoNameNoExt = photoNameParts.length > 1 ? photoNameParts.slice(0, -1).join('.') : p.photo_url;
+            const thumbnailPath = `${photoNameNoExt}_thumb.png`;
+            
+            // 1. Try 'thumbnails' bucket
+            let { data: thumbData, error: thumbError } = await supabase.storage
+              .from('thumbnails')
+              .createSignedUrl(thumbnailPath, 3600);
+
+            if (!thumbError && thumbData?.signedUrl) {
+              thumbnailUrl = thumbData.signedUrl;
+            } else {
+              // 2. Fallback: Try 'client-photos' bucket (stored alongside original)
+               const { data: thumbData2, error: thumbError2 } = await supabase.storage
+                  .from('client-photos')
+                  .createSignedUrl(thumbnailPath, 3600);
+               
+               if (!thumbError2 && thumbData2?.signedUrl) {
+                  thumbnailUrl = thumbData2.signedUrl;
+               }
+            }
+          } catch (err) {
+            // Suppress error to avoid log spam on 400 Bad Request
+          }
+        }
+        
+        if (!thumbnailUrl) {
+          // 3. Fallback to full URL
+          if (!fullUrl && thumbnailsOnly && !isUrl) {
+            fullUrl = await getFullPhotoUrl();
+          }
+          thumbnailUrl = fullUrl;
         }
 
-        // Try to sign thumbnail URL
-        // Thumbnail naming convention: remove extension and add _thumb.png
-        const photoNameParts = p.photo_url.split('.');
-        const photoNameNoExt = photoNameParts.slice(0, -1).join('.');
-        const thumbnailPath = `${photoNameNoExt}_thumb.png`;
-        
-        let thumbnailUrl = '';
-        try {
-          const { data: thumbData, error: thumbError } = await supabase.storage
-            .from('thumbnails')
-            .createSignedUrl(thumbnailPath, 3600);
-
-          if (!thumbError && thumbData?.signedUrl) {
-            thumbnailUrl = thumbData.signedUrl;
-            console.log(`[Gallery] ✓ Loaded thumbnail for ${p.file_name}`);
-          } else {
-            console.warn(`[Gallery] Thumbnail not found for ${p.file_name}, using full image as fallback`);
-            // Use full image as fallback if thumbnail doesn't exist
-            thumbnailUrl = fullData?.signedUrl || '';
-          }
-        } catch (err) {
-          console.warn(`[Gallery] Error fetching thumbnail for ${p.file_name}:`, err);
-          // Fallback to full image URL
-          thumbnailUrl = fullData?.signedUrl || '';
+        if (!fullUrl && thumbnailUrl) {
+          fullUrl = thumbnailUrl;
         }
 
         return { 
           ...p, 
-          url: fullData?.signedUrl || '', 
-          thumbnailUrl: thumbnailUrl || fullData?.signedUrl || '',
+          url: fullUrl || '', 
+          thumbnailUrl: thumbnailUrl || fullUrl || '',
           variant 
         };
       }));
@@ -603,8 +650,7 @@ export const ClientService = {
     },
 
     incrementShare: async (itemId: string) => {
-      // Atomic increment for shares
-      const { error } = await supabase.rpc('increment_portfolio_shares', { item_id: itemId });
+      const { error } = await (supabase as any).rpc('increment_portfolio_shares', { item_id: itemId });
       if (error) {
         // Fallback if RPC doesn't exist
         const { data } = await supabase.from('portfolio_items').select('shares_count').eq('id', itemId).single();

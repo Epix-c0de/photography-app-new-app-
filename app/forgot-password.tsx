@@ -12,7 +12,7 @@ import {
   Alert,
   ActivityIndicator
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, Phone, ArrowRight, Lock, Eye, EyeOff, KeyRound, CheckCircle } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
@@ -20,6 +20,7 @@ import Colors from '@/constants/colors';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   
@@ -45,6 +46,13 @@ export default function ForgotPasswordScreen() {
     }).start();
   }, [step]);
 
+  useEffect(() => {
+    if (mode === 'recovery') {
+      setContactType('email');
+      setStep(3);
+    }
+  }, [mode]);
+
   const handleSendCode = async () => {
     if (!contact.trim()) {
       Alert.alert('Required', 'Please enter your email or phone number.');
@@ -54,22 +62,18 @@ export default function ForgotPasswordScreen() {
     setLoading(true);
     const isEmail = contact.includes('@');
     setContactType(isEmail ? 'email' : 'phone');
+    const normalizedContact = contact.trim();
 
     try {
       if (isEmail) {
-        const { error } = await supabase.auth.resetPasswordForEmail(contact, {
-            // Note: In a real app, you might need a redirectTo URL that handles the deep link manually
-            // if you want to intercept the token. However, standard Supabase behavior sends a link.
-            // To support OTP entry manually, we need 'supaase.auth.signInWithOtp' for email too?
-            // Actually, verifyOtp works if we get the token.
-            // But resetPasswordForEmail usually sends a link, not a code, unless configured.
-            // For this prompt, we assume we want an OTP code.
-            // We can use signInWithOtp for email too if we want a code.
+        const { error } = await supabase.auth.signInWithOtp({
+          email: normalizedContact.toLowerCase(),
+          options: { shouldCreateUser: false },
         });
         if (error) throw error;
-        Alert.alert('Code Sent', 'Check your email for the reset code.');
+        Alert.alert('Code Sent', 'Check your email for the 6-digit verification code.');
       } else {
-        const { error } = await supabase.auth.signInWithOtp({ phone: contact });
+        const { error } = await supabase.auth.signInWithOtp({ phone: normalizedContact });
         if (error) throw error;
         Alert.alert('Code Sent', 'Check your SMS for the code.');
       }
@@ -91,13 +95,13 @@ export default function ForgotPasswordScreen() {
     try {
       const verifyParams: any = {
         token: otp,
-        type: contactType === 'email' ? 'recovery' : 'sms',
+        type: contactType === 'email' ? 'email' : 'sms',
       };
 
       if (contactType === 'email') {
-        verifyParams.email = contact;
+        verifyParams.email = contact.trim().toLowerCase();
       } else {
-        verifyParams.phone = contact;
+        verifyParams.phone = contact.trim();
       }
 
       const { data, error } = await supabase.auth.verifyOtp(verifyParams);

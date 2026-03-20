@@ -1,11 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
-import { makeRedirectUri } from 'expo-auth-session';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -82,34 +81,61 @@ export default function LoginScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setIsSubmitting(true);
+      console.log('[Google Sign-In] Starting flow');
 
-      // For built native apps, the redirect must use the app's custom URI scheme.
-      // This becomes epix-visuals://auth/callback on Android/iOS.
-      const redirectUrl = makeRedirectUri({
-        scheme: 'epix-visuals',
-        path: 'auth/callback',
-      });
+      if (Platform.OS !== 'android' && Platform.OS !== 'ios') {
+        Alert.alert('Google Sign-In', 'Google Sign-In works only in the installed mobile app.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 1. Native-only redirect URI for Play Store app
+      const redirectUrl = 'epix-visuals://auth/callback';
 
       console.log('[Google Sign-In] redirectUrl:', redirectUrl);
 
+      // 2. Start OAuth flow with Supabase
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: redirectUrl,
           skipBrowserRedirect: true,
+          queryParams: { prompt: 'select_account' },
         },
       });
 
-      if (error) throw error;
-      if (!data?.url) throw new Error('No authentication URL received from Supabase');
+      if (error) {
+        console.error('[Google Sign-In] Supabase error:', error);
+        throw error;
+      }
+      
+      if (!data?.url) {
+        console.error('[Google Sign-In] No URL returned from Supabase');
+        throw new Error('Authentication URL missing from Supabase');
+      }
 
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl, {
-        showInRecents: true,
-        dismissButtonStyle: 'cancel',
-        createTask: false,
-      });
+      console.log('[Google Sign-In] Opening browser for:', data.url);
+
+      if (Platform.OS === 'android') {
+        await Linking.openURL(data.url);
+        setIsSubmitting(false);
+        return;
+      }
+
+      const result = await WebBrowser.openAuthSessionAsync(
+        data.url,
+        redirectUrl,
+        {
+          showInRecents: true,
+          dismissButtonStyle: 'cancel',
+          createTask: false,
+        }
+      );
+
+      console.log('[Google Sign-In] Browser result:', result.type);
 
       if (result.type === 'success' && result.url) {
+        console.log('[Google Sign-In] Success! Redirecting to callback handler');
         // Navigate to the callback handler which extracts tokens and creates a session
         router.push({
           pathname: '/auth/callback',
@@ -119,15 +145,25 @@ export default function LoginScreen() {
           },
         });
       } else if (result.type === 'dismiss') {
+        console.log('[Google Sign-In] User dismissed browser');
         setIsSubmitting(false);
-        Alert.alert('Cancelled', 'Google Sign-In was cancelled.');
+      } else if (result.type === 'cancel') {
+        console.log('[Google Sign-In] User cancelled');
+        setIsSubmitting(false);
       } else {
-        throw new Error('Authentication failed unexpectedly');
+        console.warn('[Google Sign-In] Unexpected result type:', result.type);
+        setIsSubmitting(false);
       }
     } catch (error: any) {
       console.error('[Google Sign-In] Error:', error?.message || error);
       setIsSubmitting(false);
-      Alert.alert('Sign-In Failed', error?.message || 'An error occurred during Google Sign-In');
+      
+      let errorMessage = error?.message || 'An error occurred during Google Sign-In';
+      if (errorMessage.includes('developer_error')) {
+        errorMessage = 'Configuration error: Ensure your Android Package Name and SHA-1 fingerprint are registered in Google Cloud Console for the EAS build.';
+      }
+      
+      Alert.alert('Sign-In Failed', errorMessage);
     }
   }, [router]);
 

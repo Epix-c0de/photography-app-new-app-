@@ -4,7 +4,7 @@ import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, usePathname } from 'expo-router';
 import { Bell, ChevronRight, Camera, Unlock, CreditCard, Zap, Play, Heart, Star } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
+import PaymentModal from '@/components/PaymentModal';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 64;
@@ -24,6 +25,7 @@ const BTS_CARD_SIZE = 84;
 const BTS_CARD_GAP = 14;
 const BTS_SNAP = BTS_CARD_SIZE + BTS_CARD_GAP;
 const VIEWED_BTS_KEY = 'viewed_bts_post_ids_v1';
+const LOCAL_UNLOCKED_GALLERY_IDS_KEY = 'local_unlocked_gallery_ids_v1';
 
 function BTSStoryCard({
   item,
@@ -251,38 +253,42 @@ function GalleryPreviewCard({ item }: { item: GalleryRow }) {
   const coverUrl = item.cover_photo_url ?? '';
   const isLocked = item.is_locked;
   const title = item.name;
-  const subtitle = item.shoot_type ?? 'Gallery';
+  const subtitle = item.shoot_type ?? 'My Gallery';
+  const router = useRouter();
 
   return (
     <Pressable
-      onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true }).start()}
+      onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.95, useNativeDriver: true }).start()}
       onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
-      onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        if (!item.is_paid && (item.price ?? 0) > 0) {
+          router.push('/(tabs)/gallery?tab=unlock');
+          return;
+        }
+        router.push('/(tabs)/gallery');
+      }}
+      style={styles.galleryThumbContainer}
     >
-      <Animated.View style={[styles.galleryCard, { transform: [{ scale: scaleAnim }] }]}>
+      <Animated.View style={[styles.galleryThumbWrapper, { transform: [{ scale: scaleAnim }] }]}>
         {coverUrl.length > 0 ? (
-          <Image source={{ uri: coverUrl }} style={styles.galleryCardImage} contentFit="cover" />
+          <Image source={{ uri: coverUrl }} style={styles.galleryThumbImage} contentFit="cover" />
         ) : (
-          <LinearGradient colors={[Colors.card, Colors.cardLight]} style={styles.galleryCardImage} />
+          <LinearGradient colors={[Colors.card, Colors.cardLight]} style={styles.galleryThumbImage} />
         )}
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.8)']}
-          style={styles.galleryCardOverlay}
-        />
+        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.82)']} style={styles.galleryThumbOverlay} />
         {isLocked && (
-          <View style={styles.galleryLockBadge}>
-            <Unlock size={12} color={Colors.gold} />
+          <View style={styles.galleryThumbLockBadge}>
+            <Unlock size={10} color={Colors.background} />
           </View>
         )}
-        <View style={styles.galleryCardInfo}>
-          <Text style={styles.galleryCardTitle} numberOfLines={1}>
+        <View style={styles.galleryThumbInfo}>
+          <Text style={styles.galleryThumbTitle} numberOfLines={1}>
             {title}
           </Text>
-          <View style={styles.galleryCardMeta}>
-            <View style={styles.galleryCardTypeBadge}>
-              <Text style={styles.galleryCardType}>{subtitle}</Text>
-            </View>
-          </View>
+          <Text style={styles.galleryThumbSubtitle} numberOfLines={1}>
+            {subtitle}
+          </Text>
         </View>
       </Animated.View>
     </Pressable>
@@ -292,6 +298,7 @@ function GalleryPreviewCard({ item }: { item: GalleryRow }) {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useLocalSearchParams();
   const { user, profile } = useAuth();
 
@@ -373,6 +380,31 @@ export default function HomeScreen() {
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
   const [announcementsError, setAnnouncementsError] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [paymentGallery, setPaymentGallery] = useState<GalleryRow | null>(null);
+
+  const readLocalUnlockedGalleryIds = useCallback(async (): Promise<string[]> => {
+    try {
+      const raw = await AsyncStorage.getItem(LOCAL_UNLOCKED_GALLERY_IDS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((id) => typeof id === 'string' && id.length > 0);
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const handlePaymentSuccess = useCallback(() => {
+    if (paymentGallery) {
+      setGalleries(prev => prev.map(g => g.id === paymentGallery.id ? { ...g, is_paid: true, is_locked: false } : g));
+    }
+  }, [paymentGallery]);
+
+  const handlePayGallery = useCallback((gallery: GalleryRow) => {
+    setPaymentGallery(gallery);
+    setPaymentModalVisible(true);
+  }, []);
 
   const loadViewed = useCallback(async () => {
     const raw = await AsyncStorage.getItem(VIEWED_BTS_KEY);
@@ -470,7 +502,7 @@ export default function HomeScreen() {
       .from('notifications')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', authUser.id)
-      .eq('read', false);
+      .or('read.eq.false,is_read.eq.false');
 
     setUnreadCount(count ?? 0);
   }, []);
@@ -486,23 +518,114 @@ export default function HomeScreen() {
       return;
     }
 
-    const { data, error } = await supabase
+    const { data: clientGalleries, error: clientError } = await supabase
       .from('galleries')
       .select('*')
-      .eq('client_id', activeClientId)
-      .order('created_at', { ascending: false })
-      .limit(10);
+      .eq('client_id', activeClientId);
 
-    if (error || !data) {
-      setGalleries([]);
-      setGalleriesError('Failed to load galleries.');
-      setGalleriesLoading(false);
-      return;
+    const { data: unlockedGalleries, error: unlockedError } = await supabase
+      .from('unlocked_galleries')
+      .select('gallery_id, galleries(*)')
+      .eq('user_id', user?.id);
+
+    const localUnlockedIds = await readLocalUnlockedGalleryIds();
+    let locallyUnlockedGalleries: GalleryRow[] = [];
+    if (localUnlockedIds.length > 0) {
+      const { data: localData, error: localError } = await supabase
+        .from('galleries')
+        .select('*')
+        .in('id', localUnlockedIds);
+      if (localError) console.error('[Home] Error loading local unlocked galleries:', localError);
+      locallyUnlockedGalleries = localData || [];
     }
 
-    setGalleries(data);
+    if (clientError) console.error('[Home] Error loading client galleries:', clientError);
+    if (unlockedError) console.error('[Home] Error loading unlocked galleries:', unlockedError);
+
+    const clientGals = clientGalleries || [];
+    const unlockedGals = (unlockedGalleries || [])
+      .map((ug: any) => ug.galleries)
+      .filter(Boolean);
+
+    const merged = [...clientGals, ...unlockedGals, ...locallyUnlockedGalleries];
+    const unique = merged.filter((g, index, self) => index === self.findIndex(x => x.id === g.id));
+    unique.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    const limited = unique.slice(0, 10);
+    const limitedIds = limited.map((g) => g.id);
+    const galleryThumbnailMap = new Map<string, string>();
+    if (limitedIds.length > 0) {
+      const { data: thumbRows, error: thumbError } = await supabase
+        .from('gallery_photos')
+        .select('gallery_id, thumbnail_url, created_at')
+        .in('gallery_id', limitedIds)
+        .not('thumbnail_url', 'is', null)
+        .order('created_at', { ascending: false });
+      if (thumbError) {
+        console.error('[Home] Error loading gallery thumbnails:', thumbError);
+      } else {
+        (thumbRows || []).forEach((row: any) => {
+          if (!galleryThumbnailMap.has(row.gallery_id) && row.thumbnail_url) {
+            galleryThumbnailMap.set(row.gallery_id, row.thumbnail_url);
+          }
+        });
+      }
+    }
+
+    const normalizeCoverPath = (urlOrPath: string) => {
+      if (!urlOrPath) return null;
+      if (!urlOrPath.startsWith('http')) return urlOrPath;
+      // handle public storage urls
+      const publicMarker = '/object/public/client-photos/';
+      const publicIdx = urlOrPath.indexOf(publicMarker);
+      if (publicIdx !== -1) {
+        const tail = urlOrPath.slice(publicIdx + publicMarker.length);
+        return tail.split('?')[0];
+      }
+
+      // handle signed storage urls
+      const signedMarker = '/object/sign/client-photos/';
+      const signedIdx = urlOrPath.indexOf(signedMarker);
+      if (signedIdx !== -1) {
+        const tail = urlOrPath.slice(signedIdx + signedMarker.length);
+        return tail.split('?')[0];
+      }
+      return null;
+    };
+
+    const coverPaths = limited
+      .map((g) => normalizeCoverPath(galleryThumbnailMap.get(g.id) || g.cover_photo_url || ''))
+      .filter((path): path is string => !!path);
+
+    let signedCoverMap = new Map<string, string>();
+    if (coverPaths.length > 0) {
+      const { data: signedCovers } = await supabase.storage
+        .from('client-photos')
+        .createSignedUrls(coverPaths, 3600);
+      if (signedCovers) {
+        signedCovers.forEach((s: any) => {
+          if (s.path && s.signedUrl) signedCoverMap.set(s.path, s.signedUrl);
+        });
+      }
+    }
+
+    const withSignedCovers = limited.map((g) => {
+      const preferredCover = galleryThumbnailMap.get(g.id) || g.cover_photo_url || '';
+      const normalized = normalizeCoverPath(preferredCover);
+      if (normalized) {
+        return { ...g, cover_photo_url: signedCoverMap.get(normalized) || preferredCover };
+      }
+      return { ...g, cover_photo_url: preferredCover };
+    });
+
+    setGalleries(withSignedCovers);
     setGalleriesLoading(false);
-  }, [clientId, fetchClientId]);
+  }, [clientId, fetchClientId, readLocalUnlockedGalleryIds, user?.id]);
+
+  useEffect(() => {
+    if (!pathname.includes('/home')) return;
+    fetchGalleries();
+  }, [pathname, fetchGalleries]);
 
   const fetchAnnouncements = useCallback(async () => {
     setAnnouncementsLoading(true);
@@ -537,6 +660,12 @@ export default function HomeScreen() {
     }
     return [...unviewed, ...viewed];
   }, [btsPosts, viewedIds]);
+
+  const pendingPaymentGalleries = useMemo(
+    () => galleries.filter((gallery) => gallery.is_locked && !gallery.is_paid && (gallery.price ?? 0) > 0),
+    [galleries]
+  );
+  const hasPendingPayments = pendingPaymentGalleries.length > 0;
 
   useEffect(() => {
     loadViewed();
@@ -594,16 +723,27 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: 20 }}
+        contentContainerStyle={{ paddingBottom: 120 }}
       >
         <Animated.View style={[styles.header, { paddingTop: insets.top + 12, opacity: headerOpacity }]}>
           <View style={styles.headerContent}>
             <Pressable onPress={() => router.push('/(tabs)/profile')}>
-              <Image
-                source={{ uri: profile?.avatar_url || user?.user_metadata?.avatar_url || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop' }}
-                style={styles.headerAvatar}
-                contentFit="cover"
-              />
+              {profile?.avatar_url || (user?.user_metadata as any)?.avatar_url ? (
+                <Image
+                  source={{ uri: (profile?.avatar_url || (user?.user_metadata as any)?.avatar_url) as string }}
+                  style={styles.headerAvatar}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={styles.headerAvatarFallback}>
+                  {(() => {
+                    const email = user?.email || '';
+                    const first = (email.split('@')[0] || '').trim();
+                    const char = (first[0] || 'U').toUpperCase();
+                    return <Text style={styles.headerAvatarFallbackText}>{char}</Text>;
+                  })()}
+                </View>
+              )}
             </Pressable>
             <Animated.View style={{ opacity: greetingFadeAnim, flex: 1 }}>
               <Text style={styles.greeting} numberOfLines={2}>{greeting}</Text>
@@ -679,11 +819,17 @@ export default function HomeScreen() {
               <Text style={styles.quickActionText}>Book a Shoot</Text>
             </LinearGradient>
           </Pressable>
-          <Pressable style={styles.quickAction} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/(tabs)/gallery'); }}>
+          <Pressable
+            style={styles.quickAction}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push(hasPendingPayments ? '/(tabs)/gallery?tab=unlock' : '/(tabs)/gallery');
+            }}
+          >
             <LinearGradient colors={[Colors.goldMuted, 'rgba(212,175,55,0.05)']} style={styles.quickActionGradient}>
               <View style={styles.actionIconContainer}>
                 <Unlock size={20} color={Colors.gold} />
-                {galleries.some((g) => g.is_locked && !g.is_paid && (g.price ?? 0) > 0) && (
+                {hasPendingPayments && (
                   <View style={styles.redBadge} />
                 )}
               </View>
@@ -692,7 +838,7 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        {galleries.some((g) => g.is_locked && !g.is_paid && (g.price ?? 0) > 0) && (
+        {hasPendingPayments && (
           <View style={styles.paymentAlert}>
             <LinearGradient
               colors={['rgba(28,28,30,0.8)', 'rgba(28,28,30,0.95)']}
@@ -704,12 +850,20 @@ export default function HomeScreen() {
               <View style={styles.paymentAlertContent}>
                 <Text style={styles.paymentAlertTitle}>Pending Payment</Text>
                 <Text style={styles.paymentAlertDesc}>
-                  {galleries.filter((g) => g.is_locked && !g.is_paid && (g.price ?? 0) > 0).length} galleries awaiting payment
+                  {pendingPaymentGalleries.length} galleries awaiting payment
                 </Text>
               </View>
               <Pressable
                 style={styles.paymentAlertAction}
-                onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/(tabs)/gallery'); }}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  const firstPending = pendingPaymentGalleries[0];
+                  if (firstPending) {
+                    handlePayGallery(firstPending);
+                    return;
+                  }
+                  router.push('/(tabs)/gallery?tab=unlock');
+                }}
               >
                 <Text style={styles.paymentAlertActionText}>Pay</Text>
                 <Zap size={14} color={Colors.background} fill={Colors.background} />
@@ -762,7 +916,12 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Galleries</Text>
-            <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/(tabs)/gallery'); }}>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push(hasPendingPayments ? '/(tabs)/gallery?tab=unlock' : '/(tabs)/gallery');
+              }}
+            >
               <Text style={styles.seeAll}>View all</Text>
             </Pressable>
           </View>
@@ -789,6 +948,9 @@ export default function HomeScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.galleriesContainer}
+              snapToInterval={176}
+              snapToAlignment="start"
+              decelerationRate="fast"
             />
           )}
         </View>
@@ -807,7 +969,7 @@ export default function HomeScreen() {
               </View>
             </View>
             <View style={styles.trustBannerContent}>
-              <Text style={styles.trustBannerTitle}>Trusted by 500+ clients</Text>
+              <Text style={styles.trustBannerTitle}>Trusted by 50+ clients</Text>
               <Text style={styles.trustBannerDesc}>4.9 average rating across all sessions</Text>
             </View>
             <ChevronRight size={16} color={Colors.textMuted} />
@@ -844,6 +1006,13 @@ export default function HomeScreen() {
           )}
         </Pressable>
       </Modal>
+      <PaymentModal
+        visible={paymentModalVisible}
+        onClose={() => setPaymentModalVisible(false)}
+        gallery={paymentGallery}
+        clientPhone={user?.user_metadata?.phone || (user as any)?.phone}
+        onSuccess={handlePaymentSuccess}
+      />
     </View>
   );
 }
@@ -873,6 +1042,21 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 2,
     borderColor: Colors.gold,
+  },
+  headerAvatarFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+    backgroundColor: Colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerAvatarFallbackText: {
+    color: Colors.gold,
+    fontWeight: '800' as const,
+    fontSize: 16,
   },
   greeting: {
     fontSize: 18,
@@ -1187,63 +1371,61 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 14,
   },
-  galleryCard: {
-    width: 200,
-    height: 260,
-    borderRadius: 16,
-    overflow: 'hidden' as const,
+  galleryThumbContainer: {
+    width: 162,
   },
-  galleryCardImage: {
+  galleryThumbWrapper: {
+    width: 162,
+    height: 186,
+    borderRadius: 20,
+    overflow: 'hidden' as const,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.32)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    shadowColor: Colors.gold,
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  galleryThumbImage: {
     width: '100%',
     height: '100%',
   },
-  galleryCardOverlay: {
+  galleryThumbOverlay: {
     ...StyleSheet.absoluteFillObject,
   },
-  galleryLockBadge: {
+  galleryThumbInfo: {
     position: 'absolute' as const,
-    top: 12,
+    left: 12,
     right: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    bottom: 12,
+  },
+  galleryThumbLockBadge: {
+    position: 'absolute' as const,
+    top: 10,
+    right: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.gold,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.goldMuted,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
   },
-  galleryCardInfo: {
-    position: 'absolute' as const,
-    bottom: 14,
-    left: 14,
-    right: 14,
-  },
-  galleryCardTitle: {
+  galleryThumbTitle: {
     fontSize: 15,
-    fontWeight: '600' as const,
+    fontWeight: '700' as const,
     color: Colors.white,
-    marginBottom: 6,
+    marginBottom: 2,
   },
-  galleryCardMeta: {
-    flexDirection: 'row' as const,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  galleryCardCount: {
+  galleryThumbSubtitle: {
     fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  galleryCardTypeBadge: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  galleryCardType: {
-    fontSize: 10,
-    color: Colors.white,
     fontWeight: '500' as const,
+    color: Colors.textSecondary,
   },
   trustBanner: {
     marginHorizontal: 20,

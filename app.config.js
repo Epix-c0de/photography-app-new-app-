@@ -16,6 +16,7 @@ module.exports = {
   expo: {
     name: 'Epix Visuals Studios.co',
     slug: 'epix-visuals-studios-co',
+    owner: process.env.EAS_OWNER || undefined,
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/images/adaptive-icon.png',
@@ -25,7 +26,7 @@ module.exports = {
     splash: {
       image: './assets/images/adaptive-icon.png',
       resizeMode: 'contain',
-      backgroundColor: '#ffffff',
+      backgroundColor: '#141313ff',
     },
     ios: {
       supportsTablet: false,

@@ -13,6 +13,8 @@ import {
   AlertCircle,
   Edit3,
   MessageCircle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -62,11 +64,33 @@ function formatCurrency(amount: number): string {
 function RescheduleModal({ visible, onClose, onConfirm, initialDate, initialTime }: { visible: boolean; onClose: () => void; onConfirm: (date: string, time: string) => void; initialDate: string; initialTime: string }) {
   const [date, setDate] = useState(initialDate);
   const [time, setTime] = useState(initialTime);
+  const [monthOffset, setMonthOffset] = useState(0);
+
+  const calendar = useMemo(() => {
+    const base = initialDate ? new Date(initialDate) : new Date();
+    const viewDate = new Date(base.getFullYear(), base.getMonth() + monthOffset, 1);
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDay = new Date(year, month, 1).getDay();
+
+    const days: (number | null)[] = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let d = 1; d <= daysInMonth; d++) days.push(d);
+
+    const monthName = viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+    return { days, year, month, monthName };
+  }, [initialDate, monthOffset]);
+
+  const formatDateStr = useCallback((year: number, month: number, day: number) => {
+    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }, []);
 
   useEffect(() => {
     if (visible) {
       setDate(initialDate);
       setTime(initialTime);
+      setMonthOffset(0);
     }
   }, [visible, initialDate, initialTime]);
 
@@ -75,16 +99,41 @@ function RescheduleModal({ visible, onClose, onConfirm, initialDate, initialTime
       <View style={styles.modalBackdrop}>
         <View style={styles.modalCard}>
           <Text style={styles.modalTitle}>Reschedule Booking</Text>
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>New Date (YYYY-MM-DD)</Text>
-            <TextInput
-              style={styles.input}
-              value={date}
-              onChangeText={setDate}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={Colors.textMuted}
-            />
+
+          <View style={styles.calendarHeader}>
+            <Pressable onPress={() => setMonthOffset((p) => p - 1)}>
+              <ChevronLeft size={24} color={Colors.textMuted} />
+            </Pressable>
+            <Text style={styles.modalTitle}>{calendar.monthName}</Text>
+            <Pressable onPress={() => setMonthOffset((p) => p + 1)}>
+              <ChevronRight size={24} color={Colors.textMuted} />
+            </Pressable>
           </View>
+
+          <View style={styles.weekRow}>
+            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+              <Text key={i} style={styles.weekDay}>{d}</Text>
+            ))}
+          </View>
+
+          <View style={styles.daysGrid}>
+            {calendar.days.map((day, i) => {
+              if (day === null) return <View key={`empty-${i}`} style={styles.dayCell} />;
+              const dateStr = formatDateStr(calendar.year, calendar.month, day);
+              const isSelected = dateStr === date;
+
+              return (
+                <Pressable
+                  key={dateStr}
+                  style={[styles.dayCell, isSelected && styles.dayCellSelected]}
+                  onPress={() => setDate(dateStr)}
+                >
+                  <Text style={[styles.dayText, isSelected && styles.dayTextSelected]}>{day}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>New Time</Text>
             <TextInput
@@ -112,16 +161,87 @@ function RescheduleModal({ visible, onClose, onConfirm, initialDate, initialTime
   );
 }
 
+function BookingActionsModal({
+  visible,
+  booking,
+  onClose,
+  onReschedule,
+  onUpdateStatus,
+}: {
+  visible: boolean;
+  booking: AdminBooking | null;
+  onClose: () => void;
+  onReschedule: () => void;
+  onUpdateStatus: (status: 'pending' | 'confirmed' | 'completed' | 'cancelled') => void;
+}) {
+  if (!booking) return null;
+  const config = statusConfig[booking.status];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Booking Actions</Text>
+
+          <View style={{ marginBottom: 14 }}>
+            <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '700' as const }}>{booking.clientName}</Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 12 }}>{booking.date} • {booking.time}</Text>
+            <Text style={{ color: Colors.textMuted, fontSize: 12 }}>{booking.packageName}</Text>
+          </View>
+
+          <View style={[styles.statusBadge, { backgroundColor: config.color + '18', alignSelf: 'flex-start', marginBottom: 16 }]}>
+            {config.icon}
+            <Text style={[styles.statusText, { color: config.color }]}>{config.label}</Text>
+          </View>
+
+          <Pressable style={styles.rescheduleBtn} onPress={onReschedule}>
+            <RefreshCw size={13} color={Colors.gold} />
+            <Text style={styles.rescheduleBtnText}>Reschedule</Text>
+          </Pressable>
+
+          <View style={{ height: 12 }} />
+
+          <View style={styles.statusButtons}>
+            <Pressable style={[styles.statusBtn, { backgroundColor: Colors.warning }]} onPress={() => onUpdateStatus('pending')}>
+              <Text style={styles.statusBtnText}>Pending</Text>
+            </Pressable>
+            <Pressable style={[styles.statusBtn, { backgroundColor: Colors.success }]} onPress={() => onUpdateStatus('confirmed')}>
+              <Text style={styles.statusBtnText}>Confirmed</Text>
+            </Pressable>
+          </View>
+
+          <View style={{ height: 10 }} />
+
+          <View style={styles.statusButtons}>
+            <Pressable style={[styles.statusBtn, { backgroundColor: '#6C9AED' }]} onPress={() => onUpdateStatus('completed')}>
+              <Text style={styles.statusBtnText}>Completed</Text>
+            </Pressable>
+            <Pressable style={[styles.statusBtn, { backgroundColor: Colors.error }]} onPress={() => onUpdateStatus('cancelled')}>
+              <Text style={styles.statusBtnText}>Cancelled</Text>
+            </Pressable>
+          </View>
+
+          <Pressable style={[styles.modalCancelBtn, { marginTop: 18 }]} onPress={onClose}>
+            <Text style={styles.modalCancelText}>Close</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function BookingCard({ 
   booking, 
   index, 
   onReschedule, 
-  onUpdateStatus 
+  onUpdateStatus,
+  onOpenActions,
 }: { 
   booking: AdminBooking; 
   index: number; 
   onReschedule: (booking: AdminBooking) => void; 
-  onUpdateStatus: (id: string, status: 'confirmed' | 'cancelled' | 'completed' | 'pending') => void 
+  onUpdateStatus: (id: string, status: 'confirmed' | 'cancelled' | 'completed' | 'pending') => void;
+  onOpenActions: (booking: AdminBooking) => void;
 }) {
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -175,14 +295,7 @@ function BookingCard({
     <Pressable
       onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.98, useNativeDriver: true }).start()}
       onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
-      onPress={() => {
-        if (booking.clientId) {
-          router.push({
-            pathname: '/(admin)/clients',
-            params: { clientId: booking.clientId }
-          });
-        }
-      }}
+      onPress={() => onOpenActions(booking)}
     >
       <Animated.View style={[styles.bookingCard, { opacity: fadeAnim, transform: [{ translateY: slideAnim }, { scale: scaleAnim }] }]}>
         <View style={styles.cardHeader}>
@@ -321,6 +434,7 @@ export default function AdminBookingsScreen() {
   const [loading, setLoading] = useState(true);
   const [showRescheduleModal, setShowRescheduleModal] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<AdminBooking | null>(null);
+  const [showBookingActions, setShowBookingActions] = useState(false);
 
   useEffect(() => {
     loadBookings();
@@ -373,6 +487,17 @@ export default function AdminBookingsScreen() {
     try {
       setLoading(true);
       await AdminService.bookings.updateStatus(id, status);
+
+      const booking = bookings.find((b) => b.id === id);
+      if (booking?.clientId) {
+        await AdminService.notifications.create(booking.clientId, {
+          type: 'booking_status_update',
+          title: 'Booking Status Updated',
+          body: `Your booking status is now ${status.toUpperCase()}.`,
+          data: { bookingId: id, status },
+        });
+      }
+
       await loadBookings();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
@@ -381,16 +506,28 @@ export default function AdminBookingsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [loadBookings]);
+  }, [loadBookings, bookings]);
 
   const handleRescheduleConfirm = useCallback(async (date: string, time: string) => {
     if (!selectedBooking) return;
     try {
       setLoading(true);
       await AdminService.bookings.reschedule(selectedBooking.id, date, time);
+      
+      // Send notification to client about reschedule
+      if (selectedBooking.clientId) {
+        await AdminService.notifications.create(selectedBooking.clientId, {
+          type: 'booking_rescheduled',
+          title: 'Booking Rescheduled',
+          body: `Your ${selectedBooking.type} has been rescheduled to ${date} at ${time}. Please check your bookings for details.`,
+          data: { bookingId: selectedBooking.id, newDate: date, newTime: time }
+        });
+      }
+      
       setShowRescheduleModal(false);
       await loadBookings();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Rescheduled', 'The booking has been rescheduled and the client has been notified.');
     } catch (error) {
       console.error('Error rescheduling:', error);
       Alert.alert('Error', 'Failed to reschedule booking');
@@ -398,6 +535,75 @@ export default function AdminBookingsScreen() {
       setLoading(false);
     }
   }, [selectedBooking, loadBookings]);
+
+  const [showCalendarManager, setShowCalendarManager] = useState(false);
+  const [calendarMonthOffset, setCalendarMonthOffset] = useState(0);
+  const [availability, setAvailability] = useState<Map<string, 'available' | 'busy' | 'partial'>>(new Map());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // Load calendar availability
+  const loadAvailability = useCallback(async () => {
+    if (!user) return;
+    try {
+      const now = new Date();
+      const startDate = new Date(now.getFullYear(), now.getMonth() + calendarMonthOffset, 1);
+      const endDate = new Date(now.getFullYear(), now.getMonth() + calendarMonthOffset + 2, 0);
+      
+      const { data, error } = await supabase
+        .from('admin_calendar_availability')
+        .select('*')
+        .eq('admin_id', user.id)
+        .gte('date', startDate.toISOString().split('T')[0])
+        .lte('date', endDate.toISOString().split('T')[0]);
+      
+      if (error) throw error;
+      
+      const newAvailability = new Map<string, 'available' | 'busy' | 'partial'>();
+      data?.forEach((item: any) => {
+        newAvailability.set(item.date, item.status);
+      });
+      setAvailability(newAvailability);
+    } catch (error) {
+      console.error('Error loading availability:', error);
+    }
+  }, [user, calendarMonthOffset]);
+
+  useEffect(() => {
+    loadAvailability();
+  }, [loadAvailability]);
+
+  // Set day status
+  const handleSetDayStatus = useCallback(async (dateStr: string, status: 'available' | 'busy' | 'partial') => {
+    if (!user) return;
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
+      const { error } = await supabase
+        .from('admin_calendar_availability')
+        .upsert({
+          admin_id: user.id,
+          date: dateStr,
+          status,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'admin_id,date' });
+      
+      if (error) throw error;
+      
+      setAvailability(prev => {
+        const next = new Map(prev);
+        next.set(dateStr, status);
+        return next;
+      });
+    } catch (error) {
+      console.error('Error setting day status:', error);
+      Alert.alert('Error', 'Failed to update calendar');
+    }
+  }, [user]);
+
+  // Get day status
+  const getDayStatus = useCallback((dateStr: string) => {
+    return availability.get(dateStr) || null;
+  }, [availability]);
 
   const filteredBookings = useMemo(() => {
     if (filter === 'all') return bookings;
@@ -420,11 +626,40 @@ export default function AdminBookingsScreen() {
     { key: 'cancelled', label: 'Cancelled', color: Colors.error },
   ];
 
+  // Generate calendar days
+  const calendarDays = useMemo(() => {
+    const now = new Date();
+    const viewDate = new Date(now.getFullYear(), now.getMonth() + calendarMonthOffset, 1);
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDay = new Date(year, month, 1).getDay();
+    
+    const days: (number | null)[] = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let d = 1; d <= daysInMonth; d++) days.push(d);
+    return { days, monthName: viewDate.toLocaleString('default', { month: 'long', year: 'numeric' }), year, month };
+  }, [calendarMonthOffset]);
+
+  const formatDateStr = (year: number, month: number, day: number) => {
+    return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  };
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Text style={styles.headerTitle}>Bookings</Text>
-        <Text style={styles.headerSub}>{counts.pending} pending · {counts.confirmed} confirmed</Text>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.headerTitle}>Bookings</Text>
+            <Text style={styles.headerSub}>{counts.pending} pending · {counts.confirmed} confirmed</Text>
+          </View>
+          <Pressable 
+            style={styles.calendarBtn} 
+            onPress={() => setShowCalendarManager(true)}
+          >
+            <CalendarDays size={20} color={Colors.gold} />
+          </Pressable>
+        </View>
 
         <ScrollView
           horizontal
@@ -443,6 +678,21 @@ export default function AdminBookingsScreen() {
             </Pressable>
           ))}
         </ScrollView>
+
+      <BookingActionsModal
+        visible={showBookingActions}
+        booking={selectedBooking}
+        onClose={() => setShowBookingActions(false)}
+        onReschedule={() => {
+          setShowBookingActions(false);
+          setShowRescheduleModal(true);
+        }}
+        onUpdateStatus={async (status: 'pending' | 'confirmed' | 'completed' | 'cancelled') => {
+          if (!selectedBooking) return;
+          setShowBookingActions(false);
+          await handleUpdateStatus(selectedBooking.id, status);
+        }}
+      />
       </View>
 
       <ScrollView
@@ -460,6 +710,10 @@ export default function AdminBookingsScreen() {
                 setSelectedBooking(b);
                 setShowRescheduleModal(true);
               }}
+              onOpenActions={(b) => {
+                setSelectedBooking(b);
+                setShowBookingActions(true);
+              }}
             />
           ))
         ) : (
@@ -470,6 +724,113 @@ export default function AdminBookingsScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Calendar Manager Modal */}
+      <Modal
+        visible={showCalendarManager}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCalendarManager(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { maxHeight: '80%' }]}>
+            <View style={styles.calendarHeader}>
+              <Pressable onPress={() => setCalendarMonthOffset(p => p - 1)}>
+                <ChevronLeft size={24} color={Colors.textMuted} />
+              </Pressable>
+              <Text style={styles.modalTitle}>{calendarDays.monthName}</Text>
+              <Pressable onPress={() => setCalendarMonthOffset(p => p + 1)}>
+                <ChevronRight size={24} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+
+            <View style={styles.weekRow}>
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                <Text key={i} style={styles.weekDay}>{d}</Text>
+              ))}
+            </View>
+
+            <View style={styles.daysGrid}>
+              {calendarDays.days.map((day, i) => {
+                if (day === null) return <View key={`empty-${i}`} style={styles.dayCell} />;
+                const dateStr = formatDateStr(calendarDays.year, calendarDays.month, day);
+                const status = getDayStatus(dateStr);
+                const isSelected = selectedDate === dateStr;
+                
+                return (
+                  <Pressable
+                    key={day}
+                    style={[
+                      styles.dayCell,
+                      status === 'busy' && styles.dayCellBusy,
+                      status === 'available' && styles.dayCellAvailable,
+                      status === 'partial' && styles.dayCellPartial,
+                      isSelected && styles.dayCellSelected,
+                    ]}
+                    onPress={() => setSelectedDate(dateStr)}
+                  >
+                    <Text style={[
+                      styles.dayText,
+                      isSelected && styles.dayTextSelected,
+                      status === 'busy' && styles.dayTextBusy,
+                    ]}>
+                      {day}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.legend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: Colors.error }]} />
+                <Text style={styles.legendText}>Busy</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: Colors.success }]} />
+                <Text style={styles.legendText}>Available</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: Colors.warning }]} />
+                <Text style={styles.legendText}>Partial</Text>
+              </View>
+            </View>
+
+            {selectedDate && (
+              <View style={styles.statusActions}>
+                <Text style={styles.selectedDateText}>Set {selectedDate} as:</Text>
+                <View style={styles.statusButtons}>
+                  <Pressable 
+                    style={[styles.statusBtn, { backgroundColor: Colors.success }]}
+                    onPress={() => { handleSetDayStatus(selectedDate, 'available'); setSelectedDate(null); }}
+                  >
+                    <Text style={styles.statusBtnText}>Available</Text>
+                  </Pressable>
+                  <Pressable 
+                    style={[styles.statusBtn, { backgroundColor: Colors.error }]}
+                    onPress={() => { handleSetDayStatus(selectedDate, 'busy'); setSelectedDate(null); }}
+                  >
+                    <Text style={styles.statusBtnText}>Busy</Text>
+                  </Pressable>
+                  <Pressable 
+                    style={[styles.statusBtn, { backgroundColor: Colors.warning }]}
+                    onPress={() => { handleSetDayStatus(selectedDate, 'partial'); setSelectedDate(null); }}
+                  >
+                    <Text style={styles.statusBtnText}>Partial</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            <Pressable 
+              style={[styles.modalCancelBtn, { marginTop: 20 }]} 
+              onPress={() => setShowCalendarManager(false)}
+            >
+              <Text style={styles.modalCancelText}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       {selectedBooking && (
         <RescheduleModal
@@ -795,5 +1156,129 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Calendar Manager Styles
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  calendarBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: Colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  calendarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  weekRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 8,
+  },
+  weekDay: {
+    width: 40,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  daysGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-start',
+  },
+  dayCell: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: 2,
+    borderRadius: 20,
+    backgroundColor: Colors.card,
+  },
+  dayCellBusy: {
+    backgroundColor: 'rgba(231,76,60,0.3)',
+  },
+  dayCellAvailable: {
+    backgroundColor: 'rgba(46,204,113,0.3)',
+  },
+  dayCellPartial: {
+    backgroundColor: 'rgba(243,156,18,0.3)',
+  },
+  dayCellSelected: {
+    borderWidth: 2,
+    borderColor: Colors.gold,
+  },
+  dayText: {
+    fontSize: 14,
+    color: Colors.white,
+    fontWeight: '500',
+  },
+  dayTextSelected: {
+    fontWeight: '700',
+  },
+  dayTextBusy: {
+    textDecorationLine: 'line-through',
+  },
+  legend: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  legendDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  legendText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  statusActions: {
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  selectedDateText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  statusButtons: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  statusBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    minWidth: 90,
+    alignItems: 'center',
+  },
+  statusBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.background,
   },
 });

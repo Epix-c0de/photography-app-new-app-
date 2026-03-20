@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Animated, FlatList, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, Images, CreditCard, Calendar, Megaphone, Bell, Check, Trash2 } from 'lucide-react-native';
@@ -10,21 +10,25 @@ import { useAuth } from '@/contexts/AuthContext';
 
 const iconMap: Record<string, React.ReactNode> = {
   gallery: <Images size={20} color="#3B82F6" />,
+  gallery_ready: <Images size={20} color="#3B82F6" />,
   payment: <CreditCard size={20} color={Colors.success} />,
   booking: <Calendar size={20} color={Colors.gold} />,
+  package: <Calendar size={20} color={Colors.gold} />,
   promo: <Megaphone size={20} color="#E879F9" />,
   system: <Bell size={20} color={Colors.textSecondary} />,
 };
 
 const bgMap: Record<string, string> = {
   gallery: 'rgba(59,130,246,0.12)',
+  gallery_ready: 'rgba(59,130,246,0.12)',
   payment: 'rgba(46,204,113,0.12)',
   booking: 'rgba(212,175,55,0.12)',
+  package: 'rgba(212,175,55,0.12)',
   promo: 'rgba(232,121,249,0.12)',
   system: 'rgba(160,160,160,0.12)',
 };
 
-function NotificationItem({ item, onPress }: { item: Notification; onPress: (notification: Notification) => void }) {
+function NotificationItem({ item, onPress, onDelete }: { item: Notification; onPress: (notification: Notification) => void; onDelete: (notification: Notification) => void }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   const handlePress = useCallback(() => {
@@ -37,7 +41,14 @@ function NotificationItem({ item, onPress }: { item: Notification; onPress: (not
   }, [item, onPress, scaleAnim]);
 
   return (
-    <Pressable onPress={handlePress}>
+    <Pressable
+      onPress={handlePress}
+      onLongPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        onDelete(item);
+      }}
+      delayLongPress={220}
+    >
       <Animated.View style={[styles.notifItem, !item.read && styles.notifItemUnread, { transform: [{ scale: scaleAnim }] }]}>
         <View style={[styles.notifIcon, { backgroundColor: bgMap[item.type] || bgMap.system }]}>
           {iconMap[item.type] || iconMap.system}
@@ -66,7 +77,7 @@ interface Notification {
   id: string;
   title: string;
   body: string;
-  type: 'gallery' | 'payment' | 'booking' | 'promo' | 'system';
+  type: 'gallery' | 'gallery_ready' | 'payment' | 'booking' | 'promo' | 'system' | 'package';
   read: boolean;
   timestamp: string;
   actionLabel?: string;
@@ -90,11 +101,16 @@ export default function NotificationsScreen() {
     try {
       setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
       // Permanently mark as read in database
+      const payload: Record<string, any> = { read: true, is_read: true, read_at: new Date().toISOString() };
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true })
+        .update(payload)
         .eq('id', id);
-      if (error) throw error;
+      if (error) {
+        const fallback: Record<string, any> = { read: true, is_read: true };
+        const retry = await supabase.from('notifications').update(fallback).eq('id', id);
+        if (retry.error) throw retry.error;
+      }
     } catch (e) {
       console.error('Failed to mark notification as read:', e);
     }
@@ -109,42 +125,48 @@ export default function NotificationsScreen() {
     // Handle deep linking based on type
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
+    const lowerTitle = notification.title.toLowerCase();
+    const isPackageNotification = notification.type === 'package' || lowerTitle.includes('package');
+
+    if (notification.access_code || notification.gallery_id || notification.type === 'gallery' || notification.type === 'gallery_ready') {
+      router.push({
+        pathname: '/(tabs)/gallery',
+        params: notification.access_code ? { accessCode: notification.access_code, autoUnlock: 'true' } : undefined
+      });
+      return;
+    }
+
+    if (notification.bts_id) {
+      router.push(`/bts/${notification.bts_id}` as any);
+      return;
+    }
+
+    if (notification.announcement_id) {
+      router.push(`/announcements/${notification.announcement_id}` as any);
+      return;
+    }
+
+    if (isPackageNotification) {
+      router.push({ pathname: '/(tabs)/bookings', params: { section: 'packages' } });
+      return;
+    }
+
     switch (notification.type) {
-      case 'gallery':
-        if (notification.access_code) {
-          router.push({
-            pathname: '/(tabs)/gallery',
-            params: {
-              accessCode: notification.access_code,
-              autoUnlock: 'true'
-            }
-          });
-        } else {
-          router.push('/(tabs)/gallery');
-        }
-        break;
-      
       case 'booking':
-        router.push('/(tabs)/bookings');
+        router.push({ pathname: '/(tabs)/bookings', params: { section: 'bookings' } });
         break;
 
       case 'payment':
         // If it's a package update notification, redirect to packages
         if (notification.title.toLowerCase().includes('package')) {
-          router.push('/(tabs)/home'); // Assuming packages are on home or a sub-page
+          router.push({ pathname: '/(tabs)/bookings', params: { section: 'packages' } });
         } else {
           router.push('/(tabs)/profile');
         }
         break;
 
       case 'promo':
-        if (notification.bts_id) {
-          router.push(`/bts/${notification.bts_id}` as any);
-        } else if (notification.announcement_id) {
-          router.push(`/announcements/${notification.announcement_id}` as any);
-        } else {
-          router.push('/(tabs)/home');
-        }
+        router.push('/(tabs)/home');
         break;
 
       default:
@@ -158,21 +180,78 @@ export default function NotificationsScreen() {
       setNotifs(prev => prev.map(n => ({ ...n, read: true })));
       
       if (!user) return;
+      const payload: Record<string, any> = { read: true, is_read: true, read_at: new Date().toISOString() };
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true })
+        .update(payload)
         .eq('user_id', user.id)
-        .eq('read', false);
-      if (error) throw error;
+        .or('read.eq.false,is_read.eq.false');
+      if (error) {
+        const retry = await supabase
+          .from('notifications')
+          .update({ read: true, is_read: true })
+          .eq('user_id', user.id);
+        if (retry.error) throw retry.error;
+      }
     } catch (e) {
       console.error('Failed to mark all as read:', e);
     }
   }, [user]);
 
-  const clearAll = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setNotifs([]);
+  const deleteNotification = useCallback(async (notification: Notification) => {
+    Alert.alert(
+      'Delete Notification',
+      'Do you want to delete this notification?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setNotifs((prev) => prev.filter((n) => n.id !== notification.id));
+              const { error } = await supabase
+                .from('notifications')
+                .delete()
+                .eq('id', notification.id);
+              if (error) throw error;
+            } catch (e) {
+              console.error('Failed to delete notification:', e);
+            }
+          },
+        },
+      ]
+    );
   }, []);
+
+  const clearAll = useCallback(() => {
+    Alert.alert(
+      'Clear Notifications',
+      'Do you want to delete all notifications?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setNotifs([]);
+              if (!user) return;
+              const { error } = await supabase
+                .from('notifications')
+                .delete()
+                .eq('user_id', user.id);
+              if (error) throw error;
+            } catch (e) {
+              console.error('Failed to clear notifications:', e);
+            }
+          },
+        },
+      ]
+    );
+  }, [user]);
 
   // Load notifications and set up real-time subscription
   useEffect(() => {
@@ -189,17 +268,23 @@ export default function NotificationsScreen() {
 
         if (error) throw error;
 
-        const formattedNotifs: Notification[] = (data || []).map(n => ({
+        const formattedNotifs: Notification[] = (data || []).map((n: any) => ({
           id: n.id,
           title: n.title,
-          body: n.body,
+          body: n.body ?? n.message ?? '',
           type: n.type as any,
-          read: n.read,
+          read: (n.read ?? n.is_read) === true,
           timestamp: new Date(n.created_at).toLocaleDateString(),
-          actionLabel: n.type === 'gallery' ? 'View Gallery' : (n.type === 'promo' ? 'Check it out' : undefined),
-          access_code: (n.data as any)?.accessCode,
-          gallery_id: (n.data as any)?.galleryId,
-          client_id: (n.data as any)?.clientId,
+          actionLabel: n.type === 'gallery' || n.type === 'gallery_ready'
+            ? 'View Gallery'
+            : n.type === 'promo'
+              ? 'Check it out'
+              : n.type === 'package'
+                ? 'View Packages'
+                : undefined,
+          access_code: (n.data as any)?.accessCode ?? n.access_code,
+          gallery_id: (n.data as any)?.galleryId ?? n.gallery_id,
+          client_id: (n.data as any)?.clientId ?? n.client_id,
           bts_id: (n.data as any)?.btsId,
           announcement_id: (n.data as any)?.announcementId,
         }));
@@ -223,16 +308,22 @@ export default function NotificationsScreen() {
       }, (payload) => {
         const newNotif = payload.new;
         const formattedNotif: Notification = {
-          id: newNotif.id,
-          title: newNotif.title,
-          body: newNotif.body,
-          type: newNotif.type,
-          read: newNotif.read,
+          id: (newNotif as any).id,
+          title: (newNotif as any).title,
+          body: (newNotif as any).body ?? (newNotif as any).message ?? '',
+          type: (newNotif as any).type,
+          read: ((newNotif as any).read ?? (newNotif as any).is_read) === true,
           timestamp: new Date(newNotif.created_at).toLocaleDateString(),
-          actionLabel: newNotif.type === 'gallery' ? 'View Gallery' : (newNotif.type === 'promo' ? 'Check it out' : undefined),
-          access_code: newNotif.data?.accessCode,
-          gallery_id: newNotif.data?.galleryId,
-          client_id: newNotif.data?.clientId,
+          actionLabel: newNotif.type === 'gallery' || newNotif.type === 'gallery_ready'
+            ? 'View Gallery'
+            : newNotif.type === 'promo'
+              ? 'Check it out'
+              : newNotif.type === 'package'
+                ? 'View Packages'
+                : undefined,
+          access_code: (newNotif as any).data?.accessCode ?? (newNotif as any).access_code,
+          gallery_id: (newNotif as any).data?.galleryId ?? (newNotif as any).gallery_id,
+          client_id: (newNotif as any).data?.clientId ?? (newNotif as any).client_id,
           bts_id: newNotif.data?.btsId,
           announcement_id: newNotif.data?.announcementId,
         };
@@ -289,7 +380,7 @@ export default function NotificationsScreen() {
         <FlatList
           data={notifs}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <NotificationItem item={item} onPress={handleNotificationPress} />}
+          renderItem={({ item }) => <NotificationItem item={item} onPress={handleNotificationPress} onDelete={deleteNotification} />}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={styles.separator} />}

@@ -86,10 +86,12 @@ export default function PostDetailsScreen() {
   const [post, setPost] = useState<any>(null);
   const [stats, setStats] = useState<PostStats>({ views: 0, likes: 0, comments: 0, shares: 0, bookmarks: 0 });
   const [comments, setComments] = useState<Comment[]>([]);
+  const [likesUsers, setLikesUsers] = useState<{ id: string; name: string; avatar?: string }[]>([]);
   const [loadingComments, setLoadingComments] = useState(false);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [postingReply, setPostingReply] = useState(false);
+  const [activeSection, setActiveSection] = useState<'likes' | 'comments' | 'views' | 'shares' | 'saved' | null>('likes');
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const videoRef = useRef<Video>(null);
 
@@ -137,7 +139,7 @@ export default function PostDetailsScreen() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadPost(), loadStats(), loadComments()]);
+      await Promise.all([loadPost(), loadStats(), loadComments(), loadLikesUsers()]);
     } finally {
       setLoading(false);
     }
@@ -218,6 +220,61 @@ export default function PostDetailsScreen() {
     }
   };
 
+  const loadLikesUsers = async () => {
+    try {
+      const likeField = likeIdFieldMap[postType];
+      const { data, error } = await supabase
+        .from(likeTableMap[postType])
+        .select(`*, user_profiles:user_id (name, avatar_url)`)
+        .eq(likeField, id)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      setLikesUsers(
+        (data || []).map((r: any) => ({
+          id: r.user_id || r.client_id,
+          name: r.user_profiles?.name || 'User',
+          avatar: r.user_profiles?.avatar_url || null,
+        }))
+      );
+    } catch (e) {
+      console.error('[Likes]', e);
+    }
+  };
+
+  useEffect(() => {
+    const likeField = likeIdFieldMap[postType];
+    const likeChannel = supabase
+      .channel(`post_likes_${postType}_${id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: likeTableMap[postType],
+        filter: `${likeField}=eq.${id}`,
+      }, async () => {
+        await loadLikesUsers();
+        await loadStats();
+      })
+      .subscribe();
+
+    const commentChannel = supabase
+      .channel(`post_comments_${postType}_${id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: commentTableMap[postType],
+        filter: `${idFieldMap[postType]}=eq.${id}`,
+      }, async () => {
+        await loadComments();
+        await loadStats();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(likeChannel);
+      supabase.removeChannel(commentChannel);
+    };
+  }, [id, postType]);
+
   const handleAdminReply = async (parentCommentId?: string) => {
     if (!user || !replyText.trim()) return;
     setPostingReply(true);
@@ -274,13 +331,20 @@ export default function PostDetailsScreen() {
   // ── Render helpers ────────────────────────────────────────────
 
   const renderStatCard = ({ key, icon: Icon, label, color }: typeof STAT_CONFIGS[number]) => (
-    <View key={key} style={styles.statCard}>
+    <Pressable 
+      key={key} 
+      style={[
+        styles.statCard, 
+        activeSection === key && { borderColor: color, backgroundColor: color + '11' }
+      ]}
+      onPress={() => setActiveSection(key as any)}
+    >
       <View style={[styles.statIconWrapper, { backgroundColor: color + '22' }]}>
         <Icon size={20} color={color} />
       </View>
       <Text style={styles.statValue}>{stats[key].toLocaleString()}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    </Pressable>
   );
 
   const renderComment = ({ item }: { item: Comment }) => {
@@ -466,58 +530,90 @@ export default function PostDetailsScreen() {
             </View>
           </View>
 
-          {/* ══ SECTION C: Comment Management ══ */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              💬 Comments ({stats.comments})
-            </Text>
-
-            {/* Global admin reply input (no parent) */}
-            <View style={styles.globalReplyContainer}>
-              <TextInput
-                style={styles.globalReplyInput}
-                placeholder="Post an admin reply to the community…"
-                placeholderTextColor={Colors.textMuted}
-                value={replyingToId === '__global__' ? replyText : ''}
-                onChangeText={setReplyText}
-                onFocus={() => setReplyingToId('__global__')}
-                multiline
-              />
-              <Pressable
-                style={[
-                  styles.globalReplyBtn,
-                  (!replyText.trim() || replyingToId !== '__global__') && styles.replySendBtnDisabled,
-                ]}
-                onPress={() => {
-                  if (replyingToId === '__global__') handleAdminReply(undefined);
-                }}
-                disabled={!replyText.trim() || postingReply || replyingToId !== '__global__'}
-              >
-                {postingReply && replyingToId === '__global__' ? (
-                  <ActivityIndicator size="small" color={Colors.background} />
-                ) : (
-                  <>
-                    <ShieldCheck size={14} color={Colors.background} />
-                    <Text style={styles.globalReplyBtnText}>Post as Admin</Text>
-                  </>
-                )}
-              </Pressable>
+          {/* ══ SECTION B2: Dynamic Detail Section ══ */}
+          {activeSection === 'likes' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>❤️ Likes ({stats.likes})</Text>
+              {likesUsers.length === 0 ? (
+                <Text style={styles.noComments}>No likes yet.</Text>
+              ) : (
+                <View style={styles.likesList}>
+                  {likesUsers.map(u => (
+                    <View key={u.id} style={styles.likeRow}>
+                      {u.avatar ? (
+                        <Image source={{ uri: u.avatar }} style={styles.likeAvatar} />
+                      ) : (
+                        <View style={[styles.likeAvatar, styles.likeAvatarPlaceholder]}>
+                          <Text style={styles.likeAvatarInitial}>{u.name.charAt(0).toUpperCase()}</Text>
+                        </View>
+                      )}
+                      <Text style={styles.likeName}>{u.name}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
+          )}
 
-            {loadingComments ? (
-              <ActivityIndicator style={{ marginTop: 20 }} color={Colors.gold} />
-            ) : comments.length === 0 ? (
-              <Text style={styles.noComments}>No comments yet.</Text>
-            ) : (
-              <FlatList
-                data={comments}
-                keyExtractor={(c) => c.id}
-                renderItem={renderComment}
-                scrollEnabled={false}
-                contentContainerStyle={{ gap: 10 }}
-              />
-            )}
-          </View>
+          {activeSection === 'comments' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                💬 Comments ({stats.comments})
+              </Text>
+
+              {/* Global admin reply input (no parent) */}
+              <View style={styles.globalReplyContainer}>
+                <TextInput
+                  style={styles.globalReplyInput}
+                  placeholder="Post an admin reply to the community…"
+                  placeholderTextColor={Colors.textMuted}
+                  value={replyingToId === '__global__' ? replyText : ''}
+                  onChangeText={setReplyText}
+                  onFocus={() => setReplyingToId('__global__')}
+                  multiline
+                />
+                <Pressable
+                  style={[
+                    styles.globalReplyBtn,
+                    (!replyText.trim() || replyingToId !== '__global__') && styles.replySendBtnDisabled,
+                  ]}
+                  onPress={() => {
+                    if (replyingToId === '__global__') handleAdminReply(undefined);
+                  }}
+                  disabled={!replyText.trim() || postingReply || replyingToId !== '__global__'}
+                >
+                  {postingReply && replyingToId === '__global__' ? (
+                    <ActivityIndicator size="small" color={Colors.background} />
+                  ) : (
+                    <>
+                      <ShieldCheck size={14} color={Colors.background} />
+                      <Text style={styles.globalReplyBtnText}>Post as Admin</Text>
+                    </>
+                  )}
+                </Pressable>
+              </View>
+
+              {loadingComments ? (
+                <ActivityIndicator style={{ marginTop: 20 }} color={Colors.gold} />
+              ) : comments.length === 0 ? (
+                <Text style={styles.noComments}>No comments yet.</Text>
+              ) : (
+                <FlatList
+                  data={comments}
+                  keyExtractor={(c) => c.id}
+                  renderItem={renderComment}
+                  scrollEnabled={false}
+                  contentContainerStyle={{ gap: 10 }}
+                />
+              )}
+            </View>
+          )}
+          
+          {['views', 'shares', 'bookmarks'].includes(activeSection as string) && (
+             <View style={styles.section}>
+               <Text style={styles.noComments}>Detailed tracking for {activeSection} coming soon.</Text>
+             </View>
+          )}
 
           <View style={{ height: 60 }} />
         </ScrollView>
@@ -597,6 +693,23 @@ const styles = StyleSheet.create({
     gap: 10,
     justifyContent: 'space-between',
   },
+  likesList: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 10,
+    gap: 8,
+  },
+  likeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  likeAvatar: { width: 28, height: 28, borderRadius: 14 },
+  likeAvatarPlaceholder: {
+    backgroundColor: Colors.cardLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  likeAvatarInitial: { color: Colors.gold, fontSize: 12, fontWeight: '700' },
+  likeName: { color: Colors.text, fontSize: 13, fontWeight: '600' },
   statCard: {
     flex: 1,
     minWidth: '28%',

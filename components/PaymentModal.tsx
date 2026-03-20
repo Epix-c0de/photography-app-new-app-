@@ -108,6 +108,99 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
 
   const handlePay = async () => {
     if (!gallery) return;
+    
+    // Check if using simple M-PESA (manual payment)
+    if (paymentSettings?.mpesa_number && !paymentSettings?.shortcode) {
+      // Check if auto-verification is enabled
+      if (paymentSettings.auto_verification) {
+        // Auto-verification enabled - use STK push with platform credentials
+        if (!phoneNumber || phoneNumber.length < 10) {
+          Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number.');
+          return;
+        }
+
+        setPaymentState('initiating');
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+        try {
+          // Trigger STK Push via Edge Function
+          const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
+            body: {
+              phone_number: phoneNumber,
+              amount: gallery.price,
+              gallery_id: gallery.id,
+              reference: gallery.access_code || gallery.name,
+            },
+          });
+
+          if (error) throw error;
+
+          const checkoutRequestId =
+            readString(data, 'checkout_request_id') ??
+            readString(data, 'CheckoutRequestID') ??
+            readString(data, 'mpesa_checkout_request_id');
+
+          if (!checkoutRequestId) {
+            throw new Error('Payment initiated but missing checkout request id.');
+          }
+
+          setPaymentState('waiting');
+          startPolling(checkoutRequestId, gallery.id);
+
+        } catch (e: any) {
+          console.error('Payment initiation failed:', e);
+          setPaymentState('failed');
+          setErrorMessage(e.message || 'Could not initiate payment.');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
+      } else {
+        // Manual verification - show instructions
+        setPaymentState('waiting');
+        setErrorMessage('');
+        
+        // Create a manual payment record
+        try {
+          const { error } = await supabase
+            .from('manual_payments')
+            .insert({
+              gallery_id: gallery.id,
+              client_id: gallery.client_id,
+              admin_id: gallery.owner_admin_id,
+              amount: gallery.price,
+              phone_number: phoneNumber,
+              mpesa_number: paymentSettings.mpesa_number,
+              status: 'pending',
+            });
+        
+          if (error) throw error;
+        
+          // Show instructions and wait for admin verification
+          Alert.alert(
+            'Payment Instructions',
+            `Send ${gallery.price} ${paymentSettings.currency || 'KES'} to:\n\n${paymentSettings.mpesa_number}\n\nOnce sent, the admin will verify and unlock your gallery.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { 
+                text: 'I\'ve Sent It', 
+                onPress: () => {
+                  setPaymentState('verifying');
+                  // Start polling for payment verification
+                  startManualPolling(gallery.id);
+                }
+              }
+            ]
+          );
+        } catch (e: any) {
+          console.error('Failed to create manual payment record:', e);
+          setPaymentState('failed');
+          setErrorMessage('Could not initiate payment. Please try again.');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
+      }
+      return;
+    }
+    
+    // Advanced M-PESA - STK push flow
     if (!phoneNumber || phoneNumber.length < 10) {
       Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number.');
       return;
@@ -195,6 +288,52 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         }
       } catch (e) {
         console.error('Polling error:', e);
+      }
+    }, pollInterval);
+  };
+
+  const startManualPolling = async (galleryId: string) => {
+    // Poll every 5 seconds for 10 minutes (manual payment verification)
+    const pollInterval = 5000;
+    const maxAttempts = 120; // 10 minutes
+    let attempts = 0;
+
+    const interval = setInterval(async () => {
+      attempts++;
+
+      try {
+        const { data, error } = await supabase
+          .from('manual_payments')
+          .select('status')
+          .eq('gallery_id', galleryId)
+          .eq('client_id', gallery?.client_id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data?.status === 'verified') {
+          clearInterval(interval);
+          setPaymentState('success');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setTimeout(() => {
+            onSuccess();
+            onClose();
+          }, 3000);
+        } else if (data?.status === 'rejected') {
+          clearInterval(interval);
+          setPaymentState('failed');
+          setErrorMessage('Payment was rejected. Please try again or contact support.');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        } else if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          setPaymentState('failed');
+          setErrorMessage('Payment verification timed out. Please contact the admin to verify your payment.');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        }
+      } catch (e) {
+        console.error('Manual polling error:', e);
       }
     }, pollInterval);
   };

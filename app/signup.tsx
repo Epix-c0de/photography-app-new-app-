@@ -200,12 +200,12 @@ export default function SignupScreen() {
       const pinHash = await hashPin(normalized.pin);
 
       // 3. Supabase Auth Signup
+      console.log('[Signup] Attempting signup for:', normalized.email);
       const authData = await signUpWithRetry({
         email: normalized.email,
         password: normalized.password,
         fullName: normalized.fullName,
         phone: normalized.phone,
-        // Pass additional data to metadata for the trigger to pick up
         metadata: {
           pin_hash: pinHash,
           biometric_enabled: biometricEnabled
@@ -213,11 +213,12 @@ export default function SignupScreen() {
       });
 
       if (authData.user) {
+        console.log('[Signup] Auth user created:', authData.user.id);
         // The profile is created automatically by the database trigger
-        // with security definer (bypasses RLS). Just verify it exists.
         if (authData.session) {
+          console.log('[Signup] Session obtained, verifying profile...');
           let profileVerified = false;
-          const maxAttempts = 3;
+          const maxAttempts = 5; // Increased attempts
           
           for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
@@ -229,26 +230,23 @@ export default function SignupScreen() {
 
               if (profile) {
                 profileVerified = true;
-                console.log('Profile verified after signup:', profile);
+                console.log('[Signup] Profile verified successfully');
                 break;
               }
 
-              if (attempt < maxAttempts - 1) {
-                // Wait before retrying - trigger might still be executing
-                await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
-              }
+              console.log(`[Signup] Profile not found yet, attempt ${attempt + 1}/${maxAttempts}`);
+              await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
             } catch (verifyErr) {
-              console.warn(`Profile verification attempt ${attempt + 1} failed:`, verifyErr);
-              if (attempt === maxAttempts - 1) throw verifyErr;
-              await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+              console.warn(`[Signup] Profile verification attempt ${attempt + 1} failed:`, verifyErr);
+              await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
             }
           }
 
           if (!profileVerified) {
-            console.warn('Profile could not be verified - may be created by trigger asynchronously');
+            console.warn('[Signup] Profile could not be verified within timeout');
           }
         } else {
-          console.log('Session not available (email confirmation likely required). Profile will be created by server trigger.');
+          console.log('[Signup] Session not available (confirmation required)');
         }
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

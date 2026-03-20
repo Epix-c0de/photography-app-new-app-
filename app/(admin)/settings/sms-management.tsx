@@ -111,7 +111,50 @@ export default function SmsManagementScreen() {
         AdminService.sms.getBalance()
       ]);
       setClients(clientsData || []);
-      setTemplates(templatesData || []);
+      // If there are no templates yet, seed defaults from current system messages
+      if (!templatesData || templatesData.length === 0) {
+        try {
+          const defaults = [
+            {
+              name: 'Gallery Ready (SMS)',
+              body:
+                'Hello {client_name}, your photos are ready!\n\n' +
+                'Direct Link: {app_link}{access_code}\n\n' +
+                'Use code: {access_code} to unlock if the link doesn\'t open.\n\n' +
+                '{business_name}',
+              is_default: true as const
+            },
+            {
+              name: 'Gallery Ready (WhatsApp)',
+              body:
+                'Hello {client_name}, your photos are ready!\n\n' +
+                'Direct Link: {app_link}{access_code}\n\n' +
+                'Use code: {access_code} to unlock if the link doesn\'t open.\n\n' +
+                '{business_name}',
+              is_default: false as const
+            },
+            {
+              name: 'In-App Notification Title',
+              body: 'Hello {client_name} 👋, your {gallery_name} gallery is ready!',
+              is_default: false as const
+            },
+            {
+              name: 'In-App Notification Body',
+              body: 'Your photos from {gallery_name} are now available. Tap to view your gallery.',
+              is_default: false as const
+            }
+          ];
+          for (const t of defaults) {
+            await SMSService.templates.create(t);
+          }
+          const refreshed = await SMSService.templates.list();
+          setTemplates(refreshed || []);
+        } catch {
+          setTemplates([]);
+        }
+      } else {
+        setTemplates(templatesData || []);
+      }
       setLogs(logsData || []);
       setBalance(bal || 0);
       await refreshGatewayStatus();
@@ -147,12 +190,16 @@ export default function SmsManagementScreen() {
       const defaultTemplate = templates.find(t => t.is_default);
       let templateBody = defaultTemplate?.body || "Hello {client_name}, your photos are ready! Use code: {access_code}. {business_name}";
 
-      // 3. Compile message with signature
+      // 3. Resolve dynamic links from admin settings
+      const links = await SMSService.utils.getAdminLinks();
+      const appLinkBase = links?.access_code_delivery_link || links?.share_app_link || 'https://rork.app';
+
+      // 4. Compile message with signature
       const baseMessage = SMSService.utils.compileTemplate(templateBody, {
         client_name: client.name,
         access_code: details.gallery?.access_code || 'PENDING',
         gallery_name: details.gallery?.name || '',
-        app_link: 'https://rork.app',
+        app_link: appLinkBase,
         business_name: 'Epix Visuals Studios.co'
       });
 
@@ -168,8 +215,10 @@ export default function SmsManagementScreen() {
       Alert.alert('Missing Info', 'Please provide a phone number and message.');
       return;
     }
-    if (balance <= 0) {
-      Alert.alert('Low Balance', 'You have no SMS credits. Buy a bundle to continue.');
+    // Allow sending via local gateway even if balance is 0
+    const gatewayOk = await SMSService.isAvailable();
+    if (!gatewayOk && balance <= 0) {
+      Alert.alert('Low Balance', 'You have no SMS credits and local gateway is unavailable.');
       return;
     }
 
@@ -216,7 +265,12 @@ export default function SmsManagementScreen() {
       const data = await AdminService.sms.purchaseCredits(Math.round(selectedAmount), pn);
       Alert.alert('STK Push Sent', `Complete payment on your phone.\n\nCheckout ID: ${data?.checkout_request_id || data?.CheckoutRequestID || 'N/A'}`);
     } catch (e: any) {
-      Alert.alert('Purchase Failed', e?.message ?? 'Failed to start purchase');
+      // Fallback: inform user they can send via local gateway without bundles
+      Alert.alert(
+        'Purchase Failed',
+        (e?.message ?? 'Failed to send a request to the Edge Function') +
+          '\n\nTip: You can still send SMS using the Local SMS Gateway on Android without bundles. Make sure SMS permissions are granted.'
+      );
     } finally {
       setBuyingBundle(false);
     }
@@ -227,7 +281,8 @@ export default function SmsManagementScreen() {
       Alert.alert('Missing Info', 'Please select clients and provide a message.');
       return;
     }
-    if (balance < selectedClients.length) {
+    const gatewayOk = await SMSService.isAvailable();
+    if (!gatewayOk && balance < selectedClients.length) {
       Alert.alert('Insufficient Balance', `You need ${selectedClients.length} SMS credits but only have ${balance}.`);
       return;
     }
@@ -408,15 +463,17 @@ export default function SmsManagementScreen() {
     ]);
   };
 
-  const handleApplyTemplate = (template: SMSTemplate) => {
+  const handleApplyTemplate = async (template: SMSTemplate) => {
     const templateBody = template.body;
     const clientName = selectedClient?.name || 'Client';
 
+    const links = await SMSService.utils.getAdminLinks();
+    const appLinkBase = links?.access_code_delivery_link || links?.share_app_link || 'https://rork.app';
     const baseMessage = SMSService.utils.compileTemplate(templateBody, {
       client_name: clientName,
       access_code: 'CODE',
       gallery_name: 'Gallery',
-      app_link: 'https://rork.app',
+      app_link: appLinkBase,
       business_name: 'Epix Visuals Studios.co'
     });
 
@@ -1039,7 +1096,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.card,
   },
   tab: {
     flex: 1,
@@ -1056,7 +1113,7 @@ const styles = StyleSheet.create({
   scrollContent: { padding: 20 },
 
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.card,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
@@ -1104,7 +1161,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: Colors.card,
     marginTop: 12,
     marginRight: 10,
   },
@@ -1121,7 +1178,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: Colors.card,
     marginRight: 10,
     marginBottom: 12,
   },
@@ -1200,7 +1257,7 @@ const styles = StyleSheet.create({
   },
   addBtnText: { color: '#fff', fontWeight: '600' },
   templateCard: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.card,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
@@ -1218,7 +1275,7 @@ const styles = StyleSheet.create({
   // Logs
   logItem: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
+    backgroundColor: Colors.card,
     padding: 16,
     borderRadius: 12,
     marginBottom: 12,
@@ -1240,19 +1297,19 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, alignItems: 'center' },
   modalTitle: { fontSize: 20, fontWeight: '700' },
   searchBar: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', margin: 20, marginTop: 0,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.card, margin: 20, marginTop: 0,
     padding: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.border, gap: 8
   },
   searchInput: { flex: 1, height: 24 },
   clientItem: {
-    flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: '#fff',
+    flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: Colors.card,
     borderBottomWidth: 1, borderBottomColor: Colors.border
   },
   clientName: { fontWeight: '600', fontSize: 16 },
   clientPhone: { color: Colors.textMuted },
 
   centeredModal: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' },
-  modalCard: { width: '85%', backgroundColor: '#fff', borderRadius: 16, padding: 20 },
+  modalCard: { width: '85%', backgroundColor: Colors.card, borderRadius: 16, padding: 20 },
   templateOption: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border },
   templatePreview: { color: Colors.textMuted, fontSize: 12 },
   closeBtn: { marginTop: 16, alignItems: 'center' },

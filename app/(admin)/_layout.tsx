@@ -1,9 +1,53 @@
 import { Tabs } from 'expo-router';
 import { LayoutDashboard, Users, Calendar, MessageSquare, Settings, Upload, Camera } from 'lucide-react-native';
 import { View, StyleSheet } from 'react-native';
+import { useEffect, useRef } from 'react';
 import Colors from '@/constants/colors';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function AdminTabLayout() {
+  const { user } = useAuth();
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (!user?.id || user.role !== 'admin') return;
+
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
+    }
+
+    const channel = supabase
+      .channel(`presence_admin_${user.id}`)
+      .subscribe();
+
+    channelRef.current = channel;
+
+    const sendPing = () => {
+      channel.send({
+        type: 'broadcast',
+        event: 'status',
+        payload: { role: 'admin', userId: user.id, ts: Date.now() },
+      } as any);
+    };
+
+    sendPing();
+    intervalRef.current = setInterval(sendPing, 15000);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
+  }, [user?.id, user?.role]);
+
   return (
     <Tabs
       screenOptions={{

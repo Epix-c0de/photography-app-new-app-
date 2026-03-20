@@ -90,6 +90,8 @@ export default function ProfileScreen() {
 
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [galleries, setGalleries] = useState<GalleryRow[]>([]);
+  const [sessionCount, setSessionCount] = useState<number>(0);
+  const [totalPhotos, setTotalPhotos] = useState<number>(0);
   const [nextBooking, setNextBooking] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [isEditModalVisible, setEditModalVisible] = useState(false);
@@ -122,25 +124,53 @@ export default function ProfileScreen() {
 
             if (paymentsData) setPayments(paymentsData);
 
-            const { data: galleriesData } = await supabase
+            const { data: clientGalleries } = await supabase
               .from('galleries')
               .select('*')
               .eq('client_id', clientData.id);
 
-            if (galleriesData) setGalleries(galleriesData);
+            const { data: unlockedGalleries } = await supabase
+              .from('unlocked_galleries')
+              .select('galleries(*)')
+              .eq('user_id', user.id);
 
-            // Fetch next booking
-            const now = new Date().toISOString();
+            const unlockedItems = (unlockedGalleries ?? [])
+              .map((row: any) => row.galleries as GalleryRow | null)
+              .filter((row): row is GalleryRow => !!row);
+
+            const mergedGalleries = [...(clientGalleries ?? []), ...unlockedItems]
+              .filter((gallery, index, self) => index === self.findIndex((item) => item.id === gallery.id));
+
+            setGalleries(mergedGalleries);
+
+            if (mergedGalleries.length > 0) {
+              const galleryIds = mergedGalleries.map((gallery) => gallery.id);
+              const { count: photosCount } = await supabase
+                .from('gallery_photos')
+                .select('id', { count: 'exact', head: true })
+                .in('gallery_id', galleryIds);
+              setTotalPhotos(photosCount ?? 0);
+            } else {
+              setTotalPhotos(0);
+            }
+
+            const today = new Date().toISOString().split('T')[0];
             const { data: bookingData } = await supabase
               .from('bookings')
               .select('date, time, location')
               .eq('user_id', user.id)
-              .gte('date', now)
+              .gte('date', today)
               .order('date', { ascending: true })
               .limit(1)
               .maybeSingle();
             
             setNextBooking(bookingData);
+
+            const { count: bookingsCount } = await supabase
+              .from('bookings')
+              .select('id', { count: 'exact', head: true })
+              .eq('user_id', user.id);
+            setSessionCount(bookingsCount ?? 0);
           }
       } catch (e) {
         console.error('Error loading profile data:', e);
@@ -153,9 +183,6 @@ export default function ProfileScreen() {
   }, [user]);
 
   const unlockedGalleries = galleries.filter(g => !g.is_locked);
-  // Note: GalleryRow doesn't have photoCount, so we default to 0 for now.
-  // Ideally we would fetch photo counts via a joined query or view.
-  const totalPhotos = 0;
   const totalSpent = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
   const metadata = (user?.user_metadata as any) ?? {};
   const displayName =
@@ -419,7 +446,7 @@ export default function ProfileScreen() {
 
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{0}</Text>
+              <Text style={styles.statValue}>{sessionCount}</Text>
               <Text style={styles.statLabel}>Sessions</Text>
             </View>
             <View style={styles.statDivider} />

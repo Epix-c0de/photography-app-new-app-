@@ -328,7 +328,7 @@ export const AdminService = {
           name: p.name || 'Anonymous User',
           phone: p.phone || '',
           email: p.email || '',
-          avatar_url: p.avatar_url || 'https://via.placeholder.com/150',
+          avatar_url: p.avatar_url || null,
           loyalty_level: crmData?.loyalty_level || 'Bronze',
           total_spent: crmData?.total_paid || 0,
           total_galleries: 0,
@@ -608,6 +608,7 @@ export const AdminService = {
       shootType?: string;
       isPaid?: boolean;
       accessCode?: string;
+      isLocked?: boolean;
     }) => {
       const user = await ensureAdminProfile();
       const accessCode = data.accessCode || await generateUniqueAccessCode();
@@ -653,7 +654,7 @@ export const AdminService = {
           price: data.price ?? 0,
           shoot_type: data.shootType ?? 'portrait',
           is_paid: data.isPaid ?? false,
-          is_locked: !(data.isPaid ?? false),
+          is_locked: data.isLocked !== undefined ? data.isLocked : !(data.isPaid ?? false),
           is_active: true,
         })
         .select()
@@ -682,6 +683,8 @@ export const AdminService = {
       const ext = (file.uri.split('.').pop()?.split('?')[0] || 'jpg').toLowerCase();
       const fileName = file.fileName || file.name || `photo-${Date.now()}.${ext}`;
       const safeFileName = fileName.replace(/[^\w.-]/g, '_');
+      const baseName = safeFileName.replace(new RegExp(`\\.${ext}$`, 'i'), '');
+      const fileNameWithVariant = isWatermarked ? `${baseName}_watermarked.${ext}` : safeFileName;
       const contentType = file.mimeType || file.type || `image/${ext}`;
       
       // Path format: clients/CLIENT_ID/GALLERY_ID/images/FILENAME
@@ -692,47 +695,18 @@ export const AdminService = {
         .single();
       
       const clientId = gallery?.client_id || 'unknown';
-      const storagePath = `clients/${clientId}/${galleryId}/images/${Date.now()}-${safeFileName}`;
+      const storagePath = `clients/${clientId}/${galleryId}/images/${Date.now()}-${fileNameWithVariant}`;
 
-      // Get auth token for manual REST upload
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('Not authenticated');
-
-      // Get Supabase project URL from environment
-      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-      const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-      if (!supabaseUrl) throw new Error('EXPO_PUBLIC_SUPABASE_URL is not configured');
-
-      // Upload directly via Supabase Storage REST API using XMLHttpRequest.
-      // In React Native, XHR is the ONLY way to correctly upload local file:// and
-      // content:// URIs as binary. fetch() serializes the body as a JS object.
-      const uploadUrl = `${supabaseUrl}/storage/v1/object/client-photos/${storagePath}`;
-      
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', uploadUrl);
-        xhr.setRequestHeader('Authorization', `Bearer ${session.access_token}`);
-        xhr.setRequestHeader('apikey', supabaseKey || '');
-        xhr.setRequestHeader('Content-Type', contentType);
-        xhr.setRequestHeader('x-upsert', 'true');
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve();
-          } else {
-            const errText = xhr.responseText || xhr.statusText;
-            if (xhr.status === 404 || errText.includes('not found') || errText.includes('Bucket')) {
-              reject(new Error('Storage bucket "client-photos" not found. Create it in Supabase Storage.'));
-            } else {
-              reject(new Error(`Storage upload failed (${xhr.status}): ${errText}`));
-            }
-          }
-        };
-        xhr.onerror = () => reject(new Error('Network error during photo upload.'));
-        xhr.send({ uri: file.uri } as any);
-      });
+      // Upload to Supabase Storage with Blob using supabase-js (reliable in Expo RN)
+      const blob = await fetch(file.uri).then(res => res.blob());
+      const { error: uploadError } = await supabase
+        .storage
+        .from('client-photos')
+        .upload(storagePath, blob, { contentType, upsert: true });
+      if (uploadError) throw uploadError;
 
 
-      const fileSize = file.fileSize || file.size || 0;
+      const fileSize = file.fileSize || file.size || (blob as any)?.size || 0;
 
       // Insert database record
       const { error: insertError } = await supabase
@@ -740,7 +714,7 @@ export const AdminService = {
         .insert({
           gallery_id: galleryId,
           photo_url: storagePath,
-          file_name: safeFileName,
+          file_name: fileNameWithVariant,
           file_size: fileSize,
           mime_type: contentType,
           is_watermarked: isWatermarked,
@@ -754,6 +728,12 @@ export const AdminService = {
         await supabase.storage.from('client-photos').remove([storagePath]);
         throw insertError;
       }
+
+      await supabase
+        .from('galleries')
+        .update({ cover_photo_url: storagePath })
+        .eq('id', galleryId)
+        .is('cover_photo_url', null);
 
       return storagePath;
     },
@@ -939,39 +919,43 @@ export const AdminService = {
     },
 
     delete: async (galleryId: string) => {
-      const { data: photos, error: photosError } = await supabase
-        .from('gallery_photos')
-        .select('photo_url')
-        .eq('gallery_id', galleryId);
-
-      if (photosError) throw photosError;
-
-      const storagePaths = (photos || [])
-        .map(p => p.photo_url)
-        .filter(Boolean);
-
-      if (storagePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from('client-photos')
-          .remove(storagePaths);
-        if (storageError) {
-          console.warn('AdminService.gallery.delete: storage remove failed', storageError);
+      // Skip the Edge Function (401) and perform cascade delete directly in the right order.
+      try {
+        // 1. Delete storage files first
+        const { data: photos } = await supabase
+          .from('gallery_photos')
+          .select('photo_url')
+          .eq('gallery_id', galleryId);
+        const paths = (photos || []).map((p: any) => p.photo_url).filter(Boolean);
+        if (paths.length > 0) {
+          await supabase.storage.from('client-photos').remove(paths);
         }
+
+        // 2. Null out/delete referring data first (FK references, must come before gallery delete)
+        try { await supabase.from('payments').update({ gallery_id: null }).eq('gallery_id', galleryId); } catch {}
+        try { await supabase.from('mpesa_transactions').update({ gallery_id: null }).eq('gallery_id', galleryId); } catch {}
+        
+        // 3. Delete from all other referencing tables
+        await supabase.from('notifications').delete().eq('gallery_id', galleryId);
+        await supabase.from('gallery_views').delete().eq('gallery_id', galleryId);
+        try { await supabase.from('gallery_delivery_status').delete().eq('gallery_id', galleryId); } catch {}
+        await supabase.from('unlocked_galleries').delete().eq('gallery_id', galleryId);
+        try { await supabase.from('gallery_shares').delete().eq('gallery_id', galleryId); } catch {}
+        try { await supabase.from('upload_logs').delete().eq('gallery_id', galleryId); } catch {}
+        try { await supabase.from('upload_sessions').delete().eq('gallery_id', galleryId); } catch {}
+        try { await supabase.from('sms_logs').delete().eq('gallery_id', galleryId); } catch {}
+        try { await (supabase as any).from('events').delete().eq('gallery_id', galleryId); } catch {}
+        try { await (supabase as any).from('event_log').delete().eq('gallery_id', galleryId); } catch {}
+
+        // 4. Delete photos then gallery itself
+        await supabase.from('gallery_photos').delete().eq('gallery_id', galleryId);
+        const { error: deleteGalleryError } = await supabase.from('galleries').delete().eq('id', galleryId);
+        if (deleteGalleryError) throw deleteGalleryError;
+
+        return true;
+      } catch (err: any) {
+        throw new Error(err?.message || 'Failed to delete gallery');
       }
-
-      const { error: deletePhotosError } = await supabase
-        .from('gallery_photos')
-        .delete()
-        .eq('gallery_id', galleryId);
-      if (deletePhotosError) throw deletePhotosError;
-
-      const { error: deleteGalleryError } = await supabase
-        .from('galleries')
-        .delete()
-        .eq('id', galleryId);
-      if (deleteGalleryError) throw deleteGalleryError;
-
-      return true;
     },
 
     promoteToAnnouncement: async (galleryId: string, title: string, description: string) => {
@@ -1042,11 +1026,10 @@ export const AdminService = {
 
     bulk: async (payload: { gallery_ids: string[], action: 'lock' | 'unlock' | 'delete' }) => {
       if (payload.action === 'delete') {
-        const { error } = await supabase
-          .from('galleries')
-          .delete()
-          .in('id', payload.gallery_ids);
-        if (error) throw error;
+        // Use the edge function sequentially for bulk delete to handle cascades safely
+        for (const id of payload.gallery_ids) {
+          await AdminService.gallery.delete(id);
+        }
       } else if (payload.action === 'lock' || payload.action === 'unlock') {
         const { error } = await supabase
           .from('galleries')
@@ -1384,7 +1367,7 @@ export const AdminService = {
             id: msg.client_id,
             clientId: msg.client_id,
             clientName: msg.user_profiles?.name || 'Unknown',
-            clientAvatar: msg.user_profiles?.avatar_url || 'https://via.placeholder.com/150',
+            clientAvatar: msg.user_profiles?.avatar_url || null,
             lastMessage: msg.content,
             unread: 0,
             timestamp: msg.created_at,

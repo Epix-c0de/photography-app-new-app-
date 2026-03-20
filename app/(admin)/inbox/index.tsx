@@ -18,6 +18,7 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { supabase } from '@/lib/supabase';
 import { AdminService } from '@/services/admin';
 
 // Temporary mock data until ChatService is implemented
@@ -102,9 +103,14 @@ function ThreadItem({ thread, isSelected, onPress }: { thread: AdminChatThread; 
 
 function ChatView({ thread }: { thread: AdminChatThread }) {
   const [message, setMessage] = useState<string>('');
-  const [messages, setMessages] = useState<{ id: string; text: string; sender: 'admin' | 'client'; time: string }[]>([]);
+  const [messages, setMessages] = useState<{ id: string; text: string; sender: 'admin' | 'client'; time: string; pending?: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const scrollRef = useRef<ScrollView>(null);
+  const [isClientOnline, setIsClientOnline] = useState<boolean>(false);
+  const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const clientLastPingRef = useRef<number>(0);
+  const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -124,6 +130,7 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
         Alert.alert('Error', 'Failed to load messages');
       } finally {
         setLoading(false);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 0);
       }
     };
 
@@ -132,12 +139,23 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
     unsubscribe = AdminService.chat.subscribeToMessages(thread.clientId, (payload) => {
       if (payload.eventType === 'INSERT') {
         const newMsg = payload.new;
-        setMessages(prev => [...prev, {
-          id: newMsg.id,
-          text: newMsg.content,
-          sender: newMsg.sender_role,
-          time: new Date(newMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }]);
+        setMessages(prev => {
+          if (prev.some(p => p.id === newMsg.id)) return prev;
+          const idx = prev.findIndex(p => p.sender === 'admin' && p.pending && p.text === newMsg.content);
+          const next = [...prev];
+          const mapped = {
+            id: newMsg.id,
+            text: newMsg.content,
+            sender: newMsg.sender_role,
+            time: new Date(newMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          } as { id: string; text: string; sender: 'admin' | 'client'; time: string; pending?: boolean };
+          if (idx !== -1) {
+            next[idx] = mapped;
+            return next;
+          }
+          return [...next, mapped];
+        });
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
       }
     });
 
@@ -146,35 +164,85 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
     };
   }, [thread.clientId]);
 
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    let mounted = true;
+    async function setupPresence() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!mounted || !user) return;
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current);
+        presenceChannelRef.current = null;
+      }
+      const channel = supabase
+        .channel(`presence_admin_${user.id}`)
+        .on('broadcast', { event: 'status' }, (msg: any) => {
+          const payload = msg?.payload || {};
+          if (payload.role === 'client' && payload.clientId === thread.clientId) {
+            clientLastPingRef.current = Date.now();
+            setIsClientOnline(true);
+            if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+            offlineTimerRef.current = setTimeout(() => {
+              if (Date.now() - clientLastPingRef.current >= 30000) {
+                setIsClientOnline(false);
+              }
+            }, 32000);
+          }
+        })
+        .subscribe();
+      presenceChannelRef.current = channel;
+      const sendPing = () => {
+        channel.send({
+          type: 'broadcast',
+          event: 'status',
+          payload: { role: 'admin', userId: user.id, ts: Date.now() }
+        } as any);
+      };
+      sendPing();
+      interval = setInterval(sendPing, 15000);
+    }
+    setupPresence();
+    return () => {
+      mounted = false;
+      if (interval) clearInterval(interval);
+      if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current);
+        presenceChannelRef.current = null;
+      }
+    };
+  }, [thread.clientId]);
+
   const handleSend = useCallback(async () => {
     if (!message.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     try {
-      await AdminService.chat.sendMessage(thread.clientId, message.trim());
+      const text = message.trim();
+      const localId = 'local-' + Date.now();
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setMessages(prev => [...prev, { id: localId, text, sender: 'admin', time: timeStr, pending: true }]);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 0);
+      await AdminService.chat.sendMessage(thread.clientId, text);
       setMessage('');
-      // Message will be added via subscription
     } catch (error) {
       console.error('Error sending message:', error);
       Alert.alert('Error', 'Failed to send message');
+      setMessages(prev => prev.filter(m => !m.pending));
     }
   }, [message, thread.clientId]);
 
   const handleQuickReply = useCallback(async (reply: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      // Optimistic update
-      setMessages(prev => [...prev, {
-        id: 'reply-' + Date.now(),
-        text: reply,
-        sender: 'admin',
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
+      setMessages(prev => [...prev, { id: 'reply-' + Date.now(), text: reply, sender: 'admin', time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), pending: true }]);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 0);
       await AdminService.chat.sendMessage(thread.clientId, reply);
       console.log('[AdminChat] Quick reply to', thread.clientName);
     } catch (error) {
       console.error('Error sending quick reply:', error);
       Alert.alert('Error', 'Failed to send quick reply');
+      setMessages(prev => prev.filter(m => !(m.pending && m.sender === 'admin' && m.text === reply)));
     }
   }, [thread.clientId, thread.clientName]);
 
@@ -193,9 +261,9 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
         <View style={styles.chatHeaderInfo}>
           <Text style={styles.chatHeaderName}>{thread.clientName}</Text>
           <View style={styles.chatHeaderStatus}>
-            <Circle size={7} color={thread.isOnline ? Colors.success : Colors.textMuted} fill={thread.isOnline ? Colors.success : Colors.textMuted} />
-            <Text style={[styles.chatHeaderStatusText, { color: thread.isOnline ? Colors.success : Colors.textMuted }]}>
-              {thread.isOnline ? 'Online' : 'Offline'}
+            <Circle size={7} color={isClientOnline ? Colors.success : Colors.textMuted} fill={isClientOnline ? Colors.success : Colors.textMuted} />
+            <Text style={[styles.chatHeaderStatusText, { color: isClientOnline ? Colors.success : Colors.textMuted }]}>
+              {isClientOnline ? 'Online' : 'Offline'}
             </Text>
           </View>
         </View>
@@ -210,7 +278,7 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
         </Pressable>
       </View>
 
-      <ScrollView style={styles.messagesContainer} contentContainerStyle={styles.messagesContent}>
+      <ScrollView ref={scrollRef} style={styles.messagesContainer} contentContainerStyle={styles.messagesContent}>
         {loading ? (
           <ActivityIndicator size="small" color={Colors.gold} style={{ marginTop: 20 }} />
         ) : messages.length === 0 ? (
@@ -441,6 +509,9 @@ function AdminProfileModal({ visible, onClose, onUpdate }: { visible: boolean; o
 export default function AdminInboxScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const [adminName, setAdminName] = useState<string | null>(null);
+  const [adminAvatar, setAdminAvatar] = useState<string | null>(null);
+  const [avatarVersion, setAvatarVersion] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedThread, setSelectedThread] = useState<AdminChatThread | null>(null);
   const [threads, setThreads] = useState<AdminChatThread[]>([]);
@@ -485,6 +556,20 @@ export default function AdminInboxScreen() {
     const loadClientsAndThreads = async () => {
       try {
         setLoading(true);
+        // Load admin profile for header
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) {
+          const { data: profile } = await supabase
+            .from('user_profiles')
+            .select('name, avatar_url')
+            .eq('id', user.id)
+            .maybeSingle();
+          if (profile) {
+            setAdminName(profile.name ?? null);
+            setAdminAvatar(profile.avatar_url ?? null);
+            setAvatarVersion(v => v + 1);
+          }
+        }
         // Fetch clients from database (all clients)
         const clientsList = await AdminService.clients.listAll();
         setClients(clientsList || []);
@@ -493,6 +578,7 @@ export default function AdminInboxScreen() {
         const data = await AdminService.chat.listThreads();
         setThreads(data);
       } catch (error) {
+        console.error('Error loading threads and clients:', error);
         console.error('Error loading threads and clients:', error);
         const info = classifyError(error);
         if (info.type === 'auth') {
@@ -509,12 +595,34 @@ export default function AdminInboxScreen() {
 
     loadClientsAndThreads();
 
+    // Subscribe to admin profile changes so header updates live
+    let profileUnsub: (() => void) | null = null;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.id) {
+        const channel = supabase
+          .channel(`admin_profile_header_${user.id}`)
+          .on('postgres_changes',
+            { event: 'UPDATE', schema: 'public', table: 'user_profiles', filter: `id=eq.${user.id}` },
+            (payload) => {
+              const updated = payload.new as any;
+              setAdminName(updated?.name ?? null);
+              setAdminAvatar(updated?.avatar_url ?? null);
+              setAvatarVersion(v => v + 1);
+            }
+          )
+          .subscribe();
+        profileUnsub = () => supabase.removeChannel(channel);
+      }
+    })();
+
     const unsubscribe = AdminService.chat.subscribeToThreads(() => {
       loadClientsAndThreads();
     });
 
     return () => {
       unsubscribe();
+      if (profileUnsub) profileUnsub();
     }
   }, []);
 
@@ -548,7 +656,9 @@ export default function AdminInboxScreen() {
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.headerTitle}>Inbox</Text>
-            <Text style={styles.headerSub}>{totalUnread} unread messages</Text>
+            <Text style={styles.headerSub}>
+              {totalUnread} unread messages{adminName ? ` • ${adminName}` : ''}
+            </Text>
           </View>
           <Pressable 
             style={styles.profileHeaderButton} 
@@ -557,7 +667,14 @@ export default function AdminInboxScreen() {
               setShowProfileModal(true);
             }}
           >
-            <User size={20} color={Colors.gold} />
+            {adminAvatar ? (
+              <Image
+                source={{ uri: `${adminAvatar}${adminAvatar.includes('?') ? '&' : '?'}v=${avatarVersion}` }}
+                style={{ width: 32, height: 32, borderRadius: 8 }}
+              />
+            ) : (
+              <User size={20} color={Colors.gold} />
+            )}
           </Pressable>
         </View>
 

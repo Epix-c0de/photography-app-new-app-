@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Alert, Dimensions, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import { Calendar, MapPin, Clock, Check, Edit3, Camera, ChevronRight, ChevronLeft, Star, Zap, User, Shield } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -13,6 +14,7 @@ type DBPackage = Database['public']['Tables']['packages']['Row'];
 type Package = Omit<DBPackage, 'features'> & {
   is_popular?: boolean;
   description?: string | null;
+  detailed_description?: string | null;
   duration?: string | null;
   features: string[];
 };
@@ -152,7 +154,10 @@ function PackageCard({ pkg, index, isSelected, onSelect }: { pkg: Package; index
             <Text style={styles.currency}>KES</Text>
             <Text style={styles.price}>{pkg.price.toLocaleString()}</Text>
           </View>
-          <Text style={styles.packageDesc}>{pkg.description}</Text>
+          <Text style={styles.packageDesc}>{pkg.description || pkg.detailed_description || 'No description'}</Text>
+          {pkg.detailed_description && (
+            <Text style={styles.packageDetailedDesc} numberOfLines={3}>{pkg.detailed_description}</Text>
+          )}
           <View style={styles.divider} />
           {pkg.features.map((feature, i) => (
             <View key={i} style={styles.featureRow}>
@@ -224,8 +229,16 @@ function BookingCard({ booking }: { booking: Booking }) {
 
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
+  const searchParams = useLocalSearchParams<{ section?: string }>();
   const { user } = useAuth();
   const [activeSection, setActiveSection] = useState<'bookings' | 'packages' | 'book'>('bookings');
+  
+  useEffect(() => {
+    const section = searchParams.section;
+    if (section === 'packages' || section === 'bookings' || section === 'book') {
+      setActiveSection(section);
+    }
+  }, [searchParams.section]);
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<number | null>(null);
   const [packages, setPackages] = useState<Package[]>([]);
@@ -247,6 +260,7 @@ export default function BookingsScreen() {
             ...(p as DBPackage),
             is_popular: (p as Record<string, unknown>)['is_popular'] === true,
             description: (p as Record<string, unknown>)['description'] as string | null | undefined ?? null,
+            detailed_description: (p as Record<string, unknown>)['detailed_description'] as string | null | undefined ?? null,
             duration: (p as Record<string, unknown>)['duration'] as string | null | undefined ?? null,
             features: Array.isArray(p.features) ? (p.features as string[]) : [],
           }));
@@ -803,7 +817,13 @@ const styles = StyleSheet.create({
   packageDesc: {
     fontSize: 13,
     color: Colors.textSecondary,
+    marginBottom: 8,
+  },
+  packageDetailedDesc: {
+    fontSize: 12,
+    color: Colors.textMuted,
     marginBottom: 16,
+    lineHeight: 18,
   },
   divider: {
     height: 1,

@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Switch, Alert } from 'react-native';
 import { Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronRight, Smartphone, Wifi, Trash2, HardDrive, Moon, Sun, Monitor } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';
 
@@ -76,6 +77,23 @@ export default function AppSettings() {
   const [wifiOnly, setWifiOnly] = useState(false);
   const [theme, setTheme] = useState<'system'|'dark'|'light'>('dark');
 
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const val = await AsyncStorage.getItem('user_wifiOnly');
+        if (val !== null) setWifiOnly(val === 'true');
+      } catch (e) {}
+    };
+    loadSettings();
+  }, []);
+
+  const handleToggleWifi = async (val: boolean) => {
+    setWifiOnly(val);
+    try {
+      await AsyncStorage.setItem('user_wifiOnly', String(val));
+    } catch (e) {}
+  };
+
   const handleClearCache = () => {
     Alert.alert(
       'Clear Cache',
@@ -107,39 +125,14 @@ export default function AppSettings() {
         
         <SettingsSection title="APPEARANCE">
           <View style={styles.themeSelectorRow}>
-            <Pressable 
-              style={[styles.themeBox, theme === 'system' && styles.themeBoxActive]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setTheme('system');
-              }}
-            >
-              <Monitor size={24} color={theme === 'system' ? Colors.gold : Colors.textMuted} />
-              <Text style={[styles.themeBoxText, theme === 'system' && styles.themeBoxTextActive]}>Auto</Text>
-            </Pressable>
-            
-            <Pressable 
-              style={[styles.themeBox, theme === 'dark' && styles.themeBoxActive]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setTheme('dark');
-              }}
-            >
-              <Moon size={24} color={theme === 'dark' ? Colors.gold : Colors.textMuted} />
-              <Text style={[styles.themeBoxText, theme === 'dark' && styles.themeBoxTextActive]}>Dark</Text>
-            </Pressable>
-
-            <Pressable 
-              style={[styles.themeBox, theme === 'light' && styles.themeBoxActive]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setTheme('light');
-              }}
-            >
-              <Sun size={24} color={theme === 'light' ? Colors.gold : Colors.textMuted} />
-              <Text style={[styles.themeBoxText, theme === 'light' && styles.themeBoxTextActive]}>Light</Text>
+            <Pressable style={[styles.themeBox, styles.themeBoxActive]}>
+              <Moon size={24} color={Colors.gold} />
+              <Text style={[styles.themeBoxText, styles.themeBoxTextActive]}>Dark (Locked)</Text>
             </Pressable>
           </View>
+          <Text style={{ color: Colors.textMuted, fontSize: 12, paddingHorizontal: 16, marginTop: -8, marginBottom: 16 }}>
+            The app theme is locked to Dark Mode for the best viewing experience.
+          </Text>
         </SettingsSection>
 
         <SettingsSection title="DATA USAGE">
@@ -148,7 +141,7 @@ export default function AppSettings() {
             label="Stream over Wi-Fi only"
             description="Reduce cellular data usage for high-res images"
             value={wifiOnly}
-            onToggle={setWifiOnly}
+            onToggle={handleToggleWifi}
           />
         </SettingsSection>
         

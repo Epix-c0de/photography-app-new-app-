@@ -28,6 +28,9 @@ interface PackageFormState {
   storage_limit_gb: number;
   features: string[];
   is_active: boolean;
+  description?: string;
+  detailed_description?: string;
+  is_popular?: boolean;
 }
 
 export default function PackageEditorScreen() {
@@ -163,6 +166,9 @@ export default function PackageEditorScreen() {
           storage_limit_gb: editForm.storage_limit_gb,
           features: arrayToFeatures(editForm.features),
           is_active: editForm.is_active,
+          description: editForm.description,
+          detailed_description: editForm.detailed_description,
+          is_popular: editForm.is_popular,
         })
         .eq('id', editingId);
       
@@ -178,6 +184,9 @@ export default function PackageEditorScreen() {
           storage_limit_gb: editForm.storage_limit_gb,
           features: arrayToFeatures(editForm.features),
           is_active: editForm.is_active,
+          description: editForm.description,
+          detailed_description: editForm.detailed_description,
+          is_popular: editForm.is_popular,
         } : p
       ));
       
@@ -230,6 +239,9 @@ export default function PackageEditorScreen() {
       storage_limit_gb: pkg.storage_limit_gb,
       features: featuresToArray(pkg.features),
       is_active: pkg.is_active,
+      description: (pkg as any).description || '',
+      detailed_description: (pkg as any).detailed_description || '',
+      is_popular: (pkg as any).is_popular || false,
     });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -340,6 +352,43 @@ export default function PackageEditorScreen() {
                     numberOfLines={4}
                     placeholder="20 edited photos\nOnline gallery\nPrint release"
                     placeholderTextColor={Colors.textMuted}
+                  />
+                </View>
+
+                <View style={styles.formRow}>
+                  <Text style={styles.formLabel}>Short Description (Client-Facing)</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    value={editForm?.description}
+                    onChangeText={text => setEditForm(prev => prev ? { ...prev, description: text } : null)}
+                    placeholder="Perfect for portraits and personal shoots"
+                    placeholderTextColor={Colors.textMuted}
+                  />
+                </View>
+
+                <View style={styles.formRow}>
+                  <Text style={styles.formLabel}>Detailed Description (Full Details)</Text>
+                  <TextInput
+                    style={[styles.formInput, styles.textArea]}
+                    value={editForm?.detailed_description}
+                    onChangeText={text => setEditForm(prev => prev ? { ...prev, detailed_description: text } : null)}
+                    multiline
+                    numberOfLines={6}
+                    placeholder="This comprehensive package includes professional lighting, multiple outfit changes, location scouting, and online gallery access with high-resolution downloads..."
+                    placeholderTextColor={Colors.textMuted}
+                  />
+                </View>
+
+                <View style={styles.formToggleRow}>
+                  <View>
+                    <Text style={styles.formLabel}>Mark as Most Popular</Text>
+                    <Text style={styles.formSub}>Highlight this package on the booking screen</Text>
+                  </View>
+                  <Switch
+                    value={editForm?.is_popular}
+                    onValueChange={val => setEditForm(prev => prev ? { ...prev, is_popular: val } : null)}
+                    trackColor={{ false: Colors.border, true: Colors.goldMuted }}
+                    thumbColor={editForm?.is_popular ? Colors.gold : Colors.textMuted}
                   />
                 </View>
 

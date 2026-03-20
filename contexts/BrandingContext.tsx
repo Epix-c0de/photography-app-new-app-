@@ -1,5 +1,6 @@
 import createContextHook from '@nkzw/create-context-hook';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as ScreenCapture from 'expo-screen-capture';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Database } from '@/types/supabase';
@@ -53,14 +54,20 @@ export const DEFAULTS = {
 };
 
 export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(() => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [activeAdminId, setActiveAdminId] = useState<string | null>(null);
   const [settings, setSettings] = useState<BrandSettings | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const authRole = (profile?.role ??
+    (user?.app_metadata as any)?.role ??
+    (user?.user_metadata as any)?.role ??
+    null) as 'admin' | 'client' | 'super_admin' | null;
+  const isAdminRole = authRole === 'admin' || authRole === 'super_admin';
+  const resolvedAdminId = activeAdminId ?? (isAdminRole ? (user?.id ?? null) : null);
 
   const refresh = useCallback(async () => {
-    if (!activeAdminId) {
+    if (!resolvedAdminId) {
       setSettings(null);
       setError(null);
       return;
@@ -72,7 +79,7 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       const { data: row, error: selectError } = await supabase
         .from('brand_settings')
         .select('*')
-        .eq('admin_id', activeAdminId)
+        .eq('admin_id', resolvedAdminId)
         .maybeSingle();
 
       if (selectError) throw selectError;
@@ -82,7 +89,7 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
         return;
       }
 
-      const canCreate = user?.id === activeAdminId && user?.role === 'admin';
+      const canCreate = user?.id === resolvedAdminId && isAdminRole;
       if (!canCreate) {
         setSettings(null);
         return;
@@ -90,7 +97,7 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
 
       const { data: created, error: insertError } = await supabase
         .from('brand_settings')
-        .insert({ admin_id: activeAdminId })
+        .insert({ admin_id: resolvedAdminId })
         .select('*')
         .single();
 
@@ -102,17 +109,18 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
     } finally {
       setIsLoading(false);
     }
-  }, [activeAdminId, user?.id, user?.role]);
+  }, [isAdminRole, resolvedAdminId, user?.id]);
 
   const update = useCallback(async (updates: BrandSettingsUpdate) => {
-    if (!activeAdminId) throw new Error('No active admin selected');
+    const adminIdToUse = activeAdminId ?? (isAdminRole ? (user?.id ?? null) : null);
+    if (!adminIdToUse) throw new Error('No active admin selected');
 
     setIsLoading(true);
     setError(null);
     try {
       const { data, error: updateError } = await supabase
         .from('brand_settings')
-        .upsert({ admin_id: activeAdminId, ...updates, updated_at: new Date().toISOString() }, { onConflict: 'admin_id' })
+        .upsert({ admin_id: adminIdToUse, ...updates, updated_at: new Date().toISOString() }, { onConflict: 'admin_id' })
         .select('*')
         .single();
 
@@ -127,7 +135,7 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
     } finally {
       setIsLoading(false);
     }
-  }, [activeAdminId]);
+  }, [activeAdminId, isAdminRole, user?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,14 +149,14 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       };
     }
 
-    if (user.role === 'admin') {
+    if (isAdminRole) {
       setActiveAdminId(user.id);
       return () => {
         cancelled = true;
       };
     }
 
-    if (user.role === 'client') {
+    if (authRole === 'client') {
       setActiveAdminId(null);
       setSettings(null);
       setError(null);
@@ -178,11 +186,20 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [authRole, isAdminRole, user]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const enabled = settings?.block_screenshots ?? DEFAULTS.blockScreenshots;
+    if (enabled) {
+      ScreenCapture.preventScreenCaptureAsync().catch(() => {});
+    } else {
+      ScreenCapture.allowScreenCaptureAsync().catch(() => {});
+    }
+  }, [settings?.block_screenshots]);
 
   const derived = useMemo(() => {
     const brandName = settings?.brand_name ?? DEFAULTS.brandName;

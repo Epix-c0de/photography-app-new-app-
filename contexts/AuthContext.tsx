@@ -112,6 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       },
     ],
   });
+  const ADMIN_SECURITY_KEY = 'admin_security_state';
 
   const router = useRouter();
 
@@ -189,8 +190,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const updateAdminSecurity = useCallback((updates: Partial<AdminSecurityState>) => {
-    setAdminSecurity((prev) => ({ ...prev, ...updates }));
-  }, []);
+    setAdminSecurity((prev) => {
+      const next = { ...prev, ...updates };
+      SecureStore.setItemAsync(ADMIN_SECURITY_KEY, JSON.stringify(next)).catch(() => {});
+      
+      // Sync seamlessly to backend user_metadata in real time
+      supabase.auth.updateUser({ data: { adminSecurity: next } }).catch(console.error);
+
+      // If biometricEnabled toggled, also persist to user_profiles table directly
+      if (updates.biometricEnabled !== undefined && state.user?.id) {
+        supabase.from('user_profiles')
+          .update({ biometric_enabled: updates.biometricEnabled })
+          .eq('id', state.user.id)
+          .then(({ error }) => { if (error) console.error('Failed to sync biometric state:', error); });
+      }
+
+      return next;
+    });
+  }, [state.user?.id]);
 
   const verifyAdminGuard = useCallback(async (action: AdminGuardAction): Promise<boolean> => {
     if (adminSecurity.remoteLockEnabled) return false;
@@ -515,6 +532,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setState(prev => ({ ...prev, isLoading: true }));
 
     try {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        // Prefer cloud-synced adminSecurity over local raw JSON if available
+        let backendAdminSecurity = null;
+        if (session?.user?.user_metadata?.adminSecurity) {
+          backendAdminSecurity = session.user.user_metadata.adminSecurity;
+        }
+
+        const raw = await SecureStore.getItemAsync(ADMIN_SECURITY_KEY);
+        if (backendAdminSecurity) {
+          setAdminSecurity((prev) => ({ ...prev, ...backendAdminSecurity }));
+        } else if (raw) {
+          const parsed = JSON.parse(raw);
+          setAdminSecurity((prev) => ({ ...prev, ...parsed }));
+        }
+      } catch {}
       await loadOnboardingState();
       // Load PIN lock state first
       await loadPinLockState();
@@ -641,14 +675,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .from('user_profiles')
             .select('*')
             .eq('id', session.user.id)
-            .single();
+            .maybeSingle();
 
-          if (profile) {
-            const isAdminProfile = profile.role === 'admin' || profile.role === 'super_admin';
-            const hasSecurity = profile.pin_hash !== null || profile.biometric_enabled === true;
+          const fallbackProfile = {
+            id: session.user.id,
+            role: ((session.user?.app_metadata as any)?.role ?? 'client') as any,
+            name:
+              (session.user?.user_metadata as any)?.full_name ??
+              (session.user?.user_metadata as any)?.name ??
+              session.user.email ??
+              null,
+            email: session.user.email ?? null,
+            phone: (session.user?.user_metadata as any)?.phone ?? null,
+            avatar_url: (session.user?.user_metadata as any)?.avatar_url ?? null,
+            pin_hash: null,
+            biometric_enabled: null,
+            client_type: null,
+            profile_complete: false,
+            created_at: new Date().toISOString(),
+          } as any;
+
+          if (profile || fallbackProfile) {
+            const effectiveProfile = (profile ?? fallbackProfile) as any;
+            const isAdminProfile = effectiveProfile.role === 'admin' || effectiveProfile.role === 'super_admin';
+            const hasSecurity = effectiveProfile.pin_hash !== null || effectiveProfile.biometric_enabled === true;
             
             let requiresSecuritySetup = false;
-            if (!isAdminProfile && !hasSecurity && !profile.profile_complete) {
+            if (!isAdminProfile && !hasSecurity && !effectiveProfile.profile_complete) {
               const lastPrompt = await SecureStore.getItemAsync('last_security_prompt');
               const now = Date.now();
               if (!lastPrompt || now - parseInt(lastPrompt) > 24 * 60 * 60 * 1000) {
@@ -660,13 +713,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setState(prev => ({
               ...prev,
               user: session.user,
-              profile,
+              profile: effectiveProfile,
               session,
               isAuthenticated: true,
               requiresSecuritySetup,
               requiresAuthOnLaunch: isAdminProfile ? false : hasSecurity,
             }));
-            if (profile.role === 'client') {
+            if (effectiveProfile.role === 'client') {
               await syncTemporaryUploads();
               try {
                 await ClientService.clients.ensureLinkedRecordsForCurrentUser();

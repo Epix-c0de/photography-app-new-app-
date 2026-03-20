@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated, KeyboardAvoidingView, Platform, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, AppState } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
-import { Send, Clock, Check, CheckCheck, Paperclip } from 'lucide-react-native';
+import { Send, Clock, Check, CheckCheck, Paperclip, User } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { useBranding } from '@/contexts/BrandingContext';
@@ -47,11 +47,17 @@ export default function ChatScreen() {
 
   // clientRowId = the ID from the "clients" table (not auth user id)
   const [clientRowId, setClientRowId] = useState<string | null>(null);
+  const [messageClientId, setMessageClientId] = useState<string | null>(null);
   const [ownerAdminId, setOwnerAdminId] = useState<string | null>(null);
   const [adminAvatar, setAdminAvatar] = useState<string | null>(null);
   const [adminName, setAdminName] = useState<string | null>(null);
+  const [avatarVersion, setAvatarVersion] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
+  const [adminOnline, setAdminOnline] = useState<boolean>(false);
+  const adminLastPingRef = useRef<number>(0);
+  const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
   const sendScale = useRef(new Animated.Value(1)).current;
@@ -74,31 +80,78 @@ export default function ChatScreen() {
         // ── Step 1: Find or pick the admin to chat with ──
         let adminId: string | null = activeAdminId ?? null;
 
-        if (!adminId) {
-          // Check if user already has a linked client record with an admin
-          const { data: existingClient } = await supabase
-            .from('clients')
-            .select('id, owner_admin_id')
-            .eq('user_id', authUser.id)
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .maybeSingle();
+        // Fetch all available admins first
+        const { data: allAdmins, error: adminError } = await supabase
+          .from('user_profiles')
+          .select('id, name, avatar_url, updated_at')
+          .in('role', ['admin', 'super_admin'])
+          .order('created_at', { ascending: true });
 
-          if (existingClient?.owner_admin_id) {
-            adminId = existingClient.owner_admin_id;
+        if (adminError) {
+          console.error('[Chat] Error fetching admins:', adminError);
+        }
+
+        const admins = allAdmins || [];
+
+        const chooseBestAdmin = (candidates: any[]) => {
+          if (!candidates || candidates.length === 0) return null;
+          const scored = [...candidates].sort((a, b) => {
+            const aHasAvatar = !!a?.avatar_url;
+            const bHasAvatar = !!b?.avatar_url;
+            if (aHasAvatar !== bHasAvatar) return aHasAvatar ? -1 : 1;
+
+            const aName = String(a?.name ?? '');
+            const bName = String(b?.name ?? '');
+            const aLooksLikeEmail = aName.includes('@');
+            const bLooksLikeEmail = bName.includes('@');
+            if (aLooksLikeEmail !== bLooksLikeEmail) return aLooksLikeEmail ? 1 : -1;
+
+            const aUpdated = a?.updated_at ? new Date(a.updated_at).getTime() : 0;
+            const bUpdated = b?.updated_at ? new Date(b.updated_at).getTime() : 0;
+            return bUpdated - aUpdated;
+          });
+          return scored[0] ?? null;
+        };
+
+        // If we have an adminId but that admin looks like a fresh/unconfigured account
+        // (email as name + no avatar), prefer the best-looking admin from the list.
+        if (adminId && admins.length > 0) {
+          const selected = admins.find((a) => a.id === adminId);
+          const selectedName = String(selected?.name ?? '');
+          const selectedLooksLikeEmail = selectedName.includes('@');
+          const selectedHasAvatar = !!selected?.avatar_url;
+
+          if (selectedLooksLikeEmail && !selectedHasAvatar) {
+            const best = chooseBestAdmin(admins);
+            if (best?.id) {
+              adminId = best.id;
+            }
           }
         }
 
         if (!adminId) {
-          // Last resort: pick first admin/super_admin alphabetically
-          const { data: firstAdmin } = await supabase
-            .from('user_profiles')
-            .select('id')
-            .in('role', ['admin', 'super_admin'])
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .maybeSingle();
-          adminId = firstAdmin?.id ?? null;
+          // Check if user already has a linked client record with ANY admin
+          const { data: existingClients } = await supabase
+            .from('clients')
+            .select('id, owner_admin_id')
+            .eq('user_id', authUser.id);
+
+          // If we have existing client records, choose the BEST admin among the linked ones
+          if (existingClients && existingClients.length > 0) {
+            const linkedAdminIds = Array.from(
+              new Set((existingClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))
+            ) as string[];
+            const linkedAdmins = admins.filter((a) => linkedAdminIds.includes(a.id));
+            const bestLinked = chooseBestAdmin(linkedAdmins);
+            if (bestLinked?.id) {
+              adminId = bestLinked.id;
+            }
+          }
+        }
+
+        if (!adminId && admins.length > 0) {
+          // Fallback: pick the best available admin
+          adminId = chooseBestAdmin(admins)?.id ?? admins[0].id;
         }
 
         if (!adminId) {
@@ -158,24 +211,50 @@ export default function ChatScreen() {
         }
 
         // ── Step 3: Fetch admin profile ──
+        // First, try to use the admin data we already fetched from allAdmins
+        const adminFromList = admins.find(a => a.id === adminId);
+        let adminProfileName = adminFromList?.name ?? null;
+        let adminProfileAvatar = adminFromList?.avatar_url ?? null;
+        
+        // Also fetch fresh data from user_profiles to ensure it's up to date
         const { data: adminProfile } = await supabase
           .from('user_profiles')
-          .select('id, name, avatar_url')
+          .select('id, name, avatar_url, updated_at')
           .eq('id', adminId)
           .maybeSingle();
+        
+        // Use fresh data if available, otherwise fallback to list data
+        const finalAdminName = adminProfile?.name ?? adminProfileName;
+        const finalAdminAvatar = adminProfile?.avatar_url ?? adminProfileAvatar;
+        
+        console.log('[Chat] Admin profile loaded:', { 
+          adminId, 
+          finalAdminName, 
+          finalAdminAvatar,
+          fromList: adminFromList?.name,
+          fromDb: adminProfile?.name 
+        });
 
         // ── Step 4: Fetch existing messages ──
+        const messageClientCandidates = Array.from(new Set([clientId, authUser.id].filter(Boolean))) as string[];
         const { data: existingMsgs } = await supabase
           .from('messages')
           .select('*')
-          .eq('client_id', clientId)
+          .in('client_id', messageClientCandidates)
           .order('created_at', { ascending: true });
+
+        const preferredMessageClientId =
+          (existingMsgs ?? []).some((m: any) => m.client_id === authUser.id)
+            ? authUser.id
+            : clientId;
 
         if (!cancelled) {
           setOwnerAdminId(adminId);
           setClientRowId(clientId);
-          setAdminName(adminProfile?.name ?? null);
-          setAdminAvatar(adminProfile?.avatar_url ?? null);
+          setMessageClientId(preferredMessageClientId);
+          setAdminName(finalAdminName);
+          setAdminAvatar(finalAdminAvatar);
+          setAvatarVersion((v) => v + 1);
           setMessages(
             (existingMsgs ?? []).map((m: any) => ({
               id: m.id,
@@ -200,17 +279,17 @@ export default function ChatScreen() {
 
   // ─── Real-time: new messages ────────────────────────────────────────────────
   useEffect(() => {
-    if (!clientRowId) return;
+    if (!messageClientId) return;
 
     const channel = supabase
-      .channel(`chat_messages_${clientRowId}`)
+      .channel(`chat_messages_${messageClientId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'messages',
-          filter: `client_id=eq.${clientRowId}`,
+          filter: `client_id=eq.${messageClientId}`,
         },
         (payload) => {
           const newMsg = payload.new as any;
@@ -233,25 +312,40 @@ export default function ChatScreen() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [clientRowId]);
+  }, [messageClientId]);
 
   // ─── Real-time: admin profile changes ──────────────────────────────────────
   useEffect(() => {
     if (!ownerAdminId) return;
 
-    // Poll admin profile every 30 seconds as a reliable fallback
-    // (realtime filter on non-primary-key columns needs Supabase Row Level Security setup)
+    // Poll admin profile every 5 seconds for faster updates
     const fetchAdminProfile = async () => {
-      const { data } = await supabase
-        .from('user_profiles')
-        .select('name, avatar_url')
-        .eq('id', ownerAdminId)
-        .maybeSingle();
-      if (data) {
-        setAdminName(data.name ?? null);
-        setAdminAvatar(data.avatar_url ?? null);
+      try {
+        const { data } = await supabase
+          .from('user_profiles')
+          .select('name, avatar_url, updated_at')
+          .eq('id', ownerAdminId)
+          .maybeSingle();
+        if (data) {
+          setAdminName(data.name ?? null);
+          setAdminAvatar(data.avatar_url ?? null);
+          setAvatarVersion((v) => v + 1);
+        }
+      } catch (error) {
+        console.error('[Chat] Error fetching admin profile:', error);
       }
     };
+
+    // Initial fetch
+    fetchAdminProfile();
+
+    // Poll every 5 seconds
+    const pollInterval = setInterval(fetchAdminProfile, 5000);
+
+    // Refetch when app comes to foreground
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') fetchAdminProfile();
+    });
 
     // Also subscribe to realtime updates
     const channel = supabase
@@ -268,18 +362,69 @@ export default function ChatScreen() {
           const updated = payload.new as any;
           setAdminName(updated.name ?? null);
           setAdminAvatar(updated.avatar_url ?? null);
+          setAvatarVersion((v) => v + 1);
         }
       )
       .subscribe();
 
-    // Poll every 30s as backup if realtime filter isn't configured
-    const pollInterval = setInterval(fetchAdminProfile, 30000);
-
     return () => {
-      supabase.removeChannel(channel);
       clearInterval(pollInterval);
+      sub.remove();
+      supabase.removeChannel(channel);
     };
   }, [ownerAdminId]);
+
+  // ─── Presence: admin online/offline ────────────────────────────────────────
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    let mounted = true;
+    async function setupPresence() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!mounted || !ownerAdminId || !user) return;
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current);
+        presenceChannelRef.current = null;
+      }
+      const channel = supabase
+        .channel(`presence_admin_${ownerAdminId}`)
+        .on('broadcast', { event: 'status' }, (msg: any) => {
+          try {
+            const payload = msg?.payload || {};
+            if (payload.role === 'admin' && payload.userId === ownerAdminId) {
+              adminLastPingRef.current = Date.now();
+              setAdminOnline(true);
+              if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+              offlineTimerRef.current = setTimeout(() => {
+                if (Date.now() - adminLastPingRef.current >= 60000) {
+                  setAdminOnline(false);
+                }
+              }, 62000);
+            }
+          } catch {}
+        })
+        .subscribe();
+      presenceChannelRef.current = channel;
+      const sendPing = () => {
+        channel.send({
+          type: 'broadcast',
+          event: 'status',
+          payload: { role: 'client', clientId: clientRowId, userId: user.id, ts: Date.now() }
+        } as any);
+      };
+      sendPing();
+      interval = setInterval(sendPing, 15000);
+    }
+    setupPresence();
+    return () => {
+      mounted = false;
+      if (interval) clearInterval(interval);
+      if (offlineTimerRef.current) clearTimeout(offlineTimerRef.current);
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current);
+        presenceChannelRef.current = null;
+      }
+    };
+  }, [ownerAdminId, clientRowId]);
 
   // ─── SEND ───────────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
@@ -304,23 +449,65 @@ export default function ChatScreen() {
     setInputText('');
 
     try {
-      const { error } = await supabase
+      // Get the current user to verify identity
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      const preferredClientId = messageClientId ?? clientRowId;
+
+      let { error, data } = await supabase
         .from('messages')
         .insert({
-          client_id: clientRowId,
+          client_id: preferredClientId,
           owner_admin_id: ownerAdminId,
           sender_role: 'client',
           content: textToSend,
           is_read: false,
-        });
+        })
+        .select();
+
+      if (error && error.message?.includes('messages_client_id_fkey') && preferredClientId !== user.id) {
+        const retry = await supabase
+          .from('messages')
+          .insert({
+            client_id: user.id,
+            owner_admin_id: ownerAdminId,
+            sender_role: 'client',
+            content: textToSend,
+            is_read: false,
+          })
+          .select();
+        error = retry.error;
+        data = retry.data;
+        if (!error) {
+          setMessageClientId(user.id);
+        }
+      }
 
       if (error) throw error;
+      if (data && data[0]) {
+        const m = data[0] as any;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: m.id,
+            text: m.content,
+            sender: m.sender_role,
+            timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            read: m.is_read,
+          },
+        ]);
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+      }
     } catch (e: any) {
       console.error('[Chat] Send error:', e);
       setInputText(textToSend);
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      Alert.alert('Error', `Failed to send message: ${e.message || 'Please try again.'}`);
     }
-  }, [inputText, sendScale, clientRowId, ownerAdminId]);
+  }, [inputText, sendScale, clientRowId, messageClientId, ownerAdminId]);
 
   const isOfficeHours = () => {
     const hour = new Date().getHours();
@@ -358,27 +545,35 @@ export default function ChatScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Image
-          source={{ uri: adminAvatar || logoUrl || 'https://images.unsplash.com/photo-1552642986-ccb41e7059e7?w=100&h=100&fit=crop' }}
-          style={styles.headerAvatar}
-          contentFit="cover"
-        />
+        {adminAvatar ? (
+          <Image
+            source={{
+              uri: `${adminAvatar}${adminAvatar.includes('?') ? '&' : '?'}v=${avatarVersion}`
+            }}
+            style={styles.headerAvatar}
+            contentFit="cover"
+          />
+        ) : (
+          <View style={styles.headerAvatarPlaceholder}>
+            <User size={20} color={Colors.gold} />
+          </View>
+        )}
         <View style={styles.headerInfo}>
           <Text style={styles.headerName}>{adminName || brandName}</Text>
           <View style={styles.statusRow}>
-            <View style={[styles.onlineDot, !isOfficeHours() && styles.offlineDot]} />
+            <View style={[styles.onlineDot, !adminOnline && styles.offlineDot]} />
             <Text style={styles.statusLabel}>
-              {isOfficeHours() ? 'Online • Usually replies instantly' : 'Office hours: 8AM - 6PM'}
+              {adminOnline ? 'Online • Usually replies instantly' : 'Offline • Typically responds within office hours'}
             </Text>
           </View>
         </View>
       </View>
 
-      {!isOfficeHours() && (
+      {!adminOnline && (
         <View style={styles.officeHoursBanner}>
           <Clock size={14} color={Colors.gold} />
           <Text style={styles.officeHoursText}>
-            We&apos;re currently outside office hours. We&apos;ll respond first thing in the morning.
+            We&apos;re currently offline. We&apos;ll respond as soon as we&apos;re back online.
           </Text>
         </View>
       )}
@@ -455,6 +650,17 @@ const styles = StyleSheet.create({
     marginRight: 12,
     borderWidth: 1,
     borderColor: Colors.border,
+  },
+  headerAvatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerInfo: {
     flex: 1,

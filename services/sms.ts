@@ -309,6 +309,21 @@ export const SMSService = {
         client,
         gallery: gallery || null
       };
+    },
+
+    /**
+     * Returns admin-configured links used in messages
+     */
+    getAdminLinks: async (): Promise<{ share_app_link?: string; access_code_delivery_link?: string } | null> => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const { data, error } = await supabase
+        .from('admin_settings')
+        .select('share_app_link, access_code_delivery_link')
+        .eq('admin_id', user.id)
+        .maybeSingle();
+      if (error) return null;
+      return data || null;
     }
   },
 

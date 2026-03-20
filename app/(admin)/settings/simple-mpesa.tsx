@@ -29,6 +29,7 @@ export default function SimpleMpesaConfigScreen() {
   const [defaultPrice, setDefaultPrice] = useState('500');
   const [currency, setCurrency] = useState('KES');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('STK_PUSH');
+  const [autoVerification, setAutoVerification] = useState(false);
 
   // Load existing settings
   useEffect(() => {
@@ -50,6 +51,7 @@ export default function SimpleMpesaConfigScreen() {
           setDefaultPrice(String(data.gallery_price_default || '500'));
           setCurrency(data.currency || 'KES');
           setPaymentMode(data.payment_mode as PaymentMode || 'STK_PUSH');
+          setAutoVerification(data.auto_verification || false);
         }
       } catch (error) {
         console.error('Failed to load simple mpesa settings:', error);
@@ -86,6 +88,7 @@ export default function SimpleMpesaConfigScreen() {
           gallery_price_default: parseFloat(defaultPrice) || 0,
           currency,
           payment_mode: paymentMode,
+          auto_verification: autoVerification,
           updated_at: new Date().toISOString()
         }, { onConflict: 'admin_id' });
 
@@ -256,6 +259,32 @@ export default function SimpleMpesaConfigScreen() {
                 {paymentMode === 'PAYBILL' && 'Shows Paybill instructions to the client.'}
                 {paymentMode === 'TILL_NUMBER' && 'Shows Buy Goods instructions to the client.'}
               </Text>
+            </View>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>AUTOMATIC VERIFICATION</Text>
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleInfo}>
+                <ShieldCheck size={20} color={Colors.gold} />
+                <View style={styles.toggleText}>
+                  <Text style={styles.toggleLabel}>Enable Auto-Verification</Text>
+                  <Text style={styles.toggleSublabel}>
+                    {autoVerification 
+                      ? 'Payments will be verified automatically via M-PESA callbacks (requires Till Number/Paybill setup)'
+                      : 'You will manually verify payments in the Manual Payments screen'}
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                style={[styles.toggleButton, autoVerification && styles.toggleButtonActive]}
+                onPress={() => {
+                  setAutoVerification(!autoVerification);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+              >
+                <View style={[styles.toggleKnob, autoVerification && styles.toggleKnobActive]} />
+              </Pressable>
             </View>
           </View>
 
@@ -452,6 +481,57 @@ const styles = StyleSheet.create({
   modeInfoText: {
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#111',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#222',
+  },
+  toggleInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    flex: 1,
+  },
+  toggleText: {
+    flex: 1,
+  },
+  toggleLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.white,
+    marginBottom: 4,
+  },
+  toggleSublabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 16,
+  },
+  toggleButton: {
+    width: 52,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#222',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingHorizontal: 2,
+  },
+  toggleButtonActive: {
+    backgroundColor: Colors.gold,
+  },
+  toggleKnob: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.white,
+  },
+  toggleKnobActive: {
+    backgroundColor: Colors.background,
   },
   actions: {
     marginTop: 10,

@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Switch, TextInput, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Clock,
   CreditCard,
@@ -118,6 +119,28 @@ export default function AdminSettingsScreen() {
   const [autoSmsOnUpload, setAutoSmsOnUpload] = useState<boolean>(true);
   const [smsOnPayment, setSmsOnPayment] = useState<boolean>(true);
   const [autoLockGalleries, setAutoLockGalleries] = useState<boolean>(true);
+
+  useEffect(() => {
+    const loadLocalSettings = async () => {
+      try {
+        const sms = await AsyncStorage.getItem('admin_autoSmsOnUpload');
+        const lock = await AsyncStorage.getItem('admin_autoLockGalleries');
+        if (sms !== null) setAutoSmsOnUpload(sms === 'true');
+        if (lock !== null) setAutoLockGalleries(lock === 'true');
+      } catch (e) {}
+    };
+    loadLocalSettings();
+  }, []);
+
+  const handleToggleAutoSms = async (val: boolean) => {
+    setAutoSmsOnUpload(val);
+    await AsyncStorage.setItem('admin_autoSmsOnUpload', String(val));
+  };
+
+  const handleToggleAutoLock = async (val: boolean) => {
+    setAutoLockGalleries(val);
+    await AsyncStorage.setItem('admin_autoLockGalleries', String(val));
+  };
   const [darkModeOnly, setDarkModeOnly] = useState<boolean>(true);
   const [screenshotProtection, setScreenshotProtection] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'general' | 'security' | 'links'>('general');
@@ -409,6 +432,13 @@ export default function AdminSettingsScreen() {
                 label="Delivery System"
                 description="Gateways, credits & access codes"
                 onPress={() => router.push('/(admin)/settings/delivery')}
+                showArrow
+              />
+              <SettingsRow
+                icon={<FileText size={18} color={Colors.gold} />}
+                label="Message Templates"
+                description="Customize SMS, WhatsApp and in‑app messages"
+                onPress={() => router.push('/(admin)/settings/sms-management')}
                 showArrow
               />
               <SettingsRow
@@ -770,21 +800,34 @@ export default function AdminSettingsScreen() {
                     onPress={async () => {
                       const ok = await handleGuardOrFallback('open_dashboard');
                       if (!ok) return;
-                      if (!newEmail.trim() || !emailPassword.trim()) {
+                      const nextEmail = newEmail.trim().toLowerCase();
+                      const currentPass = emailPassword.trim();
+                      if (!nextEmail || !currentPass) {
                         Alert.alert('Missing Fields', 'Enter new email and current password.');
                         return;
                       }
-                      if (adminSecurity.biometricEnabled && emailOtp.trim().length !== 6) {
-                        Alert.alert('OTP Required', 'Enter the 6-digit OTP to continue.');
-                        return;
+                      try {
+                        const authEmail = (user?.email ?? adminEmail)?.trim().toLowerCase();
+                        const { error: verifyError } = await supabase.auth.signInWithPassword({
+                          email: authEmail,
+                          password: currentPass,
+                        });
+                        if (verifyError) {
+                          Alert.alert('Invalid Password', 'Current password is incorrect.');
+                          return;
+                        }
+                        const { data, error } = await supabase.auth.updateUser({ email: nextEmail });
+                        if (error) throw error;
+                        setPendingEmail(nextEmail);
+                        setNewEmail('');
+                        setEmailPassword('');
+                        setEmailOtp('');
+                        setChangeEmailOpen(false);
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        Alert.alert('Email Update Requested', 'Verification link sent to the new email. Complete the change by clicking the link.');
+                      } catch (e: any) {
+                        Alert.alert('Update Failed', e?.message || 'Could not update email.');
                       }
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                      setPendingEmail(newEmail.trim());
-                      setNewEmail('');
-                      setEmailPassword('');
-                      setEmailOtp('');
-                      setChangeEmailOpen(false);
-                      Alert.alert('Email Update Requested', 'A verification link has been sent. Your old email remains active until verified.');
                     }}
                   >
                     <Text style={styles.primaryBtnText}>Submit Email Change</Text>
@@ -851,31 +894,49 @@ export default function AdminSettingsScreen() {
                     onPress={async () => {
                       const ok = await handleGuardOrFallback('open_dashboard');
                       if (!ok) return;
-                      if (!currentPassword.trim() || !nextPassword.trim() || !confirmNextPassword.trim()) {
+                      const curr = currentPassword.trim();
+                      const next = nextPassword.trim();
+                      const confirm = confirmNextPassword.trim();
+                      if (!curr || !next || !confirm) {
                         Alert.alert('Missing Fields', 'Fill in all password fields.');
                         return;
                       }
-                      const ruleError = validatePassword(nextPassword);
+                      const ruleError = validatePassword(next);
                       if (ruleError) {
                         Alert.alert('Weak Password', ruleError);
                         return;
                       }
-                      if (nextPassword !== confirmNextPassword) {
+                      if (next !== confirm) {
                         Alert.alert('Mismatch', 'New password fields do not match.');
                         return;
                       }
-                      if (invalidateSessions) {
-                        await updateAdminSecurity({
-                          registeredDevices: adminSecurity.registeredDevices.map((d) => ({ ...d, status: d.id === 'd1' ? 'active' : 'revoked' })),
+                      try {
+                        const authEmail = (user?.email ?? adminEmail)?.trim().toLowerCase();
+                        const { error: verifyError } = await supabase.auth.signInWithPassword({
+                          email: authEmail,
+                          password: curr,
                         });
+                        if (verifyError) {
+                          Alert.alert('Invalid Password', 'Current password is incorrect.');
+                          return;
+                        }
+                        const { error } = await supabase.auth.updateUser({ password: next });
+                        if (error) throw error;
+                        if (invalidateSessions) {
+                          await updateAdminSecurity({
+                            registeredDevices: adminSecurity.registeredDevices.map((d) => ({ ...d, status: d.id === 'd1' ? 'active' : 'revoked' })),
+                          });
+                        }
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        setCurrentPassword('');
+                        setNextPassword('');
+                        setConfirmNextPassword('');
+                        setInvalidateSessions(false);
+                        setChangePasswordOpen(false);
+                        Alert.alert('Password Updated', 'Your password has been updated successfully.');
+                      } catch (e: any) {
+                        Alert.alert('Update Failed', e?.message || 'Could not update password.');
                       }
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                      setCurrentPassword('');
-                      setNextPassword('');
-                      setConfirmNextPassword('');
-                      setInvalidateSessions(false);
-                      setChangePasswordOpen(false);
-                      Alert.alert('Password Updated', 'Your password has been updated successfully.');
                     }}
                   >
                     <Text style={styles.primaryBtnText}>Update Password</Text>
@@ -1028,7 +1089,17 @@ export default function AdminSettingsScreen() {
                 icon={<Mail size={18} color={Colors.gold} />}
                 label="Reset admin access"
                 description="Send recovery link to verified email"
-                onPress={() => Alert.alert('Recovery', 'Recovery email sent to your verified admin email.')}
+                onPress={async () => {
+                  try {
+                    const target = (user?.email ?? adminEmail)?.trim().toLowerCase();
+                    const { error } = await supabase.auth.resetPasswordForEmail(target);
+                    if (error) throw error;
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    Alert.alert('Recovery', 'Password reset email sent to your admin address.');
+                  } catch (e: any) {
+                    Alert.alert('Recovery Failed', e?.message || 'Could not send recovery email.');
+                  }
+                }}
                 showArrow
               />
               <SettingsRow

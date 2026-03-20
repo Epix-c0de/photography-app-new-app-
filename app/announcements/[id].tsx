@@ -89,7 +89,7 @@ export default function AnnouncementViewerScreen() {
     // Simplest query that we know works from before, grabbing relations safely
     const { data } = await supabase
       .from('announcement_comments')
-      .select('*, user_profiles(name, avatar_url)')
+      .select('*, user_profiles:client_id (name, avatar_url)')
       .eq('announcement_id', id)
       .order('created_at', { ascending: true });
     

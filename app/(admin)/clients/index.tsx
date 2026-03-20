@@ -82,7 +82,7 @@ function ClientCard({ client, onPress, onPressShortcut }: { client: AdminClient;
     >
       <Animated.View style={[styles.clientCard, { transform: [{ scale: scaleAnim }] }]}>
         <Image
-          source={{ uri: client.avatar }}
+          source={client.avatar ? { uri: client.avatar } : undefined}
           style={styles.clientAvatar}
           contentFit="cover"
           transition={200}
@@ -227,7 +227,7 @@ function GalleryCard({ gallery, onDeleted }: { gallery: AdminGallery; onDeleted:
     >
       <Animated.View style={[styles.galleryCard, { transform: [{ scale: scaleAnim }] }]}>
         <Image
-          source={{ uri: gallery.coverImage }}
+          source={gallery.coverImage ? { uri: gallery.coverImage } : undefined}
           style={styles.galleryCover}
           contentFit="cover"
           transition={200}
@@ -433,7 +433,7 @@ export default function AdminClientsScreen() {
       const transformedClients: AdminClient[] = (clientsData || []).map((c: any) => ({
         id: c.id,
         name: c.name,
-        avatar: c.avatar_url || 'https://via.placeholder.com/150',
+        avatar: c.avatar_url || null,
         phone: c.phone || '',
         email: c.email || '',
         loyaltyLevel: c.loyalty_level || 'Bronze',
@@ -449,7 +449,7 @@ export default function AdminClientsScreen() {
         clientId: g.client_id,
         clientName: g.clients?.name || 'Unknown',
         title: g.name,
-        coverImage: g.derived_cover_image || g.cover_photo_url || 'https://via.placeholder.com/400x300',
+        coverImage: g.derived_cover_image || g.cover_photo_url || null,
         photoCount: g.photo_count || 0,
         accessCode: g.access_code,
         isLocked: g.is_locked,

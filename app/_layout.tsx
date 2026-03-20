@@ -76,7 +76,6 @@ export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
   }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.background }}>

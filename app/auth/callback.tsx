@@ -7,13 +7,15 @@ import Colors from '@/constants/colors';
 export default function AuthCallbackScreen() {
   const router = useRouter();
   const [status, setStatus] = useState('Processing authentication...');
-  const { url, provider, access_token, refresh_token, error, error_description } = useLocalSearchParams<{
+  const { url, provider, access_token, refresh_token, error, error_description, type, next } = useLocalSearchParams<{
     url?: string;
     provider?: string;
     access_token?: string;
     refresh_token?: string;
     error?: string;
     error_description?: string;
+    type?: string;
+    next?: string;
   }>();
 
   useEffect(() => {
@@ -64,6 +66,8 @@ export default function AuthCallbackScreen() {
 
         let finalAccessToken: string | undefined = access_token;
         let finalRefreshToken: string | undefined = refresh_token;
+        let finalType: string | undefined = type;
+        let finalNext: string | undefined = next;
 
         // If we have a URL parameter, extract tokens from it
         if (url && !access_token && !refresh_token) {
@@ -85,13 +89,21 @@ export default function AuthCallbackScreen() {
             }
           };
 
-          finalAccessToken = extractParam(url, 'access_token') || undefined;
-          finalRefreshToken = extractParam(url, 'refresh_token') || undefined;
-          const oauthError = extractParam(url, 'error');
+          const urlSource: string = url ?? '';
+          const at = extractParam(urlSource, 'access_token');
+          const rt = extractParam(urlSource, 'refresh_token');
+          const t = extractParam(urlSource, 'type');
+          const n = extractParam(urlSource, 'next');
+          const oe = extractParam(urlSource, 'error');
+          finalAccessToken = at || finalAccessToken;
+          finalRefreshToken = rt || finalRefreshToken;
+          finalType = t || finalType;
+          finalNext = n || finalNext;
+          const oauthError = oe;
 
           if (oauthError) {
             if (timeoutId) clearTimeout(timeoutId);
-            const errorDesc = extractParam(url, 'error_description');
+            const errorDesc = extractParam(urlSource, 'error_description');
             throw new Error(errorDesc || oauthError);
           }
 
@@ -139,6 +151,13 @@ export default function AuthCallbackScreen() {
             if (timeoutId) clearTimeout(timeoutId);
             console.log('[Auth Callback] Session verified successfully, navigating');
             setStatus('Authentication successful!');
+
+            if (finalType === 'recovery' || finalNext === 'forgot-password') {
+              setTimeout(() => {
+                router.replace('/forgot-password?mode=recovery');
+              }, 500);
+              return;
+            }
             
             // Fetch profile to route correctly (admin vs client)
             const { data: profile } = await supabase
@@ -195,7 +214,7 @@ export default function AuthCallbackScreen() {
     }
 
     handleAuthCallback();
-  }, [url, provider, access_token, refresh_token, error, error_description, router]);
+  }, [url, provider, access_token, refresh_token, error, error_description, type, next, router]);
 
   return (
     <View style={styles.container}>
