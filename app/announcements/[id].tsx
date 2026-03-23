@@ -9,6 +9,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBranding } from '@/contexts/BrandingContext';
 import type { Database } from '@/types/supabase';
 
 type Announcement = Database['public']['Tables']['announcements']['Row'];
@@ -41,6 +42,7 @@ export default function AnnouncementViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, profile } = useAuth();
+  const { announcementShareLink } = useBranding();
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
@@ -86,10 +88,9 @@ export default function AnnouncementViewerScreen() {
   const fetchComments = useCallback(async () => {
     if (!id) return;
     
-    // Simplest query that we know works from before, grabbing relations safely
     const { data } = await supabase
       .from('announcement_comments')
-      .select('*, user_profiles:client_id (name, avatar_url)')
+      .select('*, user_profiles(name, avatar_url)')
       .eq('announcement_id', id)
       .order('created_at', { ascending: true });
     
@@ -199,8 +200,13 @@ export default function AnnouncementViewerScreen() {
   const handleShare = async () => {
     if (!announcement) return;
     try {
+      const baseLink = announcementShareLink?.trim() || 'https://rork.app';
+      const link = baseLink.includes('{id}')
+        ? baseLink.replace('{id}', announcement.id)
+        : `${baseLink}${baseLink.endsWith('/') ? '' : '/'}${announcement.id}`;
       await Share.share({
-        message: `Check out this announcement: ${announcement.title}`,
+        message: `Check out this announcement: ${announcement.title}\n${link}`,
+        url: link,
       });
     } catch (error) {
       // ignore
@@ -286,7 +292,7 @@ export default function AnnouncementViewerScreen() {
                           <Video
                               source={{ uri: announcement.media_url || announcement.image_url || '' }}
                               style={styles.heroMedia}
-                              resizeMode={ResizeMode.COVER}
+                              resizeMode={ResizeMode.CONTAIN}
                               useNativeControls
                               isLooping
                           />
@@ -294,7 +300,7 @@ export default function AnnouncementViewerScreen() {
                           <Image
                               source={{ uri: announcement.media_url || announcement.image_url || '' }}
                               style={styles.heroMedia}
-                              contentFit="cover"
+                              contentFit="contain"
                           />
                       )}
                       
@@ -420,10 +426,7 @@ export default function AnnouncementViewerScreen() {
           animationType="fade"
           onRequestClose={() => setFullScreenMedia(false)}
         >
-          <Pressable 
-            style={styles.fullScreenBackdrop}
-            onPress={() => setFullScreenMedia(false)}
-          >
+          <View style={styles.fullScreenBackdrop}>
             {announcement?.media_type === 'video' ? (
               <Video
                 source={{ uri: announcement.media_url || announcement.image_url || '' }}
@@ -446,7 +449,7 @@ export default function AnnouncementViewerScreen() {
             >
               <X size={28} color="white" />
             </Pressable>
-          </Pressable>
+          </View>
         </Modal>
     </View>
   );
@@ -485,12 +488,13 @@ const styles = StyleSheet.create({
   heroContainer: {
     width: width,
     height: width * 0.75, // 4:3 aspect ratio
-    backgroundColor: Colors.card,
+    backgroundColor: Colors.background,
     position: 'relative',
+    overflow: 'hidden',
   },
   heroOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.2)', // Light darkening to make it look premium
+    backgroundColor: 'rgba(0,0,0,0.06)',
   },
   heroMedia: {
     ...StyleSheet.absoluteFillObject,

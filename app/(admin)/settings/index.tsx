@@ -162,16 +162,31 @@ export default function AdminSettingsScreen() {
   const [mpesaMode, setMpesaMode] = useState<'STK_PUSH' | 'MANUAL'>('STK_PUSH');
   const [shareAppLink, setShareAppLink] = useState('https://studio.epix.co/share/');
   const [accessCodeDeliveryLink, setAccessCodeDeliveryLink] = useState('https://studio.epix.co/unlock?code=');
+  const [btsShareLink, setBtsShareLink] = useState('https://studio.epix.co/bts/');
+  const [announcementShareLink, setAnnouncementShareLink] = useState('https://studio.epix.co/announcements/');
+  const [galleryShareLink, setGalleryShareLink] = useState('https://studio.epix.co/gallery/');
+  const [referralShareLink, setReferralShareLink] = useState('https://studio.epix.co/refer/');
+  const [whatsappShareLink, setWhatsappShareLink] = useState('https://wa.me/');
 
   const handleSaveLinks = useCallback(async () => {
     try {
       setSavingLinks(true);
+      await updateBranding({
+        share_app_link: shareAppLink.trim(),
+        access_code_link: accessCodeDeliveryLink.trim(),
+        bts_share_link: btsShareLink.trim(),
+        announcement_share_link: announcementShareLink.trim(),
+        gallery_share_link: galleryShareLink.trim(),
+        referral_link: referralShareLink.trim(),
+        whatsapp_share_link: whatsappShareLink.trim(),
+      });
+
       const { error } = await supabase
         .from('admin_settings')
         .upsert({
           admin_id: user?.id,
-          share_app_link: shareAppLink,
-          access_code_delivery_link: accessCodeDeliveryLink,
+          share_app_link: shareAppLink.trim(),
+          access_code_delivery_link: accessCodeDeliveryLink.trim(),
           updated_at: new Date().toISOString()
         }, { onConflict: 'admin_id' });
 
@@ -183,7 +198,7 @@ export default function AdminSettingsScreen() {
     } finally {
       setSavingLinks(false);
     }
-  }, [user?.id, shareAppLink, accessCodeDeliveryLink]);
+  }, [user?.id, shareAppLink, accessCodeDeliveryLink, btsShareLink, announcementShareLink, galleryShareLink, referralShareLink, whatsappShareLink, updateBranding]);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -217,6 +232,13 @@ export default function AdminSettingsScreen() {
     setWatermarkSize((brandSettings.watermark_size ?? 'medium') as any);
     setWatermarkPosition((brandSettings.watermark_position ?? 'center') as any);
     setScreenshotProtection(!!brandSettings.block_screenshots);
+    setShareAppLink(brandSettings.share_app_link ?? DEFAULTS.shareAppLink);
+    setAccessCodeDeliveryLink(brandSettings.access_code_link ?? DEFAULTS.accessCodeLink);
+    setBtsShareLink(brandSettings.bts_share_link ?? brandSettings.share_app_link ?? DEFAULTS.btsShareLink);
+    setAnnouncementShareLink(brandSettings.announcement_share_link ?? brandSettings.share_app_link ?? DEFAULTS.announcementShareLink);
+    setGalleryShareLink(brandSettings.gallery_share_link ?? brandSettings.share_app_link ?? DEFAULTS.galleryShareLink);
+    setReferralShareLink(brandSettings.referral_link ?? brandSettings.share_app_link ?? DEFAULTS.referralLink);
+    setWhatsappShareLink(brandSettings.whatsapp_share_link ?? brandSettings.share_app_link ?? DEFAULTS.whatsappShareLink);
   }, [brandSettings?.id, brandSettings?.updated_at]);
 
   const activityLog = useMemo(
@@ -684,6 +706,61 @@ export default function AdminSettingsScreen() {
                 value={accessCodeDeliveryLink}
                 onChangeText={setAccessCodeDeliveryLink}
                 placeholder="Access Code Delivery Link"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="none"
+              />
+            </View>
+            <View style={styles.inputRow}>
+              <ExternalLink size={16} color={Colors.textMuted} />
+              <TextInput
+                style={styles.settingsInput}
+                value={galleryShareLink}
+                onChangeText={setGalleryShareLink}
+                placeholder="Gallery Share Link"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="none"
+              />
+            </View>
+            <View style={styles.inputRow}>
+              <ExternalLink size={16} color={Colors.textMuted} />
+              <TextInput
+                style={styles.settingsInput}
+                value={btsShareLink}
+                onChangeText={setBtsShareLink}
+                placeholder="BTS Share Link"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="none"
+              />
+            </View>
+            <View style={styles.inputRow}>
+              <ExternalLink size={16} color={Colors.textMuted} />
+              <TextInput
+                style={styles.settingsInput}
+                value={announcementShareLink}
+                onChangeText={setAnnouncementShareLink}
+                placeholder="Announcements Share Link"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="none"
+              />
+            </View>
+            <View style={styles.inputRow}>
+              <Share2 size={16} color={Colors.textMuted} />
+              <TextInput
+                style={styles.settingsInput}
+                value={referralShareLink}
+                onChangeText={setReferralShareLink}
+                placeholder="Referral Share Link"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="none"
+              />
+            </View>
+            <View style={styles.inputRow}>
+              <ExternalLink size={16} color={Colors.textMuted} />
+              <TextInput
+                style={styles.settingsInput}
+                value={whatsappShareLink}
+                onChangeText={setWhatsappShareLink}
+                placeholder="WhatsApp Message Link"
                 placeholderTextColor={Colors.textMuted}
                 autoCapitalize="none"
               />

@@ -7,11 +7,12 @@ import Colors from '@/constants/colors';
 export default function AuthCallbackScreen() {
   const router = useRouter();
   const [status, setStatus] = useState('Processing authentication...');
-  const { url, provider, access_token, refresh_token, error, error_description, type, next } = useLocalSearchParams<{
+  const { url, provider, access_token, refresh_token, code, error, error_description, type, next } = useLocalSearchParams<{
     url?: string;
     provider?: string;
     access_token?: string;
     refresh_token?: string;
+    code?: string;
     error?: string;
     error_description?: string;
     type?: string;
@@ -29,6 +30,7 @@ export default function AuthCallbackScreen() {
           provider,
           hasAccessToken: !!access_token,
           hasRefreshToken: !!refresh_token,
+          hasCode: !!code,
           error,
         });
 
@@ -66,6 +68,7 @@ export default function AuthCallbackScreen() {
 
         let finalAccessToken: string | undefined = access_token;
         let finalRefreshToken: string | undefined = refresh_token;
+        let finalCode: string | undefined = code;
         let finalType: string | undefined = type;
         let finalNext: string | undefined = next;
 
@@ -92,11 +95,13 @@ export default function AuthCallbackScreen() {
           const urlSource: string = url ?? '';
           const at = extractParam(urlSource, 'access_token');
           const rt = extractParam(urlSource, 'refresh_token');
+          const c = extractParam(urlSource, 'code');
           const t = extractParam(urlSource, 'type');
           const n = extractParam(urlSource, 'next');
           const oe = extractParam(urlSource, 'error');
           finalAccessToken = at || finalAccessToken;
           finalRefreshToken = rt || finalRefreshToken;
+          finalCode = c || finalCode;
           finalType = t || finalType;
           finalNext = n || finalNext;
           const oauthError = oe;
@@ -109,8 +114,20 @@ export default function AuthCallbackScreen() {
 
           console.log('[Auth Callback] Extracted tokens:', { 
             hasAccessToken: !!finalAccessToken,
-            hasRefreshToken: !!finalRefreshToken
+            hasRefreshToken: !!finalRefreshToken,
+            hasCode: !!finalCode,
           });
+        }
+
+        if ((!finalAccessToken || !finalRefreshToken) && finalCode) {
+          setStatus('Exchanging authorization code...');
+          console.log('[Auth Callback] Exchanging authorization code for session');
+          const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(finalCode);
+          if (exchangeError) {
+            throw exchangeError;
+          }
+          finalAccessToken = exchangeData?.session?.access_token ?? finalAccessToken;
+          finalRefreshToken = exchangeData?.session?.refresh_token ?? finalRefreshToken;
         }
 
         if (finalAccessToken && finalRefreshToken) {
@@ -214,7 +231,7 @@ export default function AuthCallbackScreen() {
     }
 
     handleAuthCallback();
-  }, [url, provider, access_token, refresh_token, error, error_description, type, next, router]);
+  }, [url, provider, access_token, refresh_token, code, error, error_description, type, next, router]);
 
   return (
     <View style={styles.container}>

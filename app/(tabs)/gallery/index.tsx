@@ -251,7 +251,7 @@ function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; 
 export default function GalleryScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { brandName, blockScreenshots, setActiveAdminId, accessCodeLink, shareAppLink } = useBranding();
+  const { brandName, blockScreenshots, setActiveAdminId, accessCodeLink, shareAppLink, galleryShareLink } = useBranding();
   const pathname = usePathname();
   const searchParams = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<TabType>('my-galleries');
@@ -724,11 +724,12 @@ export default function GalleryScreen() {
   }, [paymentGallery, selectedGallery]);
 
   const resolveGalleryLink = useCallback((gallery: GalleryRow) => {
-    const rawLink = gallery.access_code ? `${accessCodeLink}${gallery.access_code}` : shareAppLink;
-    const normalized = rawLink.startsWith('epix-visuals://') ? shareAppLink : rawLink;
+    const baseGalleryLink = galleryShareLink || shareAppLink;
+    const rawLink = gallery.access_code ? `${accessCodeLink}${gallery.access_code}` : baseGalleryLink;
+    const normalized = rawLink.startsWith('epix-visuals://') ? baseGalleryLink : rawLink;
     if (!normalized || normalized.includes('rork.app')) return '';
     return normalized;
-  }, [accessCodeLink, shareAppLink]);
+  }, [accessCodeLink, galleryShareLink, shareAppLink]);
 
   const openAdvancedShare = useCallback((title: string, message: string, link: string) => {
     setShareSheet({ title, message, link });
@@ -1491,7 +1492,7 @@ export default function GalleryScreen() {
                         showWatermark={!canViewClean}
                         isBlurred={!canViewClean && (i * 2) >= 3}
                         accessCodeLink={accessCodeLink}
-                        shareAppLink={shareAppLink}
+                        shareAppLink={galleryShareLink || shareAppLink}
                         isGalleryUnpaid={!!selectedGallery && !selectedGallery.is_paid && selectedGallery.is_locked}
                       />
                     ))}
@@ -1508,7 +1509,7 @@ export default function GalleryScreen() {
                         showWatermark={!canViewClean}
                         isBlurred={!canViewClean && (i * 2 + 1) >= 3}
                         accessCodeLink={accessCodeLink}
-                        shareAppLink={shareAppLink}
+                        shareAppLink={galleryShareLink || shareAppLink}
                         isGalleryUnpaid={!!selectedGallery && !selectedGallery.is_paid && selectedGallery.is_locked}
                       />
                     ))}
@@ -1766,6 +1767,7 @@ const styles = StyleSheet.create({
   },
   tabsWrapper: {
     flexGrow: 0,
+    marginHorizontal: 20,
     marginBottom: 16,
   },
   tabsContent: {
@@ -1779,14 +1781,10 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(212,175,55,0.28)',
-    shadowColor: Colors.gold,
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
   },
   tab: {
-    paddingHorizontal: 14,
+    flex: 1,
+    paddingHorizontal: 8,
     paddingVertical: 11,
     borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.05)',
@@ -1797,13 +1795,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tabActive: {
-    backgroundColor: 'rgba(212,175,55,0.26)',
+    backgroundColor: 'rgba(212,175,55,0.18)',
     borderColor: 'rgba(212,175,55,0.9)',
-    shadowColor: Colors.gold,
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
   },
   tabText: {
     fontSize: 12,

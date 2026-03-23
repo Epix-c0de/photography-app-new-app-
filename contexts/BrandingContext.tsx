@@ -36,6 +36,11 @@ interface BrandingState {
   blockScreenshots: boolean;
   shareAppLink: string;
   accessCodeLink: string;
+  btsShareLink: string;
+  announcementShareLink: string;
+  galleryShareLink: string;
+  referralLink: string;
+  whatsappShareLink: string;
 }
 
 export const DEFAULTS = {
@@ -51,6 +56,11 @@ export const DEFAULTS = {
   blockScreenshots: true,
   shareAppLink: 'https://rork.app',
   accessCodeLink: 'epix-visuals://gallery?autoUnlock=true&accessCode=',
+  btsShareLink: 'https://rork.app',
+  announcementShareLink: 'https://rork.app',
+  galleryShareLink: 'https://rork.app',
+  referralLink: 'https://rork.app',
+  whatsappShareLink: 'https://rork.app',
 };
 
 export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(() => {
@@ -222,6 +232,11 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       blockScreenshots: settings?.block_screenshots ?? DEFAULTS.blockScreenshots,
       shareAppLink: settings?.share_app_link ?? DEFAULTS.shareAppLink,
       accessCodeLink: settings?.access_code_link ?? DEFAULTS.accessCodeLink,
+      btsShareLink: settings?.bts_share_link ?? settings?.share_app_link ?? DEFAULTS.btsShareLink,
+      announcementShareLink: settings?.announcement_share_link ?? settings?.share_app_link ?? DEFAULTS.announcementShareLink,
+      galleryShareLink: settings?.gallery_share_link ?? settings?.share_app_link ?? DEFAULTS.galleryShareLink,
+      referralLink: settings?.referral_link ?? settings?.share_app_link ?? DEFAULTS.referralLink,
+      whatsappShareLink: settings?.whatsapp_share_link ?? settings?.share_app_link ?? DEFAULTS.whatsappShareLink,
     };
   }, [settings]);
 

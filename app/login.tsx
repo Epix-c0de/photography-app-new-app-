@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert, Linking as NativeLinking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as ExpoLinking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
@@ -90,7 +91,7 @@ export default function LoginScreen() {
       }
 
       // 1. Native-only redirect URI for Play Store app
-      const redirectUrl = 'epix-visuals://auth/callback';
+      const redirectUrl = ExpoLinking.createURL('auth/callback');
 
       console.log('[Google Sign-In] redirectUrl:', redirectUrl);
 
@@ -117,7 +118,7 @@ export default function LoginScreen() {
       console.log('[Google Sign-In] Opening browser for:', data.url);
 
       if (Platform.OS === 'android') {
-        await Linking.openURL(data.url);
+        await NativeLinking.openURL(data.url);
         setIsSubmitting(false);
         return;
       }

@@ -1,0 +1,85 @@
+{
+  "expo": {
+    "name": "Epix Visuals Studios.co",
+    "slug": "epix-visuals-studios-co",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/adaptive-icon.png",
+    "scheme": "epix-visuals",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/adaptive-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "app.rork.epix-visuals-studios-co",
+      "infoPlist": {
+        "NSBonjourServices": [
+          "_http._tcp",
+          "_https._tcp",
+          "_http._tcp",
+          "_https._tcp"
+        ],
+        "NSLocalNetworkUsageDescription": "Allow local network access for authentication",
+        "NSBonjourServiceTypes": [
+          "_http._tcp",
+          "_https._tcp",
+          "_http._tcp",
+          "_https._tcp"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "SEND_SMS",
+        "READ_SMS",
+        "RECEIVE_SMS",
+        "READ_PHONE_STATE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
+      "package": "app.rork.epix_visuals_studios_co",
+      "intentFilters": [
+        {
+          "action": "android.intent.action.VIEW",
+          "data": [
+            {
+              "scheme": "epix-visuals",
+              "host": "auth",
+              "pathPrefix": "/callback"
+            }
+          ],
+          "category": [
+            "android.intent.category.BROWSABLE",
+            "android.intent.category.DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/adaptive-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3ebabefa-64dc-4b36-b71c-94c1753e94d7"
+      }
+    }
+  }
+}

@@ -85,7 +85,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, profile, logout } = useAuth();
-  const { shareAppLink } = useBranding();
+  const { referralLink } = useBranding();
   const [showInvoices, setShowInvoices] = useState<boolean>(false);
 
   const [payments, setPayments] = useState<PaymentRow[]>([]);
@@ -348,7 +348,7 @@ export default function ProfileScreen() {
     // Guard against concurrent share calls which cause 'earlier share not completed' error
     if (isSharingRef.current) return;
     isSharingRef.current = true;
-    const url = shareAppLink;
+    const url = referralLink;
     const message = `Check out our studio! View our portfolio and app here: ${url}`;
     try {
       await Share.share({

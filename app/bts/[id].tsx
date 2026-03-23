@@ -36,6 +36,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBranding } from '@/contexts/BrandingContext';
 import type { Database } from '@/types/supabase';
 
 const { width, height } = Dimensions.get('window');
@@ -62,6 +63,7 @@ export default function BTSViewerScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
+  const { btsShareLink } = useBranding();
 
   const [posts, setPosts] = useState<BTSWithSocial[]>([]);
   const [loading, setLoading] = useState(true);
@@ -352,7 +354,11 @@ export default function BTSViewerScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionBtn} onPress={() => {
-            Share.share({ message: `Check out this BTS: ${item.title}` });
+            const baseLink = btsShareLink?.trim() || 'https://rork.app';
+            const link = baseLink.includes('{id}')
+              ? baseLink.replace('{id}', item.id)
+              : `${baseLink}${baseLink.endsWith('/') ? '' : '/'}${item.id}`;
+            Share.share({ message: `Check out this BTS: ${item.title}\n${link}`, url: link });
             (supabase as any).rpc('increment_shares', { row_id: item.id, table_name: 'bts_posts' });
           }}>
             <Share2 size={34} color="white" />

@@ -721,6 +721,8 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: 120 }}
@@ -803,9 +805,8 @@ export default function HomeScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.btsList}
-              snapToInterval={BTS_SNAP}
-              decelerationRate="fast"
-              nestedScrollEnabled
+              directionalLockEnabled
+              removeClippedSubviews={false}
               onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: btsScrollX } } }], { useNativeDriver: true })}
               scrollEventThrottle={16}
             />

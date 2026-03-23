@@ -1,0 +1,30 @@
+# Migration Plan: Porting functionality from [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx) to [index.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/index.tsx)
+
+## Goal
+Replace the underlying upload, validation, and notification logic in [index.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/index.tsx) with the logic from [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx), while preserving the beautiful, premium UI we just built in [index.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/index.tsx).
+
+## Key Functionality Differences Identified
+1. **Access Code Generation:** [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx) generates codes based on the gallery title (e.g., `WED-1234`). [index.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/index.tsx) uses a random generated code.
+2. **Duplicate Gallery Validation:** [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx) checks if a gallery with the same name already exists for the selected client and warns the user.
+3. **Upload Logic:** [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx) manually converts URIs to blobs and uploads to the `photos` bucket, then inserts into the `photos` table.
+4. **Notifications:** [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx) inserts a record into the `notifications` table.
+5. **Success Actions (SMS/WhatsApp):** [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx) uses `Linking.openURL` with `sms:` and `wa.me` to open native apps with pre-filled messages.
+
+## Proposed Changes
+
+### 1. [app/(admin)/upload/index.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/index.tsx)
+*   **Duplicate Validation:** Add the duplicate gallery name check before starting the upload. If a duplicate exists, show an `Alert` asking if they want to continue anyway.
+*   **Access Code Generation:** Update the `useEffect` on `galleryTitle` to automatically generate the `PREFIX-1234` style access code.
+*   **Upload Implementation ([handleUpload](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/index.tsx#1380-1601)):**
+    *   Update the photo upload loop to match [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx) exactly:
+        *   `fetch(uri).blob()`
+        *   `supabase.storage.from('photos').upload(...)`
+        *   `supabase.from('photos').insert(...)`
+    *   Update the notifications logic to insert into the `notifications` table exactly like [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx).
+*   **Success Modal / Actions:** Add the [handleSendSMS](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx#134-162) and [handleSendWhatsApp](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/index.tsx#163-181) methods using `Linking`. Display a premium success state (either via Modal or replacing the screen content) that offers these two buttons.
+
+### 2. [services/admin.ts](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/services/admin.ts)
+*   Since we are moving to the exact logic from [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx), we will implement its insertion logic directly in [index.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/index.tsx) (as it originally was in [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx)), or ensure `AdminService` is aligned. [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx) actually does a lot of the Supabase calls directly in the component. We will faithfully port that over.
+
+> [!WARNING]
+> In [upload.tsx](file:///C:/Users/karis/NEW%20APP%20TEMPLATE/app/%28admin%29/upload/upload.tsx), there's a bug where it calls both `AdminService.gallery.create` (which uses Edge Functions) AND `AdminService.gallery.createDirect`. I will ensure we only use the direct creation method to avoid the Edge Function error we fixed earlier.

@@ -1,0 +1,7 @@
+{
+  "name": "local-sms-gateway",
+  "platforms": ["android"],
+  "android": {
+    "modules": ["expo.modules.localsmsgateway.LocalSmsGatewayModule"]
+  }
+}

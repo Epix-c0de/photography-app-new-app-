@@ -644,7 +644,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (profileError) {
           console.error('Profile fetch failed:', profileError);
         }
-        setState(prev => ({ ...prev, isLoading: false, isAuthenticated: false }));
+        const fallbackProfile: UserProfile = {
+          id: session.user.id,
+          role: 'client',
+          name:
+            (session.user?.user_metadata as any)?.full_name ??
+            (session.user?.user_metadata as any)?.name ??
+            session.user.email ??
+            null,
+          email: session.user.email ?? null,
+          phone: (session.user?.user_metadata as any)?.phone ?? null,
+          avatar_url: (session.user?.user_metadata as any)?.avatar_url ?? null,
+          pin_hash: null,
+          biometric_enabled: null,
+          client_type: null,
+          profile_complete: false,
+          created_at: new Date().toISOString(),
+        };
+        setState(prev => ({
+          ...prev,
+          user: session.user,
+          profile: fallbackProfile,
+          session,
+          isAuthenticated: true,
+          requiresSecuritySetup: false,
+          requiresAuthOnLaunch: false,
+          isLoading: false,
+        }));
+        try {
+          await ClientService.clients.ensureLinkedRecordsForCurrentUser();
+        } catch {}
       }
     } catch (error) {
       console.error('Auth check error:', error);
