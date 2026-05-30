@@ -131,6 +131,7 @@ export default function AdminBtsAnnouncementsScreen() {
   const [btsExpiryDays, setBtsExpiryDays] = useState('7');
   const [btsScheduledFor, setBtsScheduledFor] = useState('');
   const [btsMusicFile, setBtsMusicFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  const [btsVisibility, setBtsVisibility] = useState<'global' | 'admin_only'>('global');
 
   // Announcement Form State
   const [annPicked, setAnnPicked] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -408,6 +409,7 @@ export default function AdminBtsAnnouncementsScreen() {
           created_by: user?.id,
           caption: btsTitle,
           media_aspect_ratio: btsPicked.width / btsPicked.height,
+          visibility: btsVisibility,
         })
         .select()
         .single();
@@ -484,7 +486,7 @@ export default function AdminBtsAnnouncementsScreen() {
       Alert.alert(errorTitle, errorDetails + '\n\nPlease check your internet connection and try again.', [{ text: 'OK' }]);
       setPosting(false);
     }
-  }, [btsPicked, btsTitle, btsCategory, btsExpiryDays, btsScheduledFor, btsMusicFile, user]);
+  }, [btsPicked, btsTitle, btsCategory, btsExpiryDays, btsScheduledFor, btsMusicFile, btsVisibility, user]);
 
   const uploadAnnouncement = useCallback(async () => {
     if (!annPicked || !annTitle.trim()) {
@@ -1035,6 +1037,29 @@ export default function AdminBtsAnnouncementsScreen() {
                   </Pressable>
                 ))}
               </ScrollView>
+            </View>
+
+            {/* Visibility toggle */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Audience</Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Pressable
+                  style={[styles.categoryButton, btsVisibility === 'global' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
+                  onPress={() => setBtsVisibility('global')}
+                >
+                  <Text style={[styles.categoryButtonText, btsVisibility === 'global' && styles.categoryButtonTextActive]}>
+                    🌍 All Clients
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.categoryButton, btsVisibility === 'admin_only' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
+                  onPress={() => setBtsVisibility('admin_only')}
+                >
+                  <Text style={[styles.categoryButtonText, btsVisibility === 'admin_only' && styles.categoryButtonTextActive]}>
+                    🔒 My Clients Only
+                  </Text>
+                </Pressable>
+              </View>
             </View>
 
             {/* Expiry */}

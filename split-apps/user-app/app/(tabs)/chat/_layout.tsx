@@ -12,6 +12,7 @@ export default function ChatLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="threads" options={{ headerShown: false }} />
     </Stack>
   );
 }

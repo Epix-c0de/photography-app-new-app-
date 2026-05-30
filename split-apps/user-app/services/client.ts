@@ -318,14 +318,39 @@ export const ClientService = {
         return demoBtsPosts;
       }
       const nowIso = new Date().toISOString();
+
+      // Get the current user's linked admin IDs (for admin_only posts)
+      const { data: { user } } = await supabase.auth.getUser();
+      let myAdminIds: string[] = [];
+      if (user) {
+        const { data: myClients } = await supabase
+          .from('clients')
+          .select('owner_admin_id')
+          .eq('user_id', user.id);
+        myAdminIds = (myClients || [])
+          .map((c: any) => c.owner_admin_id)
+          .filter(Boolean);
+      }
+
+      // Build the visibility filter:
+      // Show 'global' posts OR 'admin_only' posts from photographers the client is linked to
+      let visibilityFilter = 'visibility.eq.global';
+      if (myAdminIds.length > 0) {
+        const adminFilter = myAdminIds
+          .map(id => `and(visibility.eq.admin_only,created_by.eq.${id})`)
+          .join(',');
+        visibilityFilter = `${visibilityFilter},${adminFilter}`;
+      }
+
       const { data, error } = await supabase
         .from('bts_posts')
         .select('*')
         .eq('is_active', true)
         .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
         .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
+        .or(visibilityFilter)
         .order('created_at', { ascending: false });
-        
+
       if (error) throw error;
       return data;
     }
