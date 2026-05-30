@@ -162,6 +162,7 @@ export default function AdminSettingsScreen() {
   const [mpesaMode, setMpesaMode] = useState<'STK_PUSH' | 'MANUAL'>('STK_PUSH');
   const [shareAppLink, setShareAppLink] = useState('https://studio.epix.co/share/');
   const [accessCodeDeliveryLink, setAccessCodeDeliveryLink] = useState('https://studio.epix.co/unlock?code=');
+  const [pendingManualPayments, setPendingManualPayments] = useState(0);
 
   const handleSaveLinks = useCallback(async () => {
     try {
@@ -198,6 +199,16 @@ export default function AdminSettingsScreen() {
         if (data.share_app_link) setShareAppLink(data.share_app_link);
         if (data.access_code_delivery_link) setAccessCodeDeliveryLink(data.access_code_delivery_link);
       }
+
+      // Fetch pending manual payments count
+      try {
+        const { count } = await supabase
+          .from('manual_payments')
+          .select('*', { count: 'exact', head: true })
+          .eq('admin_id', user.id)
+          .eq('status', 'pending');
+        setPendingManualPayments(count || 0);
+      } catch {}
     };
     fetchSettings();
   }, [user]);
@@ -219,14 +230,25 @@ export default function AdminSettingsScreen() {
     setScreenshotProtection(!!brandSettings.block_screenshots);
   }, [brandSettings?.id, brandSettings?.updated_at]);
 
-  const activityLog = useMemo(
-    () => ([
-      { id: 'a1', label: 'Admin login', meta: 'Today • Web' },
-      { id: 'a2', label: 'Viewed SMS logs', meta: 'Today • Admin panel' },
-      { id: 'a3', label: 'Opened settings', meta: 'Today • Security' },
-    ]),
-    []
-  );
+  const [activityLog, setActivityLog] = useState<any[]>([]);
+
+  // Fetch real activity log from admin_audit_log table
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      try {
+        const { data: logs, error } = await supabase
+          .from('admin_audit_log')
+          .select('*')
+          .eq('admin_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        if (!error) setActivityLog(logs || []);
+      } catch {
+        // Table may not exist yet — show empty state
+      }
+    })();
+  }, [user?.id]);
 
   const validatePassword = useCallback((password: string): string | null => {
     if (password.length < 10) return 'Password must be at least 10 characters.';
@@ -448,6 +470,13 @@ export default function AdminSettingsScreen() {
                 onPress={() => router.push('/settings/payments')}
                 showArrow
               />
+              <SettingsRow
+                icon={<CreditCard size={18} color={Colors.warning} />}
+                label="Manual Payments"
+                description={pendingManualPayments > 0 ? `${pendingManualPayments} pending verification` : 'Review client payment submissions'}
+                onPress={() => router.push('/settings/manual-payments')}
+                showArrow
+              />
             </SettingsSection>
 
             <SettingsSection title="BRANDING">
@@ -576,28 +605,6 @@ export default function AdminSettingsScreen() {
                   </View>
                 </>
               )}
-
-              <View style={styles.inputRow}>
-                <Share2 size={16} color={Colors.textMuted} />
-                <TextInput
-                  style={styles.settingsInput}
-                  value={shareAppLink}
-                  onChangeText={setShareAppLink}
-                  placeholder="App share link"
-                  placeholderTextColor={Colors.textMuted}
-                />
-              </View>
-
-              <View style={styles.inputRow}>
-                <ExternalLink size={16} color={Colors.textMuted} />
-                <TextInput
-                  style={styles.settingsInput}
-                  value={accessCodeDeliveryLink}
-                  onChangeText={setAccessCodeDeliveryLink}
-                  placeholder="Access code direct link"
-                  placeholderTextColor={Colors.textMuted}
-                />
-              </View>
             </SettingsSection>
 
             <SettingsSection title="SECURITY">
@@ -1103,12 +1110,20 @@ export default function AdminSettingsScreen() {
               />
               <View style={styles.logBlock}>
                 <Text style={styles.logTitle}>Admin activity</Text>
-                {activityLog.map((e) => (
-                  <View key={e.id} style={styles.logRow}>
-                    <Text style={styles.logLabel}>{e.label}</Text>
-                    <Text style={styles.logMeta}>{e.meta}</Text>
-                  </View>
-                ))}
+                {activityLog.length === 0 ? (
+                  <Text style={styles.logMeta}>No activity recorded yet.</Text>
+                ) : (
+                  activityLog.map((e) => (
+                    <View key={e.id} style={styles.logRow}>
+                      <Text style={styles.logLabel}>{e.action || e.label || 'Action'}</Text>
+                      <Text style={styles.logMeta}>
+                        {e.created_at
+                          ? new Date(e.created_at).toLocaleString()
+                          : e.meta || ''}
+                      </Text>
+                    </View>
+                  ))
+                )}
               </View>
             </SettingsSection>
           </>

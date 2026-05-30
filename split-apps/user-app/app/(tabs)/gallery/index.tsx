@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated as RNAnimated, Dimensions, Alert, Share, ActivityIndicator, Platform, Linking, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated as RNAnimated, Dimensions, Alert, Share, ActivityIndicator, Platform, Linking, Modal, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -1052,6 +1052,16 @@ export default function GalleryScreen() {
   useEffect(() => {
     fetchClientId().then(() => fetchGalleries());
   }, [fetchClientId, fetchGalleries]);
+
+  // Fix 12: Refresh signed URLs when app returns to foreground (they expire after 1 hour)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        fetchGalleries({ silent: true });
+      }
+    });
+    return () => subscription.remove();
+  }, [fetchGalleries]);
 
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null;

@@ -321,6 +321,19 @@ export const AdminService = {
       // 3. Merge profiles and CRM data
       const clientMap = new Map((clients || []).map((c: any) => [c.user_id, c]));
 
+      // 4. Count galleries per CRM client ID
+      const clientIds = (clients || []).map((c: any) => c.id).filter(Boolean);
+      let galleryCounts = new Map<string, number>();
+      if (clientIds.length > 0) {
+        const { data: galleriesData } = await supabase
+          .from('galleries')
+          .select('client_id')
+          .in('client_id', clientIds);
+        (galleriesData || []).forEach((g: any) => {
+          galleryCounts.set(g.client_id, (galleryCounts.get(g.client_id) || 0) + 1);
+        });
+      }
+
       const transformed = (profiles || []).map((p: any) => {
         const crmData = clientMap.get(p.id);
         return {
@@ -332,7 +345,7 @@ export const AdminService = {
           avatar_url: p.avatar_url || null,
           loyalty_level: crmData?.loyalty_level || 'Bronze',
           total_spent: crmData?.total_paid || 0,
-          total_galleries: 0,
+          total_galleries: galleryCounts.get(crmData?.id) || 0,
         };
       });
 
@@ -455,7 +468,7 @@ export const AdminService = {
           *,
           gallery_photos (id, photo_url)
         `)
-        // .eq('owner_admin_id', user.id) // Removed filter to show all galleries
+        .eq('owner_admin_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -1754,7 +1767,7 @@ export const AdminService = {
         .from('bookings')
         .select(`
           *,
-          packages(name),
+          packages(name, price, shoot_type),
           user_profiles!bookings_user_id_fkey(name, phone, avatar_url)
         `)
         .order('created_at', { ascending: false });

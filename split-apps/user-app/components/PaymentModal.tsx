@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, Modal, TextInput, ActivityIndicator, Pressable, Alert, Animated, Image, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { X, Smartphone, CheckCircle, AlertCircle, CreditCard } from 'lucide-react-native';
@@ -27,6 +27,26 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
   const [paymentSettings, setPaymentSettings] = useState<any>(null);
   const [mpesaMessage, setMpesaMessage] = useState('');
 
+  // Fix: store interval ref to prevent memory leaks
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Fix: track paymentState in a ref to avoid stale closures inside setInterval
+  const paymentStateRef = useRef<PaymentState>('idle');
+
+  const updatePaymentState = useCallback((state: PaymentState) => {
+    paymentStateRef.current = state;
+    setPaymentState(state);
+  }, []);
+
+  // Fix: cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   const readString = useCallback((value: unknown, key: string): string | null => {
     if (!value || typeof value !== 'object') return null;
     const record = value as Record<string, unknown>;
@@ -40,7 +60,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
 
   useEffect(() => {
     if (visible) {
-      setPaymentState('idle');
+      updatePaymentState('idle');
       setErrorMessage('');
       setPhoneNumber(clientPhone || '');
       setMpesaMessage('');
@@ -60,6 +80,11 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         })
       ]).start();
     } else {
+      // Fix: clear polling interval when modal closes
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
       Animated.parallel([
         Animated.timing(scaleAnim, {
           toValue: 0.9,
@@ -91,7 +116,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         setRecipientName(simple.business_name || 'Photographer');
         // If mpesa is disabled, switch to manual payment state
         if (simple.mpesa_enabled === false) {
-          setPaymentState('manual_payment');
+          updatePaymentState('manual_payment');
         }
         return;
       }
@@ -108,7 +133,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         setRecipientName(`Paybill/Till: ${advanced.shortcode}`);
         // If mpesa is disabled, switch to manual payment state
         if (advanced.mpesa_enabled === false) {
-          setPaymentState('manual_payment');
+          updatePaymentState('manual_payment');
         }
       }
     } catch (e) {
@@ -134,7 +159,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
 
         try {
           // Trigger STK Push via Edge Function
-          const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
+          const { data, error } = await supabase.functions.invoke('stk_push', {
             body: {
               phone_number: phoneNumber,
               amount: gallery.price,
@@ -193,7 +218,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
               { 
                 text: 'I\'ve Sent It', 
                 onPress: () => {
-                  setPaymentState('verifying');
+                  updatePaymentState('verifying');
                   // Start polling for payment verification
                   startManualPolling(gallery.id);
                 }
@@ -202,7 +227,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
           );
         } catch (e: any) {
           console.error('Failed to create manual payment record:', e);
-          setPaymentState('failed');
+          updatePaymentState('failed');
           setErrorMessage('Could not initiate payment. Please try again.');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
@@ -216,12 +241,12 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       return;
     }
 
-    setPaymentState('initiating');
+    updatePaymentState('initiating');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // 1. Trigger STK Push via Edge Function
-      const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
+      // 1. Trigger STK Push via Edge Function — standardized to 'stk_push'
+      const { data, error } = await supabase.functions.invoke('stk_push', {
         body: {
           phone_number: phoneNumber,
           amount: gallery.price,
@@ -241,29 +266,35 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         throw new Error('Payment initiated but missing checkout request id.');
       }
 
-      setPaymentState('waiting');
+      updatePaymentState('waiting');
       startPolling(checkoutRequestId, gallery.id);
 
     } catch (e: any) {
       console.error('Payment initiation failed:', e);
-      setPaymentState('failed');
+      updatePaymentState('failed');
       setErrorMessage(e.message || 'Could not initiate payment.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   };
 
-  const startPolling = async (checkoutRequestId: string, galleryId: string) => {
+  const startPolling = (checkoutRequestId: string, galleryId: string) => {
     // Poll every 2 seconds for 1.5 minutes (Daraja timeout is usually 60s)
     const pollInterval = 2000;
     const maxAttempts = 45; 
     let attempts = 0;
 
-    const interval = setInterval(async () => {
+    // Clear any existing interval before starting a new one
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
       attempts++;
       
-      // After 20 seconds of waiting, switch UI to "verifying"
-      if (attempts > 10 && paymentState === 'waiting') {
-        setPaymentState('verifying');
+      // Fix: use ref to avoid stale closure on paymentState
+      if (attempts > 10 && paymentStateRef.current === 'waiting') {
+        updatePaymentState('verifying');
       }
 
       try {
@@ -278,21 +309,24 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         if (error) throw error;
 
         if (data?.status === 'success') {
-          clearInterval(interval);
-          setPaymentState('success');
+          clearInterval(pollingIntervalRef.current!);
+          pollingIntervalRef.current = null;
+          updatePaymentState('success');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           setTimeout(() => {
             onSuccess();
             onClose();
           }, 3000); // Give time for celebration
         } else if (data?.status === 'failed' || data?.status === 'cancelled') {
-          clearInterval(interval);
-          setPaymentState('failed');
+          clearInterval(pollingIntervalRef.current!);
+          pollingIntervalRef.current = null;
+          updatePaymentState('failed');
           setErrorMessage(data.result_desc || 'Payment was unsuccessful.');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         } else if (attempts >= maxAttempts) {
-          clearInterval(interval);
-          setPaymentState('failed');
+          clearInterval(pollingIntervalRef.current!);
+          pollingIntervalRef.current = null;
+          updatePaymentState('failed');
           setErrorMessage('Payment verification timed out. If you have been charged, please contact support.');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
@@ -302,13 +336,19 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     }, pollInterval);
   };
 
-  const startManualPolling = async (galleryId: string) => {
+  const startManualPolling = (galleryId: string) => {
     // Poll every 5 seconds for 10 minutes (manual payment verification)
     const pollInterval = 5000;
     const maxAttempts = 120; // 10 minutes
     let attempts = 0;
 
-    const interval = setInterval(async () => {
+    // Clear any existing interval before starting a new one
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
       attempts++;
 
       try {
@@ -324,21 +364,24 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         if (error) throw error;
 
         if (data?.status === 'verified') {
-          clearInterval(interval);
-          setPaymentState('success');
+          clearInterval(pollingIntervalRef.current!);
+          pollingIntervalRef.current = null;
+          updatePaymentState('success');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           setTimeout(() => {
             onSuccess();
             onClose();
           }, 3000);
         } else if (data?.status === 'rejected') {
-          clearInterval(interval);
-          setPaymentState('failed');
+          clearInterval(pollingIntervalRef.current!);
+          pollingIntervalRef.current = null;
+          updatePaymentState('failed');
           setErrorMessage('Payment was rejected. Please try again or contact support.');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         } else if (attempts >= maxAttempts) {
-          clearInterval(interval);
-          setPaymentState('failed');
+          clearInterval(pollingIntervalRef.current!);
+          pollingIntervalRef.current = null;
+          updatePaymentState('failed');
           setErrorMessage('Payment verification timed out. Please contact the admin to verify your payment.');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
@@ -355,12 +398,12 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       return;
     }
 
-    setPaymentState('verifying');
+    updatePaymentState('verifying');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // Extract M-Pesa code from message (common format: [Code] or Confirmation Code [Code])
-      const codeMatch = mpesaMessage.match(/(?:Confirmation Code|code|ref)[\s:\[]*([A-Z0-9]+)/i);
+      // Fix: improved regex — M-Pesa codes are always exactly 10 uppercase alphanumeric chars
+      const codeMatch = mpesaMessage.match(/\b([A-Z0-9]{10})\b/);
       const mpesaCode = codeMatch ? codeMatch[1] : null;
 
       // Submit to mpesa_messages table
@@ -387,7 +430,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       );
     } catch (e: any) {
       console.error('Failed to submit message:', e);
-      setPaymentState('manual_payment');
+      updatePaymentState('manual_payment');
       Alert.alert('Error', 'Failed to send message. Please try again.');
     }
   };
@@ -395,7 +438,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
   // For demo/dev purposes, let's allow a "Simulate Success" if long press on title
   const handleSimulateSuccess = () => {
     if (__DEV__) {
-      setPaymentState('success');
+      updatePaymentState('success');
       setTimeout(() => {
         onSuccess();
         onClose();
@@ -404,7 +447,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
   };
 
   const handleRetry = () => {
-    setPaymentState('idle');
+    updatePaymentState('idle');
   };
 
   if (!gallery) return null;
@@ -520,7 +563,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                     </Text>
                     <Pressable 
                       style={[styles.payButton, { backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.gold }]} 
-                      onPress={() => setPaymentState('verifying')}
+                      onPress={() => updatePaymentState('verifying')}
                     >
                       <Text style={[styles.payButtonText, { color: Colors.gold }]}>I have paid, check status</Text>
                     </Pressable>

@@ -49,7 +49,8 @@ export default function AdminTabLayout() {
           .from('messages')
           .select('*', { count: 'exact', head: true })
           .eq('sender_role', 'client')
-          .eq('is_read', false);
+          .eq('is_read', false)
+          .eq('owner_admin_id', user.id);
         setUnreadCount(count || 0);
       } catch {}
     };
@@ -57,7 +58,7 @@ export default function AdminTabLayout() {
 
     const messageSubscription = supabase
       .channel('admin_messages_unread')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: 'sender_role=eq.client' },
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `sender_role=eq.client,owner_admin_id=eq.${user.id}` },
         () => setUnreadCount(prev => prev + 1)
       )
       .subscribe();

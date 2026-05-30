@@ -428,6 +428,7 @@ function BookingCard({
 
 export default function AdminBookingsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user } = useAuth();
   const [filter, setFilter] = useState<FilterType>('all');
   const [bookings, setBookings] = useState<AdminBooking[]>([]);
@@ -463,12 +464,12 @@ export default function AdminBookingsScreen() {
         clientName: booking.user_profiles?.name || 'Unknown Client',
         clientAvatar: booking.user_profiles?.avatar_url || 'https://via.placeholder.com/40x40/333333/FFFFFF?text=?',
         clientPhone: booking.user_profiles?.phone || 'No phone',
-        type: 'Session',
-        packageName: booking.packages?.name || 'Unknown Package',
+        type: booking.packages?.shoot_type || 'Session',
+        packageName: booking.packages?.name || 'No Package',
         date: booking.date,
         time: booking.time,
         location: booking.location,
-        amount: 0, // We'll need to get this from packages table
+        amount: booking.packages?.price || 0,
         depositPaid: false, // We'll need to implement payment tracking
         status: booking.status as 'pending' | 'confirmed' | 'completed' | 'cancelled',
         notes: booking.notes

@@ -221,90 +221,36 @@ export const ClientService = {
 
       if (pError) throw pError;
 
-      // 4. Generate Signed URLs for both full images and thumbnails
+      // Fix 13: Batch sign all storage paths in a single API call instead of N individual calls
       const thumbnailsOnly = options?.thumbnailsOnly === true;
-      const photosWithUrls = await Promise.all(photos.map(async (p) => {
-        let fullUrl = '';
-        let thumbnailUrl = '';
-        const variant: 'clean' | 'watermarked' = canViewClean ? 'clean' : 'watermarked';
-        const getFullPhotoUrl = async () => {
-          try {
-            const { data: fullData, error: fullError } = await supabase.storage
-              .from('client-photos')
-              .createSignedUrl(p.photo_url, 3600);
-            
-            if (!fullError && fullData?.signedUrl) {
-              return fullData.signedUrl;
-            }
-            const { data: publicData } = supabase.storage.from('client-photos').getPublicUrl(p.photo_url);
-            return publicData.publicUrl;
-          } catch (e) {
-            console.warn(`[Gallery] Error getting full URL for ${p.photo_url}`, e);
-            return '';
-          }
-        };
-        
-        // Ensure photo_url is a relative path
+      const storagePaths = photos
+        .filter(p => !p.photo_url.startsWith('http'))
+        .map(p => p.photo_url);
+
+      const { data: signedUrlResults } = storagePaths.length > 0
+        ? await supabase.storage.from('client-photos').createSignedUrls(storagePaths, 3600)
+        : { data: [] };
+
+      const signedUrlMap = new Map(
+        (signedUrlResults || [])
+          .filter((s: any) => s.signedUrl)
+          .map((s: any) => [s.path, s.signedUrl])
+      );
+
+      const photosWithUrls = photos.map((p) => {
         const isUrl = p.photo_url.startsWith('http');
-        if (isUrl) {
-          if (!thumbnailsOnly) {
-            fullUrl = p.photo_url;
-          }
-          thumbnailUrl = p.photo_url;
-        } else {
-          if (!thumbnailsOnly) {
-            fullUrl = await getFullPhotoUrl();
-          }
+        const url = isUrl
+          ? p.photo_url
+          : signedUrlMap.get(p.photo_url)
+            || supabase.storage.from('client-photos').getPublicUrl(p.photo_url).data.publicUrl;
 
-          // Try to sign thumbnail URL
-          // Thumbnail naming convention: remove extension and add _thumb.png
-          try {
-            const photoNameParts = p.photo_url.split('.');
-            // Handle case where no extension exists
-            const photoNameNoExt = photoNameParts.length > 1 ? photoNameParts.slice(0, -1).join('.') : p.photo_url;
-            const thumbnailPath = `${photoNameNoExt}_thumb.png`;
-            
-            // 1. Try 'thumbnails' bucket
-            let { data: thumbData, error: thumbError } = await supabase.storage
-              .from('thumbnails')
-              .createSignedUrl(thumbnailPath, 3600);
-
-            if (!thumbError && thumbData?.signedUrl) {
-              thumbnailUrl = thumbData.signedUrl;
-            } else {
-              // 2. Fallback: Try 'client-photos' bucket (stored alongside original)
-               const { data: thumbData2, error: thumbError2 } = await supabase.storage
-                  .from('client-photos')
-                  .createSignedUrl(thumbnailPath, 3600);
-               
-               if (!thumbError2 && thumbData2?.signedUrl) {
-                  thumbnailUrl = thumbData2.signedUrl;
-               }
-            }
-          } catch (err) {
-            // Suppress error to avoid log spam on 400 Bad Request
-          }
-        }
-        
-        if (!thumbnailUrl) {
-          // 3. Fallback to full URL
-          if (!fullUrl && thumbnailsOnly && !isUrl) {
-            fullUrl = await getFullPhotoUrl();
-          }
-          thumbnailUrl = fullUrl;
-        }
-
-        if (!fullUrl && thumbnailUrl) {
-          fullUrl = thumbnailUrl;
-        }
-
-        return { 
-          ...p, 
-          url: fullUrl || '', 
-          thumbnailUrl: thumbnailUrl || fullUrl || '',
-          variant 
+        return {
+          ...p,
+          url: url || '',
+          thumbnailUrl: url || '',
+          variant: canViewClean ? ('clean' as const) : ('watermarked' as const),
         };
-      }));
+      });
 
       return photosWithUrls as Photo[];
     }
@@ -506,14 +452,26 @@ export const ClientService = {
       if (!user) throw new Error('Not authenticated');
 
       // Get client record for this user to get client_id
-      const { data: client, error: clientError } = await supabase
+      let { data: client, error: clientError } = await supabase
         .from('clients')
         .select('id')
         .eq('user_id', user.id)
         .maybeSingle();
 
       if (clientError) throw clientError;
-      if (!client?.id) throw new Error('Client record not found');
+
+      // Fix: if no client row exists, auto-create one for new users
+      if (!client?.id) {
+        await ClientService.clients.ensureLinkedRecordsForCurrentUser();
+        const { data: retried, error: retryError } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (retryError) throw retryError;
+        if (!retried?.id) throw new Error('Could not create client profile. Please contact support.');
+        client = retried;
+      }
 
       const { data, error } = await supabase
         .from('announcement_comments')
