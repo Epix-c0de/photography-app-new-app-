@@ -884,6 +884,10 @@ export default function AdminBtsAnnouncementsScreen() {
     })();
   }, [router, verifyAdminGuard, loadBtsPosts, loadAnnouncements, loadPortfolioItems]);
 
+  const visibleBtsPosts = useMemo(() => {
+    return btsPosts.filter((post) => !post.expires_at || new Date(post.expires_at).getTime() > clockMs);
+  }, [btsPosts, clockMs]);
+
   if (!accessReady) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -891,10 +895,6 @@ export default function AdminBtsAnnouncementsScreen() {
       </View>
     );
   }
-
-  const visibleBtsPosts = useMemo(() => {
-    return btsPosts.filter((post) => !post.expires_at || new Date(post.expires_at).getTime() > clockMs);
-  }, [btsPosts, clockMs]);
 
   const sections: SectionData[] = [
     {
@@ -914,19 +914,16 @@ export default function AdminBtsAnnouncementsScreen() {
     }
   ];
 
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
-      <ScrollView style={[styles.scrollView, { paddingTop: insets.top }]}>
-        <View style={styles.header}>
-          <Text style={styles.title}>BTS & Announcements</Text>
-          <Text style={styles.subtitle}>Create engaging content for your audience</Text>
-        </View>
+  // List header component for SectionList
+  const renderListHeader = () => (
+    <>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <Text style={styles.title}>BTS & Announcements</Text>
+        <Text style={styles.subtitle}>Create engaging content for your audience</Text>
+      </View>
 
-        {/* Content Type Selector */}
-        <View style={styles.typeSelector}>
+      {/* Content Type Selector */}
+      <View style={styles.typeSelector}>
           <Pressable
             style={[styles.typeButton, contentType === 'bts' && styles.typeButtonActive]}
             onPress={() => setContentType('bts')}
@@ -1384,98 +1381,106 @@ export default function AdminBtsAnnouncementsScreen() {
           </View>
         )}
 
-        {/* Content List */}
+        {/* Content List - Section Title */}
         <View style={styles.listSection}>
           <Text style={styles.sectionTitle}>Recent Content</Text>
-
-          <SectionList<SectionItem, SectionData>
-            sections={sections}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item, section }) => (
-              <Pressable 
-                style={styles.contentCard} 
-                onPress={() => {
-                  router.push({
-                    pathname: '/(admin)/post-details/[id]',
-                    params: { 
-                      id: item.id,
-                      type: section.type 
-                    }
-                  } as any);
-                }}
-              >
-                {section.type === 'bts' ? (
-                  <>
-                    <Image source={{ uri: (item as BTSPost).media_url }} style={styles.contentImage} />
-                    <View style={styles.contentInfo}>
-                      <Text style={styles.contentTitle} numberOfLines={1}>{(item as BTSPost).title}</Text>
-                      <Text style={styles.contentMeta}>{(item as BTSPost).category} • {new Date((item as BTSPost).created_at).toLocaleDateString()}</Text>
-                      <View style={styles.engagementRow}>
-                        <View style={styles.statChip}>
-                          <Heart size={10} color={Colors.error} />
-                          <Text style={styles.statChipText}>{(item as any).likes_count || 0}</Text>
-                        </View>
-                        <View style={styles.statChip}>
-                          <MessageCircle size={10} color={Colors.gold} />
-                          <Text style={styles.statChipText}>{(item as any).comments_count || 0}</Text>
-                        </View>
-                        <View style={styles.statChip}>
-                          <Eye size={10} color="#60A5FA" />
-                          <Text style={styles.statChipText}>{(item as any).views_count || 0}</Text>
-                        </View>
-                      </View>
-                      <View style={styles.analyticsHint}>
-                        <BarChart2 size={10} color={Colors.gold} />
-                        <Text style={styles.analyticsHintText}>View Analytics</Text>
-                      </View>
-                    </View>
-                  </>
-                ) : section.type === 'announcement' ? (
-                  <>
-                    <Image source={{ uri: (item as AnnouncementRow).media_url || (item as AnnouncementRow).image_url || '' }} style={styles.contentImage} />
-                    <View style={styles.contentInfo}>
-                      <Text style={styles.contentTitle} numberOfLines={1}>{(item as AnnouncementRow).title}</Text>
-                      <Text style={styles.contentMeta} numberOfLines={1}>{(item as AnnouncementRow).description || 'No description'}</Text>
-                      <View style={styles.engagementRow}>
-                        <View style={styles.statChip}>
-                          <Heart size={10} color={Colors.error} />
-                          <Text style={styles.statChipText}>{(item as any).likes_count || 0}</Text>
-                        </View>
-                        <View style={styles.statChip}>
-                          <MessageCircle size={10} color={Colors.gold} />
-                          <Text style={styles.statChipText}>{(item as any).comments_count || 0}</Text>
-                        </View>
-                      </View>
-                      <View style={styles.analyticsHint}>
-                        <BarChart2 size={10} color={Colors.gold} />
-                        <Text style={styles.analyticsHintText}>View Analytics & Comments</Text>
-                      </View>
-                    </View>
-                  </>
-                ) : section.type === 'portfolio' ? (
-                  <>
-                    <Image source={{ uri: (item as PortfolioItem).media_url }} style={styles.contentImage} />
-                    <View style={styles.contentInfo}>
-                      <Text style={styles.contentTitle} numberOfLines={1}>{(item as PortfolioItem).title}</Text>
-                      <Text style={styles.contentMeta}>{(item as PortfolioItem).category || 'Portfolio'} • {new Date((item as PortfolioItem).created_at).toLocaleDateString()}</Text>
-                      {((item as PortfolioItem).is_featured || (item as PortfolioItem).is_top_rated) && (
-                        <Text style={styles.contentBadge}>
-                          {(item as PortfolioItem).is_featured ? '⭐ Featured' : '⭐ Top Rated'}
-                        </Text>
-                      )}
-                    </View>
-                  </>
-                ) : null}
-                {/* Tappable arrow */}
-                <ChevronRight size={18} color={Colors.textMuted} style={{ marginLeft: 4 }} />
-              </Pressable>
-            )}
-            renderSectionHeader={({ section }) => (
-              <Text style={styles.sectionHeader}>{section.title}</Text>
-            )}
-          />
         </View>
-      </ScrollView>
+    </>
+  );
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}
+    >
+      <SectionList<SectionItem, SectionData>
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        ListHeaderComponent={renderListHeader}
+        renderItem={({ item, section }) => (
+          <Pressable 
+            style={styles.contentCard} 
+            onPress={() => {
+              router.push({
+                pathname: '/post-details/[id]',
+                params: { 
+                  id: item.id,
+                  type: section.type 
+                }
+              } as any);
+            }}
+          >
+            {section.type === 'bts' ? (
+              <>
+                <Image source={{ uri: (item as BTSPost).media_url }} style={styles.contentImage} />
+                <View style={styles.contentInfo}>
+                  <Text style={styles.contentTitle} numberOfLines={1}>{(item as BTSPost).title}</Text>
+                  <Text style={styles.contentMeta}>{(item as BTSPost).category} • {new Date((item as BTSPost).created_at).toLocaleDateString()}</Text>
+                  <View style={styles.engagementRow}>
+                    <View style={styles.statChip}>
+                      <Heart size={10} color={Colors.error} />
+                      <Text style={styles.statChipText}>{(item as any).likes_count || 0}</Text>
+                    </View>
+                    <View style={styles.statChip}>
+                      <MessageCircle size={10} color={Colors.gold} />
+                      <Text style={styles.statChipText}>{(item as any).comments_count || 0}</Text>
+                    </View>
+                    <View style={styles.statChip}>
+                      <Eye size={10} color="#60A5FA" />
+                      <Text style={styles.statChipText}>{(item as any).views_count || 0}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.analyticsHint}>
+                    <BarChart2 size={10} color={Colors.gold} />
+                    <Text style={styles.analyticsHintText}>View Analytics</Text>
+                  </View>
+                </View>
+              </>
+            ) : section.type === 'announcement' ? (
+              <>
+                <Image source={{ uri: (item as AnnouncementRow).media_url || (item as AnnouncementRow).image_url || '' }} style={styles.contentImage} />
+                <View style={styles.contentInfo}>
+                  <Text style={styles.contentTitle} numberOfLines={1}>{(item as AnnouncementRow).title}</Text>
+                  <Text style={styles.contentMeta} numberOfLines={1}>{(item as AnnouncementRow).description || 'No description'}</Text>
+                  <View style={styles.engagementRow}>
+                    <View style={styles.statChip}>
+                      <Heart size={10} color={Colors.error} />
+                      <Text style={styles.statChipText}>{(item as any).likes_count || 0}</Text>
+                    </View>
+                    <View style={styles.statChip}>
+                      <MessageCircle size={10} color={Colors.gold} />
+                      <Text style={styles.statChipText}>{(item as any).comments_count || 0}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.analyticsHint}>
+                    <BarChart2 size={10} color={Colors.gold} />
+                    <Text style={styles.analyticsHintText}>View Analytics & Comments</Text>
+                  </View>
+                </View>
+              </>
+            ) : section.type === 'portfolio' ? (
+              <>
+                <Image source={{ uri: (item as PortfolioItem).media_url }} style={styles.contentImage} />
+                <View style={styles.contentInfo}>
+                  <Text style={styles.contentTitle} numberOfLines={1}>{(item as PortfolioItem).title}</Text>
+                  <Text style={styles.contentMeta}>{(item as PortfolioItem).category || 'Portfolio'} • {new Date((item as PortfolioItem).created_at).toLocaleDateString()}</Text>
+                  {((item as PortfolioItem).is_featured || (item as PortfolioItem).is_top_rated) && (
+                    <Text style={styles.contentBadge}>
+                      {(item as PortfolioItem).is_featured ? '⭐ Featured' : '⭐ Top Rated'}
+                    </Text>
+                  )}
+                </View>
+              </>
+            ) : null}
+            {/* Tappable arrow */}
+            <ChevronRight size={18} color={Colors.textMuted} style={{ marginLeft: 4 }} />
+          </Pressable>
+        )}
+        renderSectionHeader={({ section }) => (
+          <Text style={styles.sectionHeader}>{section.title}</Text>
+        )}
+        contentContainerStyle={{ paddingBottom: 20 }}
+      />
     </KeyboardAvoidingView>
   );
 }

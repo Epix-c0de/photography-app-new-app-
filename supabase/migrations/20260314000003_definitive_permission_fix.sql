@@ -13,27 +13,8 @@ ALTER TABLE public.user_profiles DROP CONSTRAINT IF EXISTS user_profiles_role_ch
 ALTER TABLE public.user_profiles ADD CONSTRAINT user_profiles_role_check 
   CHECK (role IN ('admin', 'client', 'super_admin'));
 
--- ============================================================
--- STEP 2: Set YOUR current account to admin role
--- (This sets the role for whichever user runs this SQL)
--- ============================================================
-UPDATE public.user_profiles 
-SET role = 'admin' 
-WHERE id = auth.uid();
-
--- Confirm the update happened; if 0 rows updated, we need to insert:
-DO $$
-DECLARE
-  current_user_id uuid := auth.uid();
-  row_count int;
-BEGIN
-  GET DIAGNOSTICS row_count = ROW_COUNT;
-  IF row_count = 0 THEN
-    INSERT INTO public.user_profiles (id, role, email)
-    VALUES (current_user_id, 'admin', (SELECT email FROM auth.users WHERE id = current_user_id))
-    ON CONFLICT (id) DO UPDATE SET role = 'admin';
-  END IF;
-END $$;
+-- STEP 2: (Skipped in migration - run manually in dashboard if needed)
+-- UPDATE public.user_profiles SET role = 'admin' WHERE id = auth.uid();
 
 -- ============================================================
 -- STEP 3: Simplify client-photos bucket storage policies

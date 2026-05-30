@@ -42,7 +42,7 @@ export default function AuthCallbackScreen() {
             Alert.alert('Authentication Timeout', 'Sign-in took too long. Please try again.', [
               {
                 text: 'Go Back',
-                onPress: () => router.replace('/login'),
+                onPress: () => router.replace('/admin-login'),
               }
             ]);
           }, 500);
@@ -59,7 +59,7 @@ export default function AuthCallbackScreen() {
             Alert.alert('Authentication Failed', errorMsg, [
               {
                 text: 'Go Back',
-                onPress: () => router.replace('/login'),
+                onPress: () => router.replace('/admin-login'),
               }
             ]);
           }, 500);
@@ -187,7 +187,7 @@ export default function AuthCallbackScreen() {
 
             setTimeout(() => {
               if (isAdmin) {
-                router.replace('/(admin)/dashboard');
+                router.replace('/dashboard');
               } else {
                 router.replace('/admin-login');
               }
@@ -223,7 +223,7 @@ export default function AuthCallbackScreen() {
           Alert.alert('Authentication Failed', errorMsg, [
             {
               text: 'Try Again',
-              onPress: () => router.replace('/login'),
+              onPress: () => router.replace('/admin-login'),
             }
           ]);
         }, 500);

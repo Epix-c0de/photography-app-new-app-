@@ -187,7 +187,7 @@ export default function AuthCallbackScreen() {
 
             setTimeout(() => {
               if (isAdmin) {
-                router.replace('/(admin)/dashboard' as any);
+                router.replace('/(admin)/dashboard');
               } else {
                 router.replace('/(tabs)/home');
               }

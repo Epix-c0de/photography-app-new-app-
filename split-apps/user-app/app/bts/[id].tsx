@@ -30,12 +30,14 @@ import {
   VolumeX,
 } from 'lucide-react-native';
 import { Image } from 'expo-image';
-import { Video, ResizeMode, Audio } from 'expo-av';
+import { Video, ResizeMode, Audio, AVPlaybackStatusContext, AVPlaybackStatus } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBranding } from '@/contexts/BrandingContext';
+import { demoBtsComments, demoBtsPosts } from '@/lib/demo';
 import type { Database } from '@/types/supabase';
 
 const { width, height } = Dimensions.get('window');
@@ -61,7 +63,8 @@ export default function BTSViewerScreen() {
   const { id: initialId } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isDemoMode } = useAuth();
+  const { btsShareLink } = useBranding();
 
   const [posts, setPosts] = useState<BTSWithSocial[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,6 +89,25 @@ export default function BTSViewerScreen() {
       if (showRefresh) setRefreshing(true);
       else setLoading(true);
 
+      if (isDemoMode) {
+        const withSocial = demoBtsPosts.map((p, index) => ({
+          ...p,
+          isLiked: index === 0,
+          likesCount: p.likes_count,
+          commentsCount: p.comments_count,
+          isBookmarked: false,
+        })) as BTSWithSocial[];
+        setPosts(withSocial);
+        if (initialId && withSocial.length > 0) {
+          const idx = withSocial.findIndex(p => p.id === initialId);
+          setActiveIndex(idx >= 0 ? idx : 0);
+          setActivePostId(withSocial[idx >= 0 ? idx : 0]?.id ?? null);
+        } else {
+          setActivePostId(withSocial[0]?.id ?? null);
+        }
+        return;
+      }
+
       const nowIso = new Date().toISOString();
       const { data, error } = await supabase
         .from('bts_posts')
@@ -99,7 +121,7 @@ export default function BTSViewerScreen() {
 
       const withSocial = await Promise.all(
         (data || []).map(async (p) => {
-          const [likeRow, bookmarkRow, likesCount, commentsCount] = await Promise.allSettled([
+          const [likeRow, bookmarkRow] = await Promise.allSettled([
             supabase
               .from('bts_likes')
               .select('id')
@@ -112,49 +134,30 @@ export default function BTSViewerScreen() {
               .eq('bts_id', p.id)
               .eq('user_id', user?.id ?? '')
               .maybeSingle(),
-            supabase
-              .from('bts_likes')
-              .select('*', { count: 'exact', head: true })
-              .eq('bts_id', p.id),
-            supabase
-              .from('bts_comments')
-              .select('*', { count: 'exact', head: true })
-              .eq('bts_id', p.id),
           ]);
 
           return {
             ...p,
             isLiked: likeRow.status === 'fulfilled' && !!likeRow.value.data,
-            likesCount: likesCount.status === 'fulfilled' ? (likesCount.value.count ?? 0) : 0,
-            commentsCount: commentsCount.status === 'fulfilled' ? (commentsCount.value.count ?? 0) : 0,
+            likesCount: typeof p.likes_count === 'number' ? p.likes_count : 0,
+            commentsCount: typeof p.comments_count === 'number' ? p.comments_count : 0,
             isBookmarked: bookmarkRow.status === 'fulfilled' && !!bookmarkRow.value.data,
           } as BTSWithSocial;
         })
       );
 
-      const visiblePosts = withSocial.filter((post) => {
-        const notExpired = !post.expires_at || new Date(post.expires_at).getTime() > Date.now();
-        const scheduleReached = !post.scheduled_for || new Date(post.scheduled_for).getTime() <= Date.now();
-        return notExpired && scheduleReached;
-      });
+      setPosts(withSocial);
 
-      setPosts(visiblePosts);
-
-      if (visiblePosts.length === 0) {
-        router.back();
-        return;
-      }
-
-      if (initialId && visiblePosts.length > 0) {
-        const idx = visiblePosts.findIndex(p => p.id === initialId);
+      if (initialId && withSocial.length > 0) {
+        const idx = withSocial.findIndex(p => p.id === initialId);
         if (idx !== -1) {
           setActiveIndex(idx);
-          setActivePostId(visiblePosts[idx].id);
+          setActivePostId(withSocial[idx].id);
         } else {
-          setActivePostId(visiblePosts[0].id);
+          setActivePostId(withSocial[0].id);
         }
-      } else if (visiblePosts.length > 0) {
-        setActivePostId(visiblePosts[0].id);
+      } else if (withSocial.length > 0) {
+        setActivePostId(withSocial[0].id);
       }
     } catch (err) {
       console.error('[BTS] Fetch error:', err);
@@ -162,19 +165,15 @@ export default function BTSViewerScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id, initialId, router]);
+  }, [initialId, isDemoMode, user?.id]);
 
   useEffect(() => {
     fetchPosts();
   }, [fetchPosts]);
 
-  useEffect(() => {
-    const timer = setInterval(() => fetchPosts(true), 30000);
-    return () => clearInterval(timer);
-  }, [fetchPosts]);
-
   // View tracking & Music
   useEffect(() => {
+    if (isDemoMode) return;
     if (!activePostId) return;
 
     // Increment View Count via RPC
@@ -205,7 +204,7 @@ export default function BTSViewerScreen() {
     return () => {
       if (sound) sound.unloadAsync();
     };
-  }, [activePostId]);
+  }, [activePostId, isDemoMode]);
 
   useEffect(() => {
     if (sound) {
@@ -223,6 +222,11 @@ export default function BTSViewerScreen() {
   const fetchComments = async (postId: string) => {
     setLoadingComments(true);
     try {
+      if (isDemoMode) {
+        setComments((demoBtsComments[postId] ?? []) as BTSComment[]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('bts_comments')
         .select(`*, user_profiles:client_id (name, avatar_url)`)
@@ -259,13 +263,32 @@ export default function BTSViewerScreen() {
       likesCount: p.isLiked ? p.likesCount - 1 : p.likesCount + 1,
     } : p));
 
+    if (isDemoMode) {
+      return;
+    }
+
     try {
       if (post.isLiked) {
-        await supabase.from('bts_likes').delete().match({ bts_id: post.id, user_id: user.id });
+        const { error } = await supabase.from('bts_likes').delete().match({ bts_id: post.id, user_id: user.id });
+        if (error) throw error;
       } else {
-        await supabase.from('bts_likes').insert({ bts_id: post.id, user_id: user.id });
+        const { error } = await supabase.from('bts_likes').insert({ bts_id: post.id, user_id: user.id });
+        if (error && (error as any)?.code !== '23505') throw error;
       }
-    } catch {
+      const { data: refreshed } = await supabase
+        .from('bts_posts')
+        .select('likes_count')
+        .eq('id', post.id)
+        .maybeSingle();
+
+      if (refreshed && typeof refreshed.likes_count === 'number') {
+        setPosts(prev => prev.map(p => p.id === post.id ? {
+          ...p,
+          likesCount: refreshed.likes_count,
+        } : p));
+      }
+    } catch (error) {
+      console.error('[BTS] Like toggle failed:', error);
       // Revert on error
       setPosts(prev => prev.map(p => p.id === post.id ? post : p));
     }
@@ -275,6 +298,16 @@ export default function BTSViewerScreen() {
     if (!user || !showComments || !commentText.trim()) return;
     setPostingComment(true);
     try {
+      if (isDemoMode) {
+        setCommentText('');
+        setPosts(prev => prev.map(p => p.id === showComments.id ? {
+          ...p,
+          commentsCount: p.commentsCount + 1,
+        } : p));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
+      }
+
       const { error } = await supabase.from('bts_comments').insert({
         bts_id: showComments.id,
         client_id: user.id,
@@ -311,101 +344,29 @@ export default function BTSViewerScreen() {
   }).current;
 
   const renderItem = ({ item, index }: { item: BTSWithSocial; index: number }) => {
-    const isActive = index === activeIndex;
-    const isVideo = item.media_type === 'video';
-
     return (
-      <View style={{ width, height, backgroundColor: 'black' }}>
-        {isVideo ? (
-          <Video
-            source={{ uri: item.media_url }}
-            style={StyleSheet.absoluteFill}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={isActive}
-            isLooping
-            isMuted={isMuted}
-            posterSource={(item as any).video_thumbnail_url ? { uri: (item as any).video_thumbnail_url } : undefined}
-            usePoster={!!(item as any).video_thumbnail_url}
-          />
-        ) : (
-          <Image
-            source={{ uri: item.media_url }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-          />
-        )}
-
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)']}
-          style={StyleSheet.absoluteFill}
-          locations={[0.4, 0.7, 1]}
-        />
-
-        {/* Back Button */}
-        <View style={[styles.topOverlay, { top: insets.top + 10 }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <ChevronLeft size={28} color="white" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Vertical Actions (Right) */}
-        <View style={[styles.rightOverlay, { bottom: insets.bottom + 100 }]}>
-          <TouchableOpacity style={styles.actionBtn} onPress={() => handleLike(item)}>
-            <Heart 
-              size={34} 
-              color={item.isLiked ? Colors.error : 'white'} 
-              fill={item.isLiked ? Colors.error : 'transparent'} 
-            />
-            <Text style={styles.actionCount}>{item.likesCount}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionBtn} onPress={() => {
-            setShowComments(item);
-            fetchComments(item.id);
-          }}>
-            <MessageCircle size={34} color="white" />
-            <Text style={styles.actionCount}>{item.commentsCount}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionBtn} onPress={() => {
-            Share.share({ message: `Check out this BTS: ${item.title}` });
-            (supabase as any).rpc('increment_shares', { row_id: item.id, table_name: 'bts_posts' });
-          }}>
-            <Share2 size={34} color="white" />
-            <Text style={styles.actionCount}>Share</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionBtn} onPress={() => {
-             router.push('/(tabs)/bookings');
-             (supabase as any).rpc('increment_clicks', { row_id: item.id, table_name: 'bts_posts' });
-          }}>
-            <View style={styles.bookIconWrapper}>
-              <Calendar size={20} color="black" />
-            </View>
-            <Text style={styles.actionCount}>Book</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.actionBtn} onPress={() => setIsMuted(!isMuted)}>
-             {isMuted ? <VolumeX size={28} color="white" /> : <Volume2 size={28} color="white" />}
-          </TouchableOpacity>
-        </View>
-
-        {/* Info Layout (Bottom) */}
-        <View style={[styles.bottomOverlay, { bottom: insets.bottom + 40 }]}>
-          {item.category && (
-            <View style={styles.categoryBadge}>
-              <Text style={styles.categoryText}>{item.category}</Text>
-            </View>
-          )}
-          <Text style={styles.postTitle} numberOfLines={2}>{item.title}</Text>
-          {(item as any).caption && (
-            <Text style={styles.postCaption} numberOfLines={3}>{(item as any).caption}</Text>
-          )}
-          <Text style={styles.postTime}>
-            {new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-          </Text>
-        </View>
-      </View>
+      <BTSViewerCard
+        item={item}
+        isActive={index === activeIndex}
+        isMuted={isMuted}
+        setIsMuted={setIsMuted}
+        onLike={() => handleLike(item)}
+        onComment={() => {
+          setShowComments(item);
+          fetchComments(item.id);
+        }}
+        onShare={() => {
+          const baseLink = btsShareLink?.trim() || 'https://rork.app';
+          const link = baseLink.includes('{id}')
+            ? baseLink.replace('{id}', item.id)
+            : `${baseLink}${baseLink.endsWith('/') ? '' : '/'}${item.id}`;
+          Share.share({ message: `Check out this BTS: ${item.title}\n${link}`, url: link });
+          (supabase as any).rpc('increment_shares', { row_id: item.id, table_name: 'bts_posts' });
+        }}
+        onBack={() => router.back()}
+        insets={insets}
+        router={router}
+      />
     );
   };
 
@@ -649,4 +610,119 @@ const styles = StyleSheet.create({
     maxHeight: 100,
   },
   sendBtn: { padding: 4 },
+  progressBarContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.85)',
+  },
 });
+
+function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onComment, onShare, onBack, insets, router }: any) {
+  const isVideo = item.media_type === 'video';
+  const [progress, setProgress] = useState(0);
+
+  const handleStatusUpdate = (status: AVPlaybackStatus) => {
+    if (status.isLoaded && status.positionMillis !== undefined && status.durationMillis !== undefined) {
+      setProgress(status.positionMillis / status.durationMillis);
+    }
+  };
+
+  return (
+    <View style={{ width, height, backgroundColor: 'black' }}>
+      {isVideo ? (
+        <Video
+          source={{ uri: item.media_url }}
+          style={StyleSheet.absoluteFill}
+          resizeMode={ResizeMode.COVER}
+          shouldPlay={isActive}
+          isLooping
+          isMuted={isMuted}
+          posterSource={(item as any).video_thumbnail_url ? { uri: (item as any).video_thumbnail_url } : undefined}
+          usePoster={!!(item as any).video_thumbnail_url}
+          onPlaybackStatusUpdate={handleStatusUpdate}
+        />
+      ) : (
+        <Image
+          source={{ uri: item.media_url }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+        />
+      )}
+
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.8)']}
+        style={StyleSheet.absoluteFill}
+        locations={[0.5, 0.8, 1]}
+      />
+
+      <View style={[styles.topOverlay, { top: insets.top + 10 }]}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <ChevronLeft size={28} color="white" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={[styles.rightOverlay, { bottom: insets.bottom + 100 }]}>
+        <TouchableOpacity style={styles.actionBtn} onPress={onLike}>
+          <Heart 
+            size={34} 
+            color={item.isLiked ? Colors.error : 'white'} 
+            fill={item.isLiked ? Colors.error : 'transparent'} 
+          />
+          <Text style={styles.actionCount}>{item.likesCount}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionBtn} onPress={onComment}>
+          <MessageCircle size={34} color="white" />
+          <Text style={styles.actionCount}>{item.commentsCount}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionBtn} onPress={onShare}>
+          <Share2 size={34} color="white" />
+          <Text style={styles.actionCount}>Share</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.actionBtn} onPress={() => {
+           router.push('/(tabs)/bookings');
+           (supabase as any).rpc('increment_clicks', { row_id: item.id, table_name: 'bts_posts' });
+        }}>
+          <View style={styles.bookIconWrapper}>
+            <Calendar size={20} color="black" />
+          </View>
+          <Text style={styles.actionCount}>Book</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.actionBtn} onPress={() => setIsMuted(!isMuted)}>
+           {isMuted ? <VolumeX size={28} color="white" /> : <Volume2 size={28} color="white" />}
+        </TouchableOpacity>
+      </View>
+
+      <View style={[styles.bottomOverlay, { bottom: insets.bottom + 40 }]}>
+        {item.category && (
+          <View style={styles.categoryBadge}>
+            <Text style={styles.categoryText}>{item.category}</Text>
+          </View>
+        )}
+        <Text style={styles.postTitle} numberOfLines={2}>{item.title}</Text>
+        {(item as any).caption && (
+          <Text style={styles.postCaption} numberOfLines={3}>{(item as any).caption}</Text>
+        )}
+        <Text style={styles.postTime}>
+          {new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+        </Text>
+      </View>
+
+      {isVideo && isActive && (
+        <View style={[styles.progressBarContainer, { bottom: insets.bottom }]}>
+          <View style={[styles.progressBarFill, { width: `${progress * 100}%` }]} />
+        </View>
+      )}
+    </View>
+  );
+}

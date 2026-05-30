@@ -1,14 +1,19 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, FlatList, Alert } from 'react-native';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import type { ReactNode } from 'react';
+import { View, Text, StyleSheet, Pressable, Animated, SectionList, Alert, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Images, CreditCard, Calendar, Megaphone, Bell, Check, Trash2 } from 'lucide-react-native';
+import { ArrowLeft, Images, CreditCard, Calendar, Megaphone, Bell, Check, Trash2, ChevronRight, Sparkles } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { demoNotifications } from '@/lib/demo';
 
-const iconMap: Record<string, React.ReactNode> = {
+type NotificationType = 'gallery' | 'gallery_ready' | 'payment' | 'booking' | 'promo' | 'system' | 'package';
+type NotificationFilter = 'all' | 'unread' | 'payments' | 'galleries' | 'bookings';
+
+const iconMap: Record<NotificationType, ReactNode> = {
   gallery: <Images size={20} color="#3B82F6" />,
   gallery_ready: <Images size={20} color="#3B82F6" />,
   payment: <CreditCard size={20} color={Colors.success} />,
@@ -18,7 +23,17 @@ const iconMap: Record<string, React.ReactNode> = {
   system: <Bell size={20} color={Colors.textSecondary} />,
 };
 
-const bgMap: Record<string, string> = {
+const accentMap: Record<NotificationType, string> = {
+  gallery: '#3B82F6',
+  gallery_ready: '#60A5FA',
+  payment: Colors.success,
+  booking: Colors.gold,
+  package: Colors.goldLight,
+  promo: '#E879F9',
+  system: Colors.textMuted,
+};
+
+const bgMap: Record<NotificationType, string> = {
   gallery: 'rgba(59,130,246,0.12)',
   gallery_ready: 'rgba(59,130,246,0.12)',
   payment: 'rgba(46,204,113,0.12)',
@@ -28,8 +43,96 @@ const bgMap: Record<string, string> = {
   system: 'rgba(160,160,160,0.12)',
 };
 
-function NotificationItem({ item, onPress, onDelete }: { item: Notification; onPress: (notification: Notification) => void; onDelete: (notification: Notification) => void }) {
+const filterOptions: { key: NotificationFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'unread', label: 'Unread' },
+  { key: 'payments', label: 'Payments' },
+  { key: 'galleries', label: 'Galleries' },
+  { key: 'bookings', label: 'Bookings' },
+];
+
+function formatRelativeTime(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function getSectionTitle(iso: string) {
+  const created = new Date(iso);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfWeek = new Date(startOfToday);
+  startOfWeek.setDate(startOfWeek.getDate() - 7);
+
+  if (created >= startOfToday) return 'Today';
+  if (created >= startOfWeek) return 'Earlier this week';
+  return 'Older';
+}
+
+function getActionLabel(type: NotificationType) {
+  switch (type) {
+    case 'gallery':
+    case 'gallery_ready':
+      return 'Open gallery';
+    case 'payment':
+      return 'Pay now';
+    case 'booking':
+      return 'View booking';
+    case 'package':
+      return 'View packages';
+    case 'promo':
+      return 'See offer';
+    default:
+      return undefined;
+  }
+}
+
+function getTypeLabel(type: NotificationType) {
+  switch (type) {
+    case 'gallery_ready':
+      return 'Gallery Ready';
+    case 'gallery':
+      return 'Gallery';
+    case 'payment':
+      return 'Payment';
+    case 'booking':
+      return 'Booking';
+    case 'package':
+      return 'Package';
+    case 'promo':
+      return 'Promo';
+    default:
+      return 'Update';
+  }
+}
+
+function matchesFilter(item: Notification, activeFilter: NotificationFilter) {
+  if (activeFilter === 'all') return true;
+  if (activeFilter === 'unread') return !item.read;
+  if (activeFilter === 'payments') return item.type === 'payment';
+  if (activeFilter === 'galleries') return item.type === 'gallery' || item.type === 'gallery_ready';
+  if (activeFilter === 'bookings') return item.type === 'booking' || item.type === 'package';
+  return true;
+}
+
+function NotificationItem({
+  item,
+  onPress,
+  onDelete,
+}: {
+  item: Notification;
+  onPress: (notification: Notification) => void;
+  onDelete: (notification: Notification) => void;
+}) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const accentColor = accentMap[item.type] || accentMap.system;
+  const isActionable = ['gallery', 'gallery_ready', 'payment', 'booking', 'package'].includes(item.type);
 
   const handlePress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -49,21 +152,43 @@ function NotificationItem({ item, onPress, onDelete }: { item: Notification; onP
       }}
       delayLongPress={220}
     >
-      <Animated.View style={[styles.notifItem, !item.read && styles.notifItemUnread, { transform: [{ scale: scaleAnim }] }]}>
+      <Animated.View
+        style={[
+          styles.notifItem,
+          { borderLeftColor: accentColor },
+          !item.read && styles.notifItemUnread,
+          { transform: [{ scale: scaleAnim }] },
+        ]}
+      >
         <View style={[styles.notifIcon, { backgroundColor: bgMap[item.type] || bgMap.system }]}>
           {iconMap[item.type] || iconMap.system}
         </View>
         <View style={styles.notifContent}>
+          <View style={styles.typeRow}>
+            <View style={[styles.typeBadge, { backgroundColor: `${accentColor}22` }]}>
+              <Text style={[styles.typeBadgeText, { color: accentColor }]}>{getTypeLabel(item.type)}</Text>
+            </View>
+            <Text style={styles.notifTime}>{formatRelativeTime(item.createdAt)}</Text>
+          </View>
           <View style={styles.notifHeader}>
             <Text style={[styles.notifTitle, !item.read && styles.notifTitleUnread]} numberOfLines={1}>{item.title}</Text>
             {!item.read && <View style={styles.unreadDot} />}
           </View>
           <Text style={styles.notifBody} numberOfLines={2}>{item.body}</Text>
           <View style={styles.notifFooter}>
-            <Text style={styles.notifTime}>{item.timestamp}</Text>
+            <Text style={styles.notifTimestamp}>{item.timestamp}</Text>
             {item.actionLabel && (
+              <Pressable
+                style={[styles.actionChip, isActionable && styles.actionChipPrimary]}
+                onPress={handlePress}
+              >
+                <Text style={[styles.actionChipText, isActionable && styles.actionChipTextPrimary]}>{item.actionLabel}</Text>
+                <ChevronRight size={14} color={isActionable ? Colors.background : Colors.gold} />
+              </Pressable>
+            )}
+            {!item.actionLabel && !item.read && (
               <Pressable style={styles.actionChip} onPress={handlePress}>
-                <Text style={styles.actionChipText}>{item.actionLabel}</Text>
+                <Text style={styles.actionChipText}>Mark read</Text>
               </Pressable>
             )}
           </View>
@@ -77,9 +202,10 @@ interface Notification {
   id: string;
   title: string;
   body: string;
-  type: 'gallery' | 'gallery_ready' | 'payment' | 'booking' | 'promo' | 'system' | 'package';
+  type: NotificationType;
   read: boolean;
   timestamp: string;
+  createdAt: string;
   actionLabel?: string;
   // Deep linking fields
   access_code?: string;
@@ -92,29 +218,30 @@ interface Notification {
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isDemoMode } = useAuth();
   const [notifs, setNotifs] = useState<Notification[]>([]);
+  const [activeFilter, setActiveFilter] = useState<NotificationFilter>('all');
 
   const unreadCount = notifs.filter(n => !n.read).length;
+  const actionableCount = notifs.filter((n) => ['gallery_ready', 'payment', 'booking', 'package'].includes(n.type) && !n.read).length;
 
   const markRead = useCallback(async (id: string) => {
     try {
       setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      if (isDemoMode) return;
       // Permanently mark as read in database
-      const payload: Record<string, any> = { read: true, is_read: true, read_at: new Date().toISOString() };
       const { error } = await supabase
         .from('notifications')
-        .update(payload)
+        .update({ read: true, read_at: new Date().toISOString() })
         .eq('id', id);
       if (error) {
-        const fallback: Record<string, any> = { read: true, is_read: true };
-        const retry = await supabase.from('notifications').update(fallback).eq('id', id);
-        if (retry.error) throw retry.error;
+        console.error('Failed to mark as read:', error);
+        throw error;
       }
     } catch (e) {
       console.error('Failed to mark notification as read:', e);
     }
-  }, []);
+  }, [isDemoMode]);
 
   const handleNotificationPress = useCallback((notification: Notification) => {
     // Mark as read
@@ -179,24 +306,21 @@ export default function NotificationsScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setNotifs(prev => prev.map(n => ({ ...n, read: true })));
       
-      if (!user) return;
-      const payload: Record<string, any> = { read: true, is_read: true, read_at: new Date().toISOString() };
+      if (!user || isDemoMode) return;
+      // Mark all unread notifications as read
       const { error } = await supabase
         .from('notifications')
-        .update(payload)
+        .update({ read: true, read_at: new Date().toISOString() })
         .eq('user_id', user.id)
-        .or('read.eq.false,is_read.eq.false');
+        .eq('read', false);
       if (error) {
-        const retry = await supabase
-          .from('notifications')
-          .update({ read: true, is_read: true })
-          .eq('user_id', user.id);
-        if (retry.error) throw retry.error;
+        console.error('Failed to mark all as read:', error);
+        throw error;
       }
     } catch (e) {
       console.error('Failed to mark all as read:', e);
     }
-  }, [user]);
+  }, [isDemoMode, user]);
 
   const deleteNotification = useCallback(async (notification: Notification) => {
     Alert.alert(
@@ -211,6 +335,7 @@ export default function NotificationsScreen() {
             try {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               setNotifs((prev) => prev.filter((n) => n.id !== notification.id));
+              if (isDemoMode) return;
               const { error } = await supabase
                 .from('notifications')
                 .delete()
@@ -223,7 +348,7 @@ export default function NotificationsScreen() {
         },
       ]
     );
-  }, []);
+  }, [isDemoMode]);
 
   const clearAll = useCallback(() => {
     Alert.alert(
@@ -238,7 +363,7 @@ export default function NotificationsScreen() {
             try {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               setNotifs([]);
-              if (!user) return;
+              if (!user || isDemoMode) return;
               const { error } = await supabase
                 .from('notifications')
                 .delete()
@@ -251,7 +376,7 @@ export default function NotificationsScreen() {
         },
       ]
     );
-  }, [user]);
+  }, [isDemoMode, user]);
 
   // Load notifications and set up real-time subscription
   useEffect(() => {
@@ -259,6 +384,26 @@ export default function NotificationsScreen() {
 
     const loadNotifications = async () => {
       try {
+        if (isDemoMode) {
+          const formattedDemoNotifs: Notification[] = demoNotifications.map((n: any) => ({
+            id: n.id,
+            title: n.title,
+            body: n.body,
+            type: n.type as NotificationType,
+            read: n.read === true,
+            timestamp: new Date(n.created_at).toLocaleDateString(),
+            createdAt: n.created_at,
+            actionLabel: getActionLabel(n.type as NotificationType),
+            access_code: (n.data as any)?.accessCode,
+            gallery_id: (n.data as any)?.galleryId,
+            client_id: null,
+            bts_id: (n.data as any)?.btsId,
+            announcement_id: (n.data as any)?.announcementId,
+          }));
+          setNotifs(formattedDemoNotifs);
+          return;
+        }
+
         const { data, error } = await supabase
           .from('notifications')
           .select('*')
@@ -270,18 +415,13 @@ export default function NotificationsScreen() {
 
         const formattedNotifs: Notification[] = (data || []).map((n: any) => ({
           id: n.id,
-          title: n.title,
+          title: n.title || 'Notification',
           body: n.body ?? n.message ?? '',
-          type: n.type as any,
-          read: (n.read ?? n.is_read) === true,
+          type: n.type as NotificationType || 'system',
+          read: n.read === true,
           timestamp: new Date(n.created_at).toLocaleDateString(),
-          actionLabel: n.type === 'gallery' || n.type === 'gallery_ready'
-            ? 'View Gallery'
-            : n.type === 'promo'
-              ? 'Check it out'
-              : n.type === 'package'
-                ? 'View Packages'
-                : undefined,
+          createdAt: n.created_at,
+          actionLabel: getActionLabel(n.type as NotificationType),
           access_code: (n.data as any)?.accessCode ?? n.access_code,
           gallery_id: (n.data as any)?.galleryId ?? n.gallery_id,
           client_id: (n.data as any)?.clientId ?? n.client_id,
@@ -297,6 +437,10 @@ export default function NotificationsScreen() {
 
     loadNotifications();
 
+    if (isDemoMode) {
+      return;
+    }
+
     // Set up real-time subscription
     const channel = supabase
       .channel('user_notifications')
@@ -306,24 +450,21 @@ export default function NotificationsScreen() {
         table: 'notifications',
         filter: `user_id=eq.${user.id}`
       }, (payload) => {
-        const newNotif = payload.new;
+        if (!payload.new) return;
+        
+        const newNotif = payload.new as any;
         const formattedNotif: Notification = {
-          id: (newNotif as any).id,
-          title: (newNotif as any).title,
-          body: (newNotif as any).body ?? (newNotif as any).message ?? '',
-          type: (newNotif as any).type,
-          read: ((newNotif as any).read ?? (newNotif as any).is_read) === true,
+          id: newNotif.id,
+          title: newNotif.title || 'Notification',
+          body: newNotif.body ?? newNotif.message ?? '',
+          type: newNotif.type as NotificationType || 'system',
+          read: newNotif.read === true,
           timestamp: new Date(newNotif.created_at).toLocaleDateString(),
-          actionLabel: newNotif.type === 'gallery' || newNotif.type === 'gallery_ready'
-            ? 'View Gallery'
-            : newNotif.type === 'promo'
-              ? 'Check it out'
-              : newNotif.type === 'package'
-                ? 'View Packages'
-                : undefined,
-          access_code: (newNotif as any).data?.accessCode ?? (newNotif as any).access_code,
-          gallery_id: (newNotif as any).data?.galleryId ?? (newNotif as any).gallery_id,
-          client_id: (newNotif as any).data?.clientId ?? (newNotif as any).client_id,
+          createdAt: newNotif.created_at,
+          actionLabel: getActionLabel(newNotif.type as NotificationType),
+          access_code: newNotif.data?.accessCode ?? newNotif.access_code,
+          gallery_id: newNotif.data?.galleryId ?? newNotif.gallery_id,
+          client_id: newNotif.data?.clientId ?? newNotif.client_id,
           bts_id: newNotif.data?.btsId,
           announcement_id: newNotif.data?.announcementId,
         };
@@ -338,52 +479,131 @@ export default function NotificationsScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [isDemoMode, user]);
+
+  const filteredNotifs = useMemo(
+    () => notifs.filter((item) => matchesFilter(item, activeFilter)),
+    [notifs, activeFilter]
+  );
+
+  const sections = useMemo(() => {
+    const grouped: Record<string, Notification[]> = {};
+    filteredNotifs.forEach((item) => {
+      const sectionTitle = getSectionTitle(item.createdAt);
+      if (!grouped[sectionTitle]) grouped[sectionTitle] = [];
+      grouped[sectionTitle].push(item);
+    });
+
+    const orderedTitles = ['Today', 'Earlier this week', 'Older'];
+    return orderedTitles
+      .filter((title) => grouped[title]?.length)
+      .map((title) => ({ title, data: grouped[title] }));
+  }, [filteredNotifs]);
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12}>
-          <ArrowLeft size={22} color={Colors.white} />
-        </Pressable>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Notifications</Text>
-          {unreadCount > 0 && (
-            <View style={styles.headerBadge}>
-              <Text style={styles.headerBadgeText}>{unreadCount}</Text>
+      <View style={{ zIndex: 10, backgroundColor: Colors.background, paddingBottom: 8 }}>
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+          <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12}>
+            <ArrowLeft size={22} color={Colors.white} />
+          </Pressable>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Notifications</Text>
+            {unreadCount > 0 && (
+              <View style={styles.headerBadge}>
+                <Text style={styles.headerBadgeText}>{unreadCount}</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.headerActions}>
+            {unreadCount > 0 && (
+              <Pressable onPress={markAllRead} hitSlop={8} style={styles.headerAction}>
+                <Check size={18} color={Colors.gold} />
+              </Pressable>
+            )}
+            {notifs.length > 0 && (
+              <Pressable onPress={clearAll} hitSlop={8} style={styles.headerAction}>
+                <Trash2 size={18} color={Colors.textMuted} />
+              </Pressable>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryCopy}>
+            <View style={styles.summaryEyebrow}>
+              <Sparkles size={14} color={Colors.gold} />
+              <Text style={styles.summaryEyebrowText}>Inbox</Text>
             </View>
-          )}
+            <Text style={styles.summaryTitle}>Stay on top of what needs attention</Text>
+            <Text style={styles.summaryDesc}>
+              {actionableCount > 0
+                ? `${actionableCount} update${actionableCount === 1 ? '' : 's'} can be acted on right now.`
+                : 'Everything important is neatly organized here.'}
+            </Text>
+          </View>
+          <View style={styles.summaryStats}>
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryStatValue}>{unreadCount}</Text>
+              <Text style={styles.summaryStatLabel}>Unread</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryStat}>
+              <Text style={styles.summaryStatValue}>{actionableCount}</Text>
+              <Text style={styles.summaryStatLabel}>Actionable</Text>
+            </View>
+          </View>
         </View>
-        <View style={styles.headerActions}>
-          {unreadCount > 0 && (
-            <Pressable onPress={markAllRead} hitSlop={8} style={styles.headerAction}>
-              <Check size={18} color={Colors.gold} />
-            </Pressable>
-          )}
-          {notifs.length > 0 && (
-            <Pressable onPress={clearAll} hitSlop={8} style={styles.headerAction}>
-              <Trash2 size={18} color={Colors.textMuted} />
-            </Pressable>
-          )}
-        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filtersContent}
+          style={styles.filtersWrap}
+        >
+          {filterOptions.map((option) => {
+            const isActive = option.key === activeFilter;
+            return (
+              <Pressable
+                key={option.key}
+                onPress={() => setActiveFilter(option.key)}
+                style={[styles.filterChip, isActive && styles.filterChipActive]}
+              >
+                <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{option.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
 
-      {notifs.length === 0 ? (
+      {filteredNotifs.length === 0 ? (
         <View style={styles.emptyState}>
           <View style={styles.emptyIcon}>
             <Bell size={40} color={Colors.textMuted} />
           </View>
-          <Text style={styles.emptyTitle}>All caught up!</Text>
-          <Text style={styles.emptyDesc}>No notifications right now. We&apos;ll let you know when something happens.</Text>
+          <Text style={styles.emptyTitle}>{activeFilter === 'all' ? 'All caught up!' : `No ${activeFilter} updates`}</Text>
+          <Text style={styles.emptyDesc}>
+            {activeFilter === 'all'
+              ? 'No notifications right now. We&apos;ll let you know when something important happens.'
+              : 'Try another filter or check back later for new updates.'}
+          </Text>
         </View>
       ) : (
-        <FlatList
-          data={notifs}
+        <SectionList
+          sections={sections}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <NotificationItem item={item} onPress={handleNotificationPress} onDelete={deleteNotification} />}
-          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => (
+            <NotificationItem item={item} onPress={handleNotificationPress} onDelete={deleteNotification} />
+          )}
+          renderSectionHeader={({ section }) => (
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{section.title}</Text>
+            </View>
+          )}
+          contentContainerStyle={[styles.listContent, { paddingBottom: Math.max(insets.bottom + 120, 160) }]}
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
+          stickySectionHeadersEnabled={false}
         />
       )}
     </View>
@@ -450,9 +670,115 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
+    paddingTop: 10,
+    paddingBottom: 36,
   },
   separator: {
     height: 8,
+  },
+  summaryCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 10,
+    borderRadius: 16,
+    padding: 14,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.18)',
+    gap: 12,
+  },
+  summaryCopy: {
+    gap: 4,
+  },
+  summaryEyebrow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  summaryEyebrowText: {
+    color: Colors.gold,
+    fontSize: 11,
+    fontWeight: '700' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.6,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: Colors.white,
+  },
+  summaryDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+  },
+  summaryStats: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    paddingTop: 10,
+  },
+  summaryStat: {
+    flex: 1,
+  },
+  summaryStatValue: {
+    fontSize: 18,
+    fontWeight: '800' as const,
+    color: Colors.white,
+    marginBottom: 2,
+  },
+  summaryStatLabel: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  summaryDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: 16,
+  },
+  filtersWrap: {
+    maxHeight: 48,
+  },
+  filtersContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    gap: 10,
+  },
+  filterChip: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterChipActive: {
+    backgroundColor: Colors.goldMuted,
+    borderColor: 'rgba(212,175,55,0.4)',
+  },
+  filterChipText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    fontWeight: '600' as const,
+  },
+  filterChipTextActive: {
+    color: Colors.gold,
+  },
+  sectionHeader: {
+    paddingHorizontal: 2,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  sectionTitle: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.8,
   },
   notifItem: {
     flexDirection: 'row' as const,
@@ -462,10 +788,16 @@ const styles = StyleSheet.create({
     gap: 12,
     borderWidth: 1,
     borderColor: Colors.border,
+    borderLeftWidth: 3,
   },
   notifItemUnread: {
     borderColor: 'rgba(212,175,55,0.25)',
-    backgroundColor: 'rgba(26,26,26,0.95)',
+    backgroundColor: 'rgba(26,26,26,0.98)',
+    shadowColor: Colors.gold,
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   notifIcon: {
     width: 44,
@@ -476,6 +808,23 @@ const styles = StyleSheet.create({
   },
   notifContent: {
     flex: 1,
+  },
+  typeRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  typeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  typeBadgeText: {
+    fontSize: 10,
+    fontWeight: '700' as const,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.6,
   },
   notifHeader: {
     flexDirection: 'row' as const,
@@ -514,16 +863,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textMuted,
   },
+  notifTimestamp: {
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
   actionChip: {
     backgroundColor: Colors.goldMuted,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: 2,
+  },
+  actionChipPrimary: {
+    backgroundColor: Colors.gold,
   },
   actionChipText: {
     fontSize: 11,
     fontWeight: '600' as const,
     color: Colors.gold,
+  },
+  actionChipTextPrimary: {
+    color: Colors.background,
+    fontWeight: '800' as const,
   },
   emptyState: {
     flex: 1,

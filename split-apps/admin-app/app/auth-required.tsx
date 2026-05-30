@@ -58,7 +58,7 @@ export default function AuthRequiredScreen() {
       
       if (isValid) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.replace('/(tabs)/home');
+        router.replace('/dashboard');
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setPin('');
@@ -88,7 +88,7 @@ export default function AuthRequiredScreen() {
       
       if (success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.replace('/(tabs)/home');
+        router.replace('/dashboard');
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert('Authentication Failed', 'Biometric authentication was not successful.');
@@ -102,7 +102,7 @@ export default function AuthRequiredScreen() {
   };
 
   const handleUsePassword = () => {
-    router.replace('/login');
+    router.replace('/admin-login');
   };
 
   const isPinLocked = pinLockedUntil && new Date() < pinLockedUntil;

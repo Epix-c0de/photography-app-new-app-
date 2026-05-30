@@ -1,11 +1,15 @@
-import { useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert } from 'react-native';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert, Linking as NativeLinking, ImageBackground } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react-native';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Fingerprint } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ExpoLinking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import * as AuthSession from 'expo-auth-session';
+import * as Crypto from 'expo-crypto';
+import * as LocalAuthentication from 'expo-local-authentication';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -15,7 +19,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, enableDemoMode } = useAuth();
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -24,10 +28,59 @@ export default function LoginScreen() {
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buttonScale = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [hasBiometrics, setHasBiometrics] = useState<boolean>(false);
+  const [savedEmail, setSavedEmail] = useState<string | null>(null);
 
-  useState(() => {
+  useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-  });
+    
+    // Check if biometrics are available and we have a saved email
+    (async () => {
+      const compatible = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      setHasBiometrics(compatible && enrolled);
+      
+      const email = await AsyncStorage.getItem('saved_login_email');
+      const token = await AsyncStorage.getItem('saved_login_token');
+      if (email && token && compatible && enrolled) {
+        setSavedEmail(email);
+        setEmail(email);
+      }
+    })();
+  }, []);
+
+  const handleBiometricLogin = async () => {
+    if (!hasBiometrics) return;
+    
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Authenticate to sign in',
+        fallbackLabel: 'Use password',
+      });
+      
+      if (result.success) {
+        setIsSubmitting(true);
+        // We'd ideally use the saved token here with Supabase, 
+        // but for now we'll check if session is still valid or trigger a magic link
+        const token = await AsyncStorage.getItem('saved_login_token');
+        if (token) {
+           const { data, error } = await supabase.auth.getUser(token);
+           if (!error && data?.user) {
+             router.replace('/(tabs)/home');
+             return;
+           }
+        }
+        
+        // If no token or invalid, fallback to normal auth prompt or error
+        Alert.alert('Session Expired', 'Please sign in with your password once to re-enable FaceID/TouchID.');
+        setIsSubmitting(false);
+      }
+    } catch (e) {
+      console.error(e);
+      setIsSubmitting(false);
+    }
+  };
 
   const handleResendEmail = useCallback(async (emailToResend: string) => {
     try {
@@ -53,6 +106,16 @@ export default function LoginScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       await login(email, password);
+      
+      // Save credentials for biometrics
+      if (hasBiometrics) {
+        await AsyncStorage.setItem('saved_login_email', email);
+        const session = await supabase.auth.getSession();
+        if (session.data.session?.access_token) {
+          await AsyncStorage.setItem('saved_login_token', session.data.session.access_token);
+        }
+      }
+      
       router.replace('/(tabs)/home');
     } catch (error: any) {
       console.error('[Login] Error:', error);
@@ -82,7 +145,7 @@ export default function LoginScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setIsSubmitting(true);
-      console.log('[Google Sign-In] Starting flow');
+      console.log('[Google Sign-In] Starting flow with IdToken');
 
       if (Platform.OS !== 'android' && Platform.OS !== 'ios') {
         Alert.alert('Google Sign-In', 'Google Sign-In works only in the installed mobile app.');
@@ -90,74 +153,100 @@ export default function LoginScreen() {
         return;
       }
 
-      const redirectUrl = ExpoLinking.createURL('auth/callback');
+      // Check if Google Client ID is configured
+      const googleClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+      if (!googleClientId) {
+        throw new Error('Google Client ID is not configured. Please check your environment variables.');
+      }
 
+      const redirectUrl = ExpoLinking.createURL('auth/callback');
       console.log('[Google Sign-In] redirectUrl:', redirectUrl);
 
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: redirectUrl,
-          skipBrowserRedirect: true,
-          queryParams: { prompt: 'select_account' },
+      // Create a random nonce for security
+      const nonce = Crypto.getRandomBytesAsync(16).then(bytes => 
+        Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+      );
+      const nonceString = await nonce;
+
+      // Configure the auth request
+      const request = new AuthSession.AuthRequest({
+        clientId: googleClientId,
+        scopes: ['openid', 'profile', 'email'],
+        redirectUri: redirectUrl,
+        responseType: AuthSession.ResponseType.IdToken,
+        extraParams: {
+          nonce: nonceString,
+          prompt: 'select_account',
         },
       });
 
-      if (error) {
-        console.error('[Google Sign-In] Supabase error:', error);
-        throw error;
-      }
-      
-      if (!data?.url) {
-        console.error('[Google Sign-In] No URL returned from Supabase');
-        throw new Error('Authentication URL missing from Supabase');
-      }
+      const result = await request.promptAsync({});
 
-      console.log('[Google Sign-In] Opening browser for:', data.url);
+      console.log('[Google Sign-In] Auth result type:', result.type);
 
-      const result = await WebBrowser.openAuthSessionAsync(
-        data.url,
-        redirectUrl,
-        {
-          showInRecents: true,
-          dismissButtonStyle: 'cancel',
-          createTask: false,
+      if (result.type === 'success') {
+        const { params } = result;
+        const idToken = params.id_token;
+
+        if (!idToken) {
+          throw new Error('No ID token received from Google');
         }
-      );
 
-      console.log('[Google Sign-In] Browser result:', result.type);
+        console.log('[Google Sign-In] ID token received, signing in with Supabase');
 
-      if (result.type === 'success' && result.url) {
-        console.log('[Google Sign-In] Success! Redirecting to callback handler');
-        router.push({
-          pathname: '/auth/callback',
-          params: {
-            url: result.url,
-            provider: 'google',
-          },
+        // Sign in with Supabase using the ID token
+        const { data, error } = await supabase.auth.signInWithIdToken({
+          provider: 'google',
+          token: idToken,
+          nonce: nonceString,
         });
+
+        if (error) {
+          console.error('[Google Sign-In] Supabase sign-in error:', error);
+          throw error;
+        }
+
+        console.log('[Google Sign-In] Success! User signed in:', data.user?.email);
+        
+        // Navigate to home screen on successful sign-in
+        router.replace('/(tabs)/home');
+        
       } else if (result.type === 'dismiss') {
         console.log('[Google Sign-In] User dismissed browser');
-        setIsSubmitting(false);
       } else if (result.type === 'cancel') {
         console.log('[Google Sign-In] User cancelled');
-        setIsSubmitting(false);
       } else {
         console.warn('[Google Sign-In] Unexpected result type:', result.type);
-        setIsSubmitting(false);
+        throw new Error('Authentication was cancelled or failed');
       }
     } catch (error: any) {
       console.error('[Google Sign-In] Error:', error?.message || error);
-      setIsSubmitting(false);
       
       let errorMessage = error?.message || 'An error occurred during Google Sign-In';
       if (errorMessage.includes('developer_error')) {
         errorMessage = 'Configuration error: Ensure your Android Package Name and SHA-1 fingerprint are registered in Google Cloud Console for the EAS build.';
+      } else if (errorMessage.includes('EXPO_PUBLIC_GOOGLE_CLIENT_ID')) {
+        errorMessage = 'Google Sign-In is not properly configured. Please contact support.';
       }
       
       Alert.alert('Sign-In Failed', errorMessage);
+    } finally {
+      setIsSubmitting(false);
     }
   }, [router]);
+
+  const handleDemoLogin = useCallback(async () => {
+    try {
+      setIsSubmitting(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await enableDemoMode();
+      router.replace('/(tabs)/home');
+    } catch (error: any) {
+      Alert.alert('Demo Mode Error', error?.message || 'Failed to enable demo mode.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [enableDemoMode, router]);
 
 
   const handleLogoTap = useCallback(() => {
@@ -167,7 +256,7 @@ export default function LoginScreen() {
     if (newCount >= 3) {
       setTapCount(0);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.push('/admin-login');
+      router.push('/(admin)/dashboard' as any);
       return;
     }
     tapTimerRef.current = setTimeout(() => setTapCount(0), 800);
@@ -182,12 +271,16 @@ export default function LoginScreen() {
   }, [buttonScale]);
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+    <ImageBackground
+      source={{ uri: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?q=80&w=1000&auto=format&fit=crop' }}
+      style={styles.container}
+      blurRadius={Platform.OS === 'ios' ? 8 : 4}
+    >
       <LinearGradient
-        colors={['#0A0A0A', '#0F0F0F', '#0A0A0A']}
+        colors={['rgba(10,10,12,0.4)', 'rgba(10,10,12,0.95)', Colors.background]}
         style={StyleSheet.absoluteFillObject}
       />
+      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -203,7 +296,7 @@ export default function LoginScreen() {
               <View style={styles.logoFrame}>
                 <Text style={styles.logoIcon}>◈</Text>
               </View>
-              <Text style={styles.logoText}>LENZ<Text style={styles.logoAccent}>ART</Text></Text>
+              <Text style={styles.logoText}>EPIX<Text style={styles.logoAccent}>VISUALS</Text></Text>
               <Text style={styles.logoSubtitle}>P H O T O G R A P H Y</Text>
             </Pressable>
 
@@ -265,9 +358,24 @@ export default function LoginScreen() {
                 </Animated.View>
               </Pressable>
 
+              <Pressable
+                onPress={handleDemoLogin}
+                style={styles.demoButton}
+                disabled={isSubmitting}
+              >
+                <Text style={styles.demoButtonText}>Continue in Demo Mode</Text>
+              </Pressable>
+
+              {hasBiometrics && savedEmail && (
+                <Pressable onPress={handleBiometricLogin} style={styles.biometricButton}>
+                  <Fingerprint size={24} color={Colors.gold} />
+                  <Text style={styles.biometricText}>Sign in with Biometrics</Text>
+                </Pressable>
+              )}
+
               <Pressable onPress={() => router.push('/signup')} style={{ marginTop: 20, alignItems: 'center' }}>
                   <Text style={{ color: Colors.textMuted }}>
-                      {"Don't have an account? "}<Text style={{ color: Colors.gold, fontWeight: '600' }}>Sign Up</Text>
+                      {"Don't have an account? "}<Text style={{ color: Colors.gold, fontWeight: '600' }}>Sign up</Text>
                   </Text>
               </Pressable>
 
@@ -296,7 +404,7 @@ export default function LoginScreen() {
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </ImageBackground>
   );
 }
 
@@ -406,6 +514,35 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700' as const,
     color: Colors.background,
+  },
+  biometricButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: -10,
+    marginBottom: 20,
+  },
+  demoButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 50,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.28)',
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    marginTop: -8,
+    marginBottom: 20,
+  },
+  demoButtonText: {
+    color: Colors.gold,
+    fontSize: 15,
+    fontWeight: '700' as const,
+  },
+  biometricText: {
+    color: Colors.gold,
+    fontSize: 15,
+    fontWeight: '600' as const,
   },
   dividerRow: {
     flexDirection: 'row' as const,

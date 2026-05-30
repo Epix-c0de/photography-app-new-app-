@@ -53,6 +53,7 @@ module.exports = {
         'ACCESS_NETWORK_STATE',
       ],
       package: 'app.rork.epix_visuals_admin',
+      enableProguardInReleaseBuilds: true,
       intentFilters: [
         {
           action: 'android.intent.action.VIEW',

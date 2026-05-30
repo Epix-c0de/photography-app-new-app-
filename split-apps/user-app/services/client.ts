@@ -1,5 +1,15 @@
 import { supabase } from '../lib/supabase';
 import type { Database } from '../types/supabase';
+import {
+  demoAnnouncements,
+  demoGalleryPhotosByGalleryId,
+  demoPortfolioItems,
+  demoBtsPosts,
+  demoPackages,
+  demoBookings,
+  demoPayments,
+  isDemoModeEnabled,
+} from '../lib/demo';
 
 export type Gallery = Database['public']['Tables']['galleries']['Row'] & {
   cover_photo?: string; // Signed URL
@@ -129,6 +139,11 @@ export const ClientService = {
    */
   gallery: {
     list: async (): Promise<Gallery[]> => {
+      if (await isDemoModeEnabled()) {
+        return demoGalleryPhotosByGalleryId
+          ? []
+          : [];
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
@@ -156,6 +171,9 @@ export const ClientService = {
      * Logic: Allowed ONLY if payment_status = PAID (or gallery is unlocked)
      */
     getPhotos: async (galleryId: string, options?: { thumbnailsOnly?: boolean }): Promise<Photo[]> => {
+      if (await isDemoModeEnabled()) {
+        return (demoGalleryPhotosByGalleryId[galleryId] ?? []) as Photo[];
+      }
       // 0. Get Current User
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
@@ -350,6 +368,9 @@ export const ClientService = {
    */
   bts: {
     list: async (): Promise<Database['public']['Tables']['bts_posts']['Row'][]> => {
+      if (await isDemoModeEnabled()) {
+        return demoBtsPosts;
+      }
       const nowIso = new Date().toISOString();
       const { data, error } = await supabase
         .from('bts_posts')
@@ -417,6 +438,14 @@ export const ClientService = {
    */
   announcements: {
     list: async () => {
+      if (await isDemoModeEnabled()) {
+        return demoAnnouncements.map((item) => ({
+          ...item,
+          announcement_comments: [],
+          announcement_reactions: [],
+          user_profiles: { id: 'demo-admin', name: 'Epix Visuals Team', avatar_url: null },
+        }));
+      }
       const { data, error } = await supabase
         .from('announcements')
         .select(`
@@ -453,6 +482,9 @@ export const ClientService = {
     },
 
     get: async (id: string) => {
+      if (await isDemoModeEnabled()) {
+        return demoAnnouncements.find((item) => item.id === id) ?? demoAnnouncements[0];
+      }
       const { data, error } = await supabase
         .from('announcements')
         .select(`
@@ -579,6 +611,9 @@ export const ClientService = {
    */
   portfolio: {
     list: async (): Promise<PortfolioItem[]> => {
+      if (await isDemoModeEnabled()) {
+        return demoPortfolioItems as PortfolioItem[];
+      }
       const { data, error } = await supabase
         .from('portfolio_items')
         .select('*')
@@ -590,6 +625,9 @@ export const ClientService = {
     },
 
     listByType: async (contentType: 'bts' | 'portfolio'): Promise<PortfolioItem[]> => {
+      if (await isDemoModeEnabled()) {
+        return demoPortfolioItems.filter((item) => item.content_type === contentType) as PortfolioItem[];
+      }
       const { data, error } = await supabase
         .from('portfolio_items')
         .select('*')
@@ -602,6 +640,9 @@ export const ClientService = {
     },
 
     listTopRated: async (): Promise<PortfolioItem[]> => {
+      if (await isDemoModeEnabled()) {
+        return demoPortfolioItems.filter((item) => item.is_top_rated) as PortfolioItem[];
+      }
       const { data, error } = await supabase
         .from('portfolio_items')
         .select('*')
@@ -622,6 +663,9 @@ export const ClientService = {
     },
 
     toggleLike: async (itemId: string) => {
+      if (await isDemoModeEnabled()) {
+        return true;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 

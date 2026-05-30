@@ -28,6 +28,9 @@ module.exports = {
       resizeMode: 'contain',
       backgroundColor: '#141313ff',
     },
+    updates: {
+      url: 'https://u.expo.dev/3ebabefa-64dc-4b36-b71c-94c1753e94d7'
+    },
     ios: {
       supportsTablet: false,
       bundleIdentifier: 'app.rork.epix-visuals-studios-co',
@@ -40,6 +43,7 @@ module.exports = {
       },
     },
     android: {
+      softwareKeyboardLayoutMode: 'pan',
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
         backgroundColor: '#ffffff',
@@ -53,6 +57,7 @@ module.exports = {
         'ACCESS_NETWORK_STATE',
       ],
       package: 'app.rork.epix_visuals_studios_co',
+      enableProguardInReleaseBuilds: true,
       intentFilters: [
         {
           action: 'android.intent.action.VIEW',
@@ -70,10 +75,29 @@ module.exports = {
         },
       ],
     },
+    androidNavigationBar: {
+      visible: "immersive",
+      backgroundColor: "#00000000",
+    },
     web: {
       favicon: './assets/images/adaptive-icon.png',
     },
-    plugins: ['expo-router', 'expo-font', 'expo-web-browser'],
+    plugins: [
+      'expo-router',
+      'expo-font',
+      'expo-web-browser',
+      [
+        'expo-build-properties',
+        {
+          android: {
+            minSdkVersion: 24,
+            targetSdkVersion: 34,
+            compileSdkVersion: 34,
+            buildToolsVersion: '34.0.0',
+          },
+        },
+      ],
+    ],
     experiments: {
       typedRoutes: true,
     },

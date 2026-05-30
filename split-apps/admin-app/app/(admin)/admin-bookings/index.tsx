@@ -285,7 +285,7 @@ function BookingCard({
   const handleChat = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push({
-      pathname: '/(admin)/inbox',
+      pathname: '/inbox',
       params: { clientId: booking.clientId }
     } as any);
   }, [booking.clientId, router]);
@@ -653,12 +653,20 @@ export default function AdminBookingsScreen() {
             <Text style={styles.headerTitle}>Bookings</Text>
             <Text style={styles.headerSub}>{counts.pending} pending · {counts.confirmed} confirmed</Text>
           </View>
-          <Pressable 
-            style={styles.calendarBtn} 
-            onPress={() => setShowCalendarManager(true)}
-          >
-            <CalendarDays size={20} color={Colors.gold} />
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Pressable
+              style={styles.calendarBtn}
+              onPress={() => router.push('/settings/package-editor')}
+            >
+              <Text style={{ fontSize: 10, color: Colors.gold, fontWeight: '700' }}>Packages</Text>
+            </Pressable>
+            <Pressable 
+              style={styles.calendarBtn} 
+              onPress={() => setShowCalendarManager(true)}
+            >
+              <CalendarDays size={20} color={Colors.gold} />
+            </Pressable>
+          </View>
         </View>
 
         <ScrollView

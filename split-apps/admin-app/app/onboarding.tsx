@@ -66,7 +66,7 @@ export default function OnboardingScreen() {
   const handleComplete = useCallback(async () => {
     console.log('[Onboarding] Completing...');
     await completeOnboarding();
-    router.replace('/login');
+    router.replace('/admin-login');
   }, [completeOnboarding, router]);
 
   const handleNext = useCallback(() => {

@@ -16,6 +16,8 @@
     "expo-env.d.ts"
   ],
   "exclude": [
-    "supabase/functions"
+    "supabase/functions",
+    "split-apps/**/supabase/functions/**",
+    "split-apps/**/__tests__/**"
   ]
 }

@@ -12,7 +12,8 @@ import {
   Pressable,
   Animated,
   StatusBar,
-  ActivityIndicator
+  ActivityIndicator,
+  ImageBackground
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -306,10 +307,14 @@ export default function SignupScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ImageBackground
+      source={{ uri: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?q=80&w=1000&auto=format&fit=crop' }}
+      style={styles.container}
+      blurRadius={Platform.OS === 'ios' ? 8 : 4}
+    >
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
       <LinearGradient
-        colors={['#0A0A0A', '#111111', '#0A0A0A']}
+        colors={['rgba(10,10,12,0.4)', 'rgba(10,10,12,0.95)', Colors.background]}
         style={StyleSheet.absoluteFillObject}
       />
 
@@ -489,7 +494,7 @@ export default function SignupScreen() {
             </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </ImageBackground>
   );
 }
 

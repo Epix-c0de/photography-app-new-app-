@@ -343,6 +343,11 @@ export interface Database {
           custom_package_name: string | null
           share_app_link: string
           access_code_link: string
+          bts_share_link: string | null
+          announcement_share_link: string | null
+          gallery_share_link: string | null
+          referral_link: string | null
+          whatsapp_share_link: string | null
           created_at: string
           updated_at: string
         }
@@ -366,6 +371,11 @@ export interface Database {
           custom_package_name?: string | null
           share_app_link?: string
           access_code_link?: string
+          bts_share_link?: string | null
+          announcement_share_link?: string | null
+          gallery_share_link?: string | null
+          referral_link?: string | null
+          whatsapp_share_link?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -389,6 +399,11 @@ export interface Database {
           custom_package_name?: string | null
           share_app_link?: string
           access_code_link?: string
+          bts_share_link?: string | null
+          announcement_share_link?: string | null
+          gallery_share_link?: string | null
+          referral_link?: string | null
+          whatsapp_share_link?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -488,7 +503,7 @@ export interface Database {
       user_profiles: {
         Row: {
           id: string
-          role: 'admin' | 'client' | 'super_admin'
+          role: 'admin' | 'client' | 'super_admin' | 'master_admin'
           name: string | null
           phone: string | null
           email: string | null

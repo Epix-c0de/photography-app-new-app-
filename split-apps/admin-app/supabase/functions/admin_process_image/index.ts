@@ -2,12 +2,42 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const UPSTASH_KAFKA_REST_URL = Deno.env.get("UPSTASH_KAFKA_REST_URL") ?? "";
+const UPSTASH_KAFKA_REST_PASSWORD = Deno.env.get("UPSTASH_KAFKA_REST_PASSWORD") ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+// Function to publish event to Upstash Kafka
+async function publishToKafka(topic: string, message: any) {
+  if (!UPSTASH_KAFKA_REST_URL || !UPSTASH_KAFKA_REST_PASSWORD) {
+    console.log("Kafka credentials missing, skipping event publishing");
+    return;
+  }
+  
+  try {
+    const url = `${UPSTASH_KAFKA_REST_URL}/produce/${topic}`;
+    const auth = btoa(`:${UPSTASH_KAFKA_REST_PASSWORD}`); // Upstash basic auth format
+    
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${auth}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ value: JSON.stringify(message) })
+    });
+    
+    if (!response.ok) {
+      console.error(`Failed to publish to Kafka: ${response.statusText}`);
+    }
+  } catch (err) {
+    console.error(`Error publishing to Kafka:`, err);
+  }
+}
 
 // Background image processing worker
 Deno.serve(async (req: Request) => {
@@ -42,6 +72,18 @@ Deno.serve(async (req: Request) => {
       throw new Error("Photo not found");
     }
 
+    // Publish the job to Kafka instead of processing synchronously
+    await publishToKafka('image-processing', {
+      photo_id,
+      processing_type,
+      gallery_id: photo.gallery_id,
+      storage_path: photo.storage_path,
+      timestamp: new Date().toISOString()
+    });
+
+    // We still do synchronous mock processing here as fallback or while transitioning,
+    // but in full async architecture this would just return 202 Accepted.
+    
     // Process based on type
     if (processing_type === "thumbnail") {
       await processThumbnail(adminClient, photo);
@@ -115,7 +157,7 @@ async function processThumbnail(adminClient: any, photo: any) {
       gallery_id: photo.gallery_id,
       file_name: photo.file_name,
       status: "thumbnail_failed",
-      message: `Thumbnail processing failed: ${error.message}`
+      message: `Thumbnail processing failed: ${(error as Error).message}`
     });
   }
 }
@@ -146,7 +188,7 @@ async function processMedium(adminClient: any, photo: any) {
       gallery_id: photo.gallery_id,
       file_name: photo.file_name,
       status: "medium_failed",
-      message: `Medium processing failed: ${error.message}`
+      message: `Medium processing failed: ${(error as Error).message}`
     });
   }
 }
@@ -187,7 +229,7 @@ async function processExif(adminClient: any, photo: any) {
       gallery_id: photo.gallery_id,
       file_name: photo.file_name,
       status: "exif_failed",
-      message: `EXIF extraction failed: ${error.message}`
+      message: `EXIF extraction failed: ${(error as Error).message}`
     });
   }
 }
@@ -240,7 +282,7 @@ async function processWatermark(adminClient: any, photo: any) {
       gallery_id: photo.gallery_id,
       file_name: photo.file_name,
       status: "watermark_failed",
-      message: `Watermark processing failed: ${error.message}`
+      message: `Watermark processing failed: ${(error as Error).message}`
     });
   }
 }

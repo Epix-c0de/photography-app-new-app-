@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, TextInput, Pressable, Alert, ActivityIndicator,
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import * as LocalAuthentication from 'expo-local-authentication';
 import { Lock, Fingerprint, ArrowRight, Shield, AlertCircle } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
@@ -36,8 +35,8 @@ export default function AuthRequiredScreen() {
 
   const checkBiometricAvailability = async () => {
     try {
-      const compatible = await LocalAuthentication.hasHardwareAsync();
-      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      const compatible = await (await import('expo-local-authentication')).hasHardwareAsync();
+      const enrolled = await (await import('expo-local-authentication')).isEnrolledAsync();
       setIsBiometricAvailable(compatible && enrolled && profile?.biometric_enabled === true);
     } catch (error) {
       console.error('Biometric check error:', error);
@@ -59,11 +58,7 @@ export default function AuthRequiredScreen() {
       
       if (isValid) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        if (profile?.role === 'admin' || profile?.role === 'super_admin') {
-          router.replace('/(admin)/dashboard' as any);
-        } else {
-          router.replace('/(tabs)/home');
-        }
+        router.replace('/(tabs)/home');
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setPin('');
@@ -93,11 +88,7 @@ export default function AuthRequiredScreen() {
       
       if (success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        if (profile?.role === 'admin' || profile?.role === 'super_admin') {
-          router.replace('/(admin)/dashboard' as any);
-        } else {
-          router.replace('/(tabs)/home');
-        }
+        router.replace('/(tabs)/home');
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert('Authentication Failed', 'Biometric authentication was not successful.');

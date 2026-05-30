@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Animated, Alert, Image, Modal, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Animated, Alert, Image, Modal, TextInput, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -618,8 +618,7 @@ export default function AdminBookingsScreen() {
     cancelled: bookings.filter(b => b.status === 'cancelled').length,
   }), [bookings]);
 
-  const filters: { key: FilterType; label: string; color: string }[] = [
-    { key: 'all', label: 'All', color: Colors.white },
+  const columns: { key: FilterType; label: string; color: string }[] = [
     { key: 'pending', label: 'Pending', color: Colors.warning },
     { key: 'confirmed', label: 'Confirmed', color: Colors.success },
     { key: 'completed', label: 'Completed', color: '#6C9AED' },
@@ -647,10 +646,10 @@ export default function AdminBookingsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 8, borderBottomWidth: 0 }]}>
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.headerTitle}>Bookings</Text>
+            <Text style={styles.headerTitle}>Bookings Pipeline</Text>
             <Text style={styles.headerSub}>{counts.pending} pending · {counts.confirmed} confirmed</Text>
           </View>
           <Pressable 
@@ -660,24 +659,6 @@ export default function AdminBookingsScreen() {
             <CalendarDays size={20} color={Colors.gold} />
           </Pressable>
         </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtersContainer}
-        >
-          {filters.map((f) => (
-            <Pressable
-              key={f.key}
-              style={[styles.filterChip, filter === f.key && styles.filterChipActive]}
-              onPress={() => { setFilter(f.key); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-            >
-              <Text style={[styles.filterChipText, filter === f.key && { color: f.color }]}>
-                {f.label} ({counts[f.key]})
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
 
       <BookingActionsModal
         visible={showBookingActions}
@@ -696,33 +677,50 @@ export default function AdminBookingsScreen() {
       </View>
 
       <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        pagingEnabled
+        snapToInterval={Dimensions.get('window').width * 0.85}
+        decelerationRate="fast"
+        contentContainerStyle={styles.kanbanBoard}
       >
-        {filteredBookings.length > 0 ? (
-          filteredBookings.map((booking, index) => (
-            <BookingCard 
-              key={booking.id} 
-              booking={booking} 
-              index={index}
-              onUpdateStatus={handleUpdateStatus}
-              onReschedule={(b) => {
-                setSelectedBooking(b);
-                setShowRescheduleModal(true);
-              }}
-              onOpenActions={(b) => {
-                setSelectedBooking(b);
-                setShowBookingActions(true);
-              }}
-            />
-          ))
-        ) : (
-          <View style={styles.emptyState}>
-            <CalendarDays size={48} color={Colors.textMuted} />
-            <Text style={styles.emptyStateTitle}>No bookings</Text>
-            <Text style={styles.emptyStateText}>No {filter !== 'all' ? filter : ''} bookings found</Text>
-          </View>
-        )}
+        {columns.map(col => {
+          const colBookings = bookings.filter(b => b.status === col.key);
+          return (
+            <View key={col.key} style={styles.kanbanColumn}>
+              <View style={[styles.kanbanColumnHeader, { borderTopColor: col.color }]}>
+                <Text style={styles.kanbanColumnTitle}>{col.label}</Text>
+                <View style={styles.kanbanBadge}>
+                  <Text style={styles.kanbanBadgeText}>{counts[col.key as keyof typeof counts]}</Text>
+                </View>
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.kanbanColumnScroll}>
+                {colBookings.length > 0 ? (
+                  colBookings.map((booking, index) => (
+                    <BookingCard 
+                      key={booking.id} 
+                      booking={booking} 
+                      index={index}
+                      onUpdateStatus={handleUpdateStatus}
+                      onReschedule={(b) => {
+                        setSelectedBooking(b);
+                        setShowRescheduleModal(true);
+                      }}
+                      onOpenActions={(b) => {
+                        setSelectedBooking(b);
+                        setShowBookingActions(true);
+                      }}
+                    />
+                  ))
+                ) : (
+                  <View style={styles.kanbanEmpty}>
+                    <Text style={styles.kanbanEmptyText}>No {col.label.toLowerCase()} bookings</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          );
+        })}
       </ScrollView>
 
       {/* Calendar Manager Modal */}
@@ -892,6 +890,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 14,
     paddingBottom: 30,
+  },
+  kanbanBoard: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 30,
+    gap: 16,
+  },
+  kanbanColumn: {
+    width: Dimensions.get('window').width * 0.85 - 16,
+    backgroundColor: 'transparent',
+    marginRight: 16,
+  },
+  kanbanColumnHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+    marginBottom: 12,
+    borderTopWidth: 3,
+    paddingTop: 8,
+  },
+  kanbanColumnTitle: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: Colors.white,
+  },
+  kanbanBadge: {
+    backgroundColor: '#1C1C1E',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  kanbanBadgeText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600' as const,
+  },
+  kanbanColumnScroll: {
+    paddingBottom: 20,
+  },
+  kanbanEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+    backgroundColor: '#141414',
+    borderRadius: 16,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  kanbanEmptyText: {
+    color: Colors.textMuted,
+    fontSize: 14,
   },
   bookingCard: {
     backgroundColor: '#141414',

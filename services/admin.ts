@@ -1,6 +1,8 @@
 import { supabase } from '../lib/supabase';
 import type { Database } from '../types/supabase';
 import { galleries as mockGalleries } from '../mocks/data';
+import * as FileSystem from 'expo-file-system';
+import { Upload } from 'tus-js-client';
 
 const USE_MOCK = (process.env.EXPO_PUBLIC_USE_MOCK_DATA === '1') || (process.env.EXPO_OFFLINE === '1');
 
@@ -791,66 +793,80 @@ export const AdminService = {
       if (!file?.uri) {
         throw new Error('Selected photo is missing a file URI.');
       }
-      const arrayBuffer = await fetch(file.uri).then(res => res.arrayBuffer());
-      const fileSize = file.fileSize || file.size || arrayBuffer.byteLength || 0;
-
-      // Generate checksum for duplicate detection
-      const checksum = await crypto.subtle.digest('SHA-256', arrayBuffer);
-      const checksumArray = new Uint8Array(checksum);
-      const checksumHex = Array.from(checksumArray).map(b => b.toString(16).padStart(2, '0')).join('');
-
-      let lastError: any = null;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          // 1. Get signed upload URL
-          const { data: urlData, error: urlError } = await supabase.functions.invoke('admin_upload_file', {
-            body: {
-              session_id: sessionId,
-              file_name: fileName,
-              file_size: fileSize,
-              mime_type: contentType,
-              checksum: checksumHex
-            }
-          });
-          if (urlError) throw urlError;
-
-          const uploadUrl = urlData.upload_url;
-          const storagePath = urlData.storage_path;
-          const fileUuid = urlData.file_uuid;
-
-          // 2. Upload file to storage
-          const uploadResponse = await fetch(uploadUrl, {
-            method: 'PUT',
-            headers: { 'content-type': contentType },
-            body: arrayBuffer
-          });
-          if (!uploadResponse.ok) {
-            throw new Error(`Upload failed with status ${uploadResponse.status}`);
-          }
-
-          // 3. Confirm upload and create database record
-          const { data: confirmData, error: confirmError } = await supabase.functions.invoke('admin_upload_confirm', {
-            body: {
-              session_id: sessionId,
-              storage_path: storagePath,
-              file_name: fileName,
-              file_size: fileSize,
-              mime_type: contentType,
-              checksum: checksumHex,
-              file_uuid: fileUuid
-            }
-          });
-          if (confirmError) throw confirmError;
-
-          return storagePath;
-        } catch (error) {
-          lastError = error;
-          if (attempt < 2) {
-            await new Promise(resolve => setTimeout(resolve, (2 ** attempt) * 500));
-          }
-        }
+      
+      const fileInfo = await FileSystem.getInfoAsync(file.uri);
+      if (!fileInfo.exists) {
+        throw new Error('File does not exist at uri');
       }
-      throw lastError;
+      const fileSize = fileInfo.size;
+      
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
+      if(!accessToken) throw new Error("No active session");
+      
+      const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+      // Supabase storage TUS endpoint
+      const uploadEndpoint = `${SUPABASE_URL}/storage/v1/upload/resumable`;
+
+      return new Promise((resolve, reject) => {
+        const upload = new Upload(file as any, {
+          endpoint: uploadEndpoint,
+          retryDelays: [0, 3000, 5000, 10000, 20000],
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '',
+          },
+          uploadDataDuringCreation: true,
+          removeFingerprintOnSuccess: true, // Important for Supabase
+          metadata: {
+            bucketName: 'client-photos',
+            objectName: `uploads/${sessionId}/${fileName}`,
+            contentType: contentType,
+            cacheControl: '3600',
+          },
+          chunkSize: 6 * 1024 * 1024, // 6 MB chunks
+          onError: function (error) {
+            console.error('TUS upload error:', error);
+            reject(error);
+          },
+          onProgress: function (bytesUploaded, bytesTotal) {
+            const percentage = ((bytesUploaded / bytesTotal) * 100).toFixed(2);
+            console.log(bytesUploaded, bytesTotal, percentage + '%');
+          },
+          onSuccess: async function () {
+            console.log('Upload complete for', fileName);
+            try {
+              // Record in db
+               const storagePath = `uploads/${sessionId}/${fileName}`;
+               
+               // We invoke a lightweight edge function just to record it or record directly
+               const { data: confirmData, error: confirmError } = await supabase.functions.invoke('admin_upload_confirm', {
+                 body: {
+                   session_id: sessionId,
+                   storage_path: storagePath,
+                   file_name: fileName,
+                   file_size: fileSize,
+                   mime_type: contentType,
+                   checksum: "tus_upload", // we can skip checksum for TUS or compute it
+                   file_uuid: upload.url?.split('/').pop() // gets the id from tus url
+                 }
+               });
+               if (confirmError) throw confirmError;
+               resolve(storagePath);
+            } catch(e) {
+               reject(e);
+            }
+          },
+        });
+        
+        // Check if there are any previous uploads to continue.
+        upload.findPreviousUploads().then(function (previousUploads) {
+          if (previousUploads.length) {
+            upload.resumeFromPreviousUpload(previousUploads[0]);
+          }
+          upload.start();
+        });
+      });
     },
 
     completeUpload: async (sessionId: string) => {
@@ -1074,67 +1090,100 @@ export const AdminService = {
       const storagePath = `temp/${normalizedCode}/${Date.now()}-${safeFileName}`;
       const contentType = payload.file.mimeType || payload.file.type || `image/${ext}`;
 
-      const arrayBuffer = await fetch(payload.file.uri).then(res => res.arrayBuffer());
-      const { error: uploadError } = await supabase.storage
-        .from('client-photos')
-        .upload(storagePath, arrayBuffer, {
-          contentType,
-          upsert: false
-        });
-
-      if (uploadError) {
-        const message = (uploadError as any)?.message || String(uploadError);
-        if (message.includes('Bucket') && message.includes('not found')) {
-          throw new Error('Storage bucket "client-photos" not found. Please create required buckets in Supabase Storage.');
-        }
-        throw uploadError;
+      const fileInfo = await FileSystem.getInfoAsync(payload.file.uri);
+      if (!fileInfo.exists) {
+        throw new Error('File does not exist at uri');
       }
+      const fileSize = fileInfo.size;
+      
+      const sessionData = await supabase.auth.getSession();
+      const accessToken = sessionData.data.session?.access_token;
+      if(!accessToken) throw new Error("No active session");
+      
+      const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
+      const uploadEndpoint = `${SUPABASE_URL}/storage/v1/upload/resumable`;
 
-      const { data: { session } } = await supabase.auth.getSession();
-      const adminId = session?.user?.id ?? null;
-      const uploadOrder = payload.uploadOrder ?? 0;
+      return new Promise((resolve, reject) => {
+        const upload = new Upload(payload.file as any, {
+          endpoint: uploadEndpoint,
+          retryDelays: [0, 3000, 5000, 10000, 20000],
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '',
+          },
+          uploadDataDuringCreation: true,
+          removeFingerprintOnSuccess: true,
+          metadata: {
+            bucketName: 'client-photos',
+            objectName: storagePath,
+            contentType: contentType,
+            cacheControl: '3600',
+          },
+          chunkSize: 6 * 1024 * 1024,
+          onError: function (error) {
+            console.error('TUS temp upload error:', error);
+            reject(error);
+          },
+          onSuccess: async function () {
+            console.log('Temp upload complete for', safeFileName);
+            
+            try {
+              const adminId = sessionData.data.session?.user?.id ?? null;
+              const uploadOrder = payload.uploadOrder ?? 0;
 
-      const { data: tempRow, error: insertError } = await supabase
-        .from('temporary_client_uploads')
-        .insert({
-          admin_id: adminId,
-          temporary_name: payload.temporaryName.trim(),
-          temporary_identifier: payload.temporaryIdentifier ?? null,
-          access_code: normalizedCode,
-          photo_path: storagePath,
-          file_name: safeFileName,
-          file_size: payload.file.fileSize || payload.file.size || 0,
-          mime_type: contentType,
-          width: payload.file.width ?? null,
-          height: payload.file.height ?? null,
-          upload_order: uploadOrder
-        })
-        .select('id')
-        .single();
+              const { data: tempRow, error: insertError } = await supabase
+                .from('temporary_client_uploads')
+                .insert({
+                  admin_id: adminId,
+                  temporary_name: payload.temporaryName.trim(),
+                  temporary_identifier: payload.temporaryIdentifier ?? null,
+                  access_code: normalizedCode,
+                  photo_path: storagePath,
+                  file_name: safeFileName,
+                  file_size: payload.file.fileSize || payload.file.size || 0,
+                  mime_type: contentType,
+                  width: payload.file.width ?? null,
+                  height: payload.file.height ?? null,
+                  upload_order: uploadOrder
+                })
+                .select('id')
+                .single();
 
-      if (insertError) {
-        const errorCode = (insertError as any)?.code;
-        const errorMessage = (insertError as any)?.message || '';
-        const isDuplicate = errorCode === '23505' || errorMessage.includes('duplicate key value');
-        if (!isDuplicate) {
-          throw insertError;
-        }
-      } else if (tempRow?.id) {
-        await supabase
-          .from('audit_logs')
-          .insert({
-            actor_id: adminId,
-            action: 'temporary_upload_created',
-            entity_type: 'temporary_client_upload',
-            entity_id: tempRow.id,
-            metadata: {
-              access_code: normalizedCode,
-              temporary_name: payload.temporaryName
+              if (insertError) {
+                const errorCode = (insertError as any)?.code;
+                const errorMessage = (insertError as any)?.message || '';
+                const isDuplicate = errorCode === '23505' || errorMessage.includes('duplicate key value');
+                if (!isDuplicate) {
+                  throw insertError;
+                }
+              } else if (tempRow?.id) {
+                await supabase
+                  .from('audit_logs')
+                  .insert({
+                    actor_id: adminId,
+                    action: 'temporary_upload_created',
+                    entity_type: 'temporary_client_upload',
+                    entity_id: tempRow.id,
+                    metadata: {
+                      access_code: normalizedCode,
+                      temporary_name: payload.temporaryName
+                    }
+                  });
+              }
+              resolve(storagePath);
+            } catch(e) {
+               reject(e);
             }
-          });
-      }
-
-      return storagePath;
+          },
+        });
+        
+        upload.findPreviousUploads().then(function (previousUploads) {
+          if (previousUploads.length) {
+            upload.resumeFromPreviousUpload(previousUploads[0]);
+          }
+          upload.start();
+        });
+      });
     }
   },
 

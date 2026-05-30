@@ -129,10 +129,7 @@ export default function NotificationsScreen() {
     const isPackageNotification = notification.type === 'package' || lowerTitle.includes('package');
 
     if (notification.access_code || notification.gallery_id || notification.type === 'gallery' || notification.type === 'gallery_ready') {
-      router.push({
-        pathname: '/(tabs)/gallery',
-        params: notification.access_code ? { accessCode: notification.access_code, autoUnlock: 'true' } : undefined
-      });
+      router.push('/dashboard');
       return;
     }
 
@@ -147,30 +144,30 @@ export default function NotificationsScreen() {
     }
 
     if (isPackageNotification) {
-      router.push({ pathname: '/(tabs)/bookings', params: { section: 'packages' } });
+      router.push('/dashboard');
       return;
     }
 
     switch (notification.type) {
       case 'booking':
-        router.push({ pathname: '/(tabs)/bookings', params: { section: 'bookings' } });
+        router.push('/dashboard');
         break;
 
       case 'payment':
         // If it's a package update notification, redirect to packages
         if (notification.title.toLowerCase().includes('package')) {
-          router.push({ pathname: '/(tabs)/bookings', params: { section: 'packages' } });
+            router.push('/dashboard');
         } else {
-          router.push('/(tabs)/profile');
+          router.push('/dashboard');
         }
         break;
 
       case 'promo':
-        router.push('/(tabs)/home');
+        router.push('/dashboard');
         break;
 
       default:
-        router.push('/(tabs)/home');
+        router.push('/dashboard');
     }
   }, [markRead, router]);
 

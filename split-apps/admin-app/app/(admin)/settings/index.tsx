@@ -259,7 +259,7 @@ export default function AdminSettingsScreen() {
         onPress: async () => {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           await logout();
-          router.replace('/login');
+          router.replace('/admin-login');
         },
       },
     ]);
@@ -421,38 +421,31 @@ export default function AdminSettingsScreen() {
           <>
             <SettingsSection title="BUSINESS MANAGEMENT">
               <SettingsRow
-                icon={<FileText size={18} color={Colors.gold} />}
-                label="Package Editor"
-                description="Manage pricing, services & packages"
-                onPress={() => router.push('/(admin)/settings/package-editor')}
-                showArrow
-              />
-              <SettingsRow
                 icon={<Smartphone size={18} color="#6C9AED" />}
                 label="Delivery System"
                 description="Gateways, credits & access codes"
-                onPress={() => router.push('/(admin)/settings/delivery')}
+                onPress={() => router.push('/settings/delivery')}
                 showArrow
               />
               <SettingsRow
                 icon={<FileText size={18} color={Colors.gold} />}
                 label="Message Templates"
                 description="Customize SMS, WhatsApp and in‑app messages"
-                onPress={() => router.push('/(admin)/settings/sms-management')}
+                onPress={() => router.push('/settings/sms-management')}
                 showArrow
               />
               <SettingsRow
                 icon={<Smartphone size={18} color={Colors.gold} />}
                 label="Simple M-PESA Setup"
                 description="Connect your number for instant STK payments"
-                onPress={() => router.push('/(admin)/settings/simple-mpesa')}
+                onPress={() => router.push('/settings/simple-mpesa')}
                 showArrow
               />
               <SettingsRow
                 icon={<CreditCard size={18} color={Colors.gold} />}
                 label="Advanced Payments"
                 description="Daraja API, shortcodes & certificates"
-                onPress={() => router.push('/(admin)/settings/payments')}
+                onPress={() => router.push('/settings/payments')}
                 showArrow
               />
             </SettingsSection>
@@ -634,33 +627,6 @@ export default function AdminSettingsScreen() {
                 description="Force luxury dark theme"
                 value={darkModeOnly}
                 onToggle={setDarkModeOnly}
-              />
-            </SettingsSection>
-
-            <SettingsSection title="BACKEND">
-              <SettingsRow
-                icon={<Server size={18} color="#6C9AED" />}
-                label="Backend provider"
-                value="Supabase (mock)"
-                onPress={() => Alert.alert('Backend', 'Backend configuration will be available in production.')}
-                showArrow
-              />
-              <SettingsRow
-                icon={<Database size={18} color={Colors.textSecondary} />}
-                label="Storage"
-                value="2.4 GB used"
-                onPress={() => Alert.alert('Storage', 'Storage management coming soon.')}
-                showArrow
-              />
-              <SettingsRow
-                icon={<RotateCw size={18} color={Colors.textSecondary} />}
-                label="Sync status"
-                value="Up to date"
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  Alert.alert('Sync', 'All data is synced.');
-                }}
-                showArrow
               />
             </SettingsSection>
           </>

@@ -1,9 +1,12 @@
--- Handle existing portfolio_items table and policies
-DROP POLICY IF EXISTS "Public read portfolio_items" ON public.portfolio_items;
-DROP POLICY IF EXISTS "Admins manage portfolio_items" ON public.portfolio_items;
-
--- Drop table if it exists (to ensure clean recreation)
-DROP TABLE IF EXISTS public.portfolio_items;
+-- Handle existing portfolio_items table and policies (only if table exists)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'portfolio_items') THEN
+    DROP POLICY IF EXISTS "Public read portfolio_items" ON public.portfolio_items;
+    DROP POLICY IF EXISTS "Admins manage portfolio_items" ON public.portfolio_items;
+    DROP TABLE IF EXISTS public.portfolio_items;
+  END IF;
+END $$;
 
 -- Create portfolio_items table for admin-managed portfolio content
 CREATE TABLE public.portfolio_items (

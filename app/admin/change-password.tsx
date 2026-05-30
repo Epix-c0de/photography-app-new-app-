@@ -27,7 +27,7 @@ import {
   AlertTriangle
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { useAdminAuth } from '@/contexts/AdminAuthContext';
+import { useAdminAuth } from '../../contexts/AdminAuthContext';
 import Colors from '@/constants/colors';
 
 const { width } = Dimensions.get('window');

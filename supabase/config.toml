@@ -227,7 +227,7 @@ otp_expiry = 3600
 
 [auth.email.template.magic_link]
 subject = "Your verification code"
-content_path = "./templates/magic_link_otp.html"
+content_path = "./supabase/templates/magic_link_otp.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

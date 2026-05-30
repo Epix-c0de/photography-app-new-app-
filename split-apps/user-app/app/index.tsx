@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, StatusBar, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,11 +7,13 @@ import Colors from '@/constants/colors';
 
 export default function SplashScreen() {
   const router = useRouter();
-  const { isLoggedIn, hasSeenOnboarding, isLoading } = useAuth();
+  const { isLoggedIn, hasSeenOnboarding, isLoading, profile } = useAuth();
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoScale = useRef(new Animated.Value(0.8)).current;
   const subtitleOpacity = useRef(new Animated.Value(0)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const [tapCount, setTapCount] = useState<number>(0);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     Animated.sequence([
@@ -55,18 +57,32 @@ export default function SplashScreen() {
     if (isLoading) return;
 
     const timer = setTimeout(() => {
-      console.log('[Splash] Routing...', { isLoggedIn, hasSeenOnboarding });
+      console.log('[Splash] Routing...', { isLoggedIn, hasSeenOnboarding, role: profile?.role });
       if (!hasSeenOnboarding) {
         router.replace('/onboarding');
       } else if (!isLoggedIn) {
         router.replace('/login');
+      } else if (profile?.role === 'admin' || profile?.role === 'super_admin') {
+        router.replace('/(admin)/dashboard');
       } else {
         router.replace('/(tabs)/home');
       }
     }, 2200);
 
     return () => clearTimeout(timer);
-  }, [isLoading, isLoggedIn, hasSeenOnboarding, router]);
+  }, [isLoading, isLoggedIn, hasSeenOnboarding, profile, router]);
+
+  const handleLogoTap = () => {
+    const newCount = tapCount + 1;
+    setTapCount(newCount);
+    if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+    if (newCount >= 3) {
+      setTapCount(0);
+      router.replace('/admin-login');
+      return;
+    }
+    tapTimerRef.current = setTimeout(() => setTapCount(0), 800);
+  };
 
   const shimmerOpacity = shimmerAnim.interpolate({
     inputRange: [0, 0.5, 1],
@@ -90,7 +106,7 @@ export default function SplashScreen() {
         <LinearGradient colors={['transparent', Colors.goldMuted, 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.decorLineInner} />
       </Animated.View>
 
-      <Pressable onPress={() => null}>
+      <Pressable onPress={handleLogoTap}>
         <Animated.View style={[styles.logoContainer, { opacity: logoOpacity, transform: [{ scale: logoScale }] }]}>
           <View style={styles.logoFrame}>
             <Animated.Text style={[styles.logoIcon, { opacity: shimmerOpacity }]}>◈</Animated.Text>

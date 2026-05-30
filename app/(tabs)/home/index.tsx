@@ -14,6 +14,8 @@ import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 import PaymentModal from '@/components/PaymentModal';
 
+import { Skeleton } from 'moti/skeleton';
+
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 64;
 
@@ -557,16 +559,16 @@ export default function HomeScreen() {
     if (limitedIds.length > 0) {
       const { data: thumbRows, error: thumbError } = await supabase
         .from('gallery_photos')
-        .select('gallery_id, thumbnail_url, created_at')
+        .select('gallery_id, photo_url, created_at')
         .in('gallery_id', limitedIds)
-        .not('thumbnail_url', 'is', null)
+        .not('photo_url', 'is', null)
         .order('created_at', { ascending: false });
       if (thumbError) {
         console.error('[Home] Error loading gallery thumbnails:', thumbError);
       } else {
         (thumbRows || []).forEach((row: any) => {
-          if (!galleryThumbnailMap.has(row.gallery_id) && row.thumbnail_url) {
-            galleryThumbnailMap.set(row.gallery_id, row.thumbnail_url);
+          if (!galleryThumbnailMap.has(row.gallery_id) && row.photo_url) {
+            galleryThumbnailMap.set(row.gallery_id, row.photo_url);
           }
         });
       }
@@ -771,8 +773,15 @@ export default function HomeScreen() {
           </View>
 
           {btsLoading ? (
-            <View style={styles.btsLoading}>
-              <ActivityIndicator color={Colors.gold} />
+            <View style={styles.btsList}>
+              {[1, 2, 3, 4].map((i) => (
+                <View key={i} style={[styles.btsCard, { marginRight: 16 }]}>
+                  <Skeleton colorMode="dark" radius="round" height={BTS_CARD_SIZE} width={BTS_CARD_SIZE} />
+                  <View style={{ marginTop: 8, alignSelf: 'center' }}>
+                    <Skeleton colorMode="dark" width={60} height={12} />
+                  </View>
+                </View>
+              ))}
             </View>
           ) : btsError ? (
             <View style={styles.emptyAnnouncements}>
@@ -881,8 +890,17 @@ export default function HomeScreen() {
             </Pressable>
           </View>
           {announcementsLoading ? (
-            <View style={styles.btsLoading}>
-              <ActivityIndicator color={Colors.gold} />
+            <View style={styles.announcementsContainer}>
+              <View style={[styles.announcementCard, { backgroundColor: '#1C1C1E', overflow: 'hidden' }]}>
+                <Skeleton colorMode="dark" width={CARD_WIDTH} height={180} />
+                <View style={{ padding: 12 }}>
+                  <Skeleton colorMode="dark" width="80%" height={16} />
+                  <View style={{ height: 8 }} />
+                  <Skeleton colorMode="dark" width="100%" height={12} />
+                  <View style={{ height: 6 }} />
+                  <Skeleton colorMode="dark" width="60%" height={12} />
+                </View>
+              </View>
             </View>
           ) : announcementsError ? (
             <View style={styles.emptyAnnouncements}>
@@ -927,8 +945,19 @@ export default function HomeScreen() {
             </Pressable>
           </View>
           {galleriesLoading ? (
-            <View style={styles.btsLoading}>
-              <ActivityIndicator color={Colors.gold} />
+            <View style={styles.recentGalleriesList}>
+              {[1, 2].map((i) => (
+                <View key={i} style={[styles.galleryThumbContainer, { marginRight: 16 }]}>
+                  <View style={[styles.galleryThumbWrapper, { backgroundColor: '#1C1C1E', overflow: 'hidden' }]}>
+                    <Skeleton colorMode="dark" width={160} height={200} />
+                    <View style={[styles.galleryThumbInfo, { zIndex: 10 }]}>
+                      <Skeleton colorMode="dark" width="70%" height={16} />
+                      <View style={{ height: 6 }} />
+                      <Skeleton colorMode="dark" width="40%" height={12} />
+                    </View>
+                  </View>
+                </View>
+              ))}
             </View>
           ) : galleriesError ? (
             <View style={styles.emptyAnnouncements}>
@@ -1566,6 +1595,10 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center' as const,
     marginBottom: 12,
+  },
+  recentGalleriesList: {
+    flexDirection: 'row' as const,
+    paddingHorizontal: 20,
   },
   retryText: {
     fontSize: 14,

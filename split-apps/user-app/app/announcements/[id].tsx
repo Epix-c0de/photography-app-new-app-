@@ -4,14 +4,24 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Video, ResizeMode } from 'expo-av';
-import { ArrowLeft, MessageCircle, Share2, Clock, Send, ExternalLink, X, ShieldCheck, CornerDownRight } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { ArrowLeft, MessageCircle, Share2, Clock, Send, ExternalLink, X, ShieldCheck, CornerDownRight, Heart, Sparkles, Bookmark, Play } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBranding } from '@/contexts/BrandingContext';
+import { demoAnnouncementComments, demoAnnouncements } from '@/lib/demo';
 import type { Database } from '@/types/supabase';
 
-type Announcement = Database['public']['Tables']['announcements']['Row'];
+type Announcement = Database['public']['Tables']['announcements']['Row'] & {
+  user_profiles?: {
+    name: string | null;
+    avatar_url: string | null;
+  } | null;
+  media_urls?: string[];
+};
 type AnnouncementComment = Database['public']['Tables']['announcement_comments']['Row'] & {
   user_profiles: {
     name: string | null;
@@ -40,23 +50,27 @@ export default function AnnouncementViewerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, profile } = useAuth();
+  const { user, profile, isDemoMode } = useAuth();
+  const { announcementShareLink } = useBranding();
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const [loading, setLoading] = useState(true);
   const [fullScreenMedia, setFullScreenMedia] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
+  const [reactionCount, setReactionCount] = useState(0);
   
   const [comments, setComments] = useState<AnnouncementComment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [showCommentInput, setShowCommentInput] = useState(false);
 
   const quickReplies = [
-    "Love this! 😍",
-    "More info please? 🤔",
-    "Is this still available?",
-    "Can't wait! 🔥"
+    'Love this!',
+    'Amazing work!',
+    'Interested in this.',
+    'How do I book?'
   ];
 
   useEffect(() => {
@@ -64,18 +78,39 @@ export default function AnnouncementViewerScreen() {
 
     const fetchAnnouncement = async () => {
       setLoading(true);
+      if (isDemoMode) {
+        const demoAnnouncement = demoAnnouncements.find((item) => item.id === id) ?? demoAnnouncements[0] ?? null;
+        if (demoAnnouncement) {
+          setAnnouncement(demoAnnouncement as Announcement);
+          setIsLiked(false);
+          setReactionCount(4);
+        }
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('announcements')
         .select('*')
         .eq('id', id)
         .single();
       
-      if (!error && data) setAnnouncement(data);
+      if (!error && data) {
+        setAnnouncement(data);
+        const { data: reactions } = await supabase
+          .from('announcement_reactions')
+          .select('user_id')
+          .eq('announcement_id', id);
+
+        const userReacted = reactions?.some((r: any) => r.user_id === user?.id);
+        setIsLiked(!!userReacted);
+        setReactionCount(reactions?.length || 0);
+      }
       setLoading(false);
     };
 
     fetchAnnouncement();
-  }, [id]);
+  }, [id, isDemoMode, user]);
 
   useEffect(() => {
     if (id) {
@@ -85,11 +120,15 @@ export default function AnnouncementViewerScreen() {
 
   const fetchComments = useCallback(async () => {
     if (!id) return;
+
+    if (isDemoMode) {
+      setComments((demoAnnouncementComments[id] ?? []) as AnnouncementComment[]);
+      return;
+    }
     
-    // Simplest query that we know works from before, grabbing relations safely
     const { data } = await supabase
       .from('announcement_comments')
-      .select('*, user_profiles:client_id (name, avatar_url)')
+      .select('*, user_profiles(name, avatar_url)')
       .eq('announcement_id', id)
       .order('created_at', { ascending: true });
     
@@ -117,11 +156,13 @@ export default function AnnouncementViewerScreen() {
 
       setComments(topLevel);
     }
-  }, [id]);
+  }, [id, isDemoMode]);
 
   useEffect(() => {
     if (!id) return;
     fetchComments();
+
+    if (isDemoMode) return;
 
     // 1. Realtime subscription (catch-all event)
     const channel = supabase
@@ -138,7 +179,7 @@ export default function AnnouncementViewerScreen() {
       supabase.removeChannel(channel); 
       clearInterval(pollInterval);
     };
-  }, [id, fetchComments]);
+  }, [fetchComments, id, isDemoMode]);
 
 
   const submitComment = async () => {
@@ -179,6 +220,12 @@ export default function AnnouncementViewerScreen() {
     setReplyingToId(null);
     Keyboard.dismiss();
 
+    if (isDemoMode) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSubmittingComment(false);
+      return;
+    }
+
     const { error } = await supabase.from('announcement_comments').insert({
       announcement_id: id,
       client_id: user.id,
@@ -199,21 +246,53 @@ export default function AnnouncementViewerScreen() {
   const handleShare = async () => {
     if (!announcement) return;
     try {
+      const baseLink = announcementShareLink?.trim() || 'https://rork.app';
+      const link = baseLink.includes('{id}')
+        ? baseLink.replace('{id}', announcement.id)
+        : `${baseLink}${baseLink.endsWith('/') ? '' : '/'}${announcement.id}`;
+      
       await Share.share({
-        message: `Check out this announcement: ${announcement.title}`,
+        title: announcement.title,
+        message: `Check out this announcement: ${announcement.title}\n${link}`,
+        url: link,
       });
     } catch (error) {
-      // ignore
+      console.error('Share error:', error);
     }
   };
 
-  if (loading || !announcement) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color={Colors.gold} />
-      </View>
-    );
-  }
+  const handleLike = useCallback(async () => {
+    if (!id || !user) return;
+
+    const nextLiked = !isLiked;
+    const previousCount = reactionCount;
+
+    setIsLiked(nextLiked);
+    setReactionCount(nextLiked ? previousCount + 1 : Math.max(0, previousCount - 1));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    try {
+      if (nextLiked) {
+        const { error } = await supabase.from('announcement_reactions').insert({
+          announcement_id: id,
+          user_id: user.id,
+          reaction_emoji: '👍',
+        });
+        if (error && (error as any)?.code !== '23505') throw error;
+      } else {
+        const { error } = await supabase
+          .from('announcement_reactions')
+          .delete()
+          .eq('announcement_id', id)
+          .eq('user_id', user.id);
+        if (error) throw error;
+      }
+    } catch (error) {
+      console.error('[Announcement] Like toggle failed:', error);
+      setIsLiked(!nextLiked);
+      setReactionCount(previousCount);
+    }
+  }, [id, isDemoMode, isLiked, reactionCount, user]);
 
   const renderCommentItem = (comment: AnnouncementComment, isReply = false) => (
     <View key={comment.id} style={[styles.commentWrapper, isReply && styles.replyWrapper]}>
@@ -255,121 +334,221 @@ export default function AnnouncementViewerScreen() {
     </View>
   );
 
+  if (loading || !announcement) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color={Colors.gold} />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-        {/* Header */}
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-            <Pressable onPress={() => router.back()} style={styles.backBtn}>
-                <ArrowLeft size={24} color={Colors.textPrimary} />
-            </Pressable>
-            <View style={{ flex: 1 }} />
-            <Pressable onPress={handleShare} style={styles.headerAction}>
-                <Share2 size={24} color={Colors.textPrimary} />
-            </Pressable>
-        </View>
-
-        <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={{ flex: 1 }}
+        <View style={{ flex: 1 }}>
+        <ScrollView 
+          ref={scrollViewRef} 
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 20) + 100 }]}
+          showsVerticalScrollIndicator={false}
         >
-            <ScrollView ref={scrollViewRef} contentContainerStyle={styles.scrollContent}>
-                {/* Hero Media */}
-                {(announcement.media_url || announcement.image_url) && (
-                  <Pressable 
-                    style={styles.heroContainer}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      setFullScreenMedia(true);
-                    }}
-                  >
-                      {announcement.media_type === 'video' ? (
-                          <Video
-                              source={{ uri: announcement.media_url || announcement.image_url || '' }}
-                              style={styles.heroMedia}
-                              resizeMode={ResizeMode.COVER}
-                              useNativeControls
-                              isLooping
-                          />
-                      ) : (
-                          <Image
-                              source={{ uri: announcement.media_url || announcement.image_url || '' }}
-                              style={styles.heroMedia}
-                              contentFit="cover"
-                          />
-                      )}
-                      
-                      {/* Gradient Overlay for better text visibility if any overlaid elements exist */}
-                      <View style={styles.heroOverlay} />
-
-                      {announcement.category && (
-                          <View style={styles.categoryBadge}>
-                              <Text style={styles.categoryText}>{announcement.category}</Text>
-                          </View>
-                      )}
-                  </Pressable>
-                )}
-
-                {/* Content Body */}
-                <View style={styles.body}>
-                    <Text style={styles.title} selectable>{announcement.title}</Text>
-                    
-                    <View style={styles.metaRow}>
-                        <Clock size={14} color={Colors.textMuted} />
-                        <Text style={styles.date}>{new Date(announcement.created_at).toLocaleDateString()}</Text>
-                        {announcement.tag && (
-                            <View style={styles.tag}>
-                                <Text style={styles.tagText}>{announcement.tag}</Text>
+                {/* Facebook-Style Post Header */}
+                <View style={[styles.postHeader, { paddingTop: insets.top + 12 }]}>
+                    <View style={styles.postHeaderLeft}>
+                        <Pressable onPress={() => router.push('/(tabs)/home' as any)} style={styles.postBackBtn}>
+                            <View style={styles.postBackBtnBg}>
+                                <ArrowLeft size={18} color={Colors.textPrimary} />
                             </View>
+                        </Pressable>
+                        <View style={styles.postAvatarRing}>
+                            <Image
+                                source={{ uri: announcement.user_profiles?.avatar_url || 'https://via.placeholder.com/50' }}
+                                style={styles.postAvatar}
+                                contentFit="cover"
+                            />
+                        </View>
+                        <View style={styles.postHeaderInfo}>
+                            <Text style={styles.postAuthorName}>Studio Announcement</Text>
+                            <View style={styles.postMetaRow}>
+                                <Clock size={12} color={Colors.textMuted} />
+                                <Text style={styles.postTime}>{relativeTime(announcement.created_at)}</Text>
+                                <View style={styles.publicBadge}>
+                                    <Text style={styles.publicText}>Public</Text>
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+                    <Pressable onPress={handleShare} style={styles.postShareBtn}>
+                        <View style={styles.postShareBtnBg}>
+                            <Share2 size={16} color={Colors.gold} />
+                        </View>
+                    </Pressable>
+                </View>
+
+                {/* Post Content - Facebook Style */}
+                <View style={styles.postContent}>
+                    <Text style={styles.postTitle} selectable>{announcement.title}</Text>
+                    {announcement.description && (
+                        <Text style={styles.postDescription} selectable>{announcement.description}</Text>
+                    )}
+                </View>
+
+                {/* Full-Width Media - Facebook Style */}
+                {(announcement.media_url || announcement.image_url) && (
+                    <View style={styles.fbMediaContainer}>
+                        {announcement.media_type === 'video' ? (
+                            <Pressable 
+                                style={styles.fbVideoContainer}
+                                onPress={() => setFullScreenMedia(true)}
+                            >
+                                <Video
+                                    source={{ uri: announcement.media_url || announcement.image_url || '' }}
+                                    style={styles.fbVideo}
+                                    resizeMode={ResizeMode.COVER}
+                                    useNativeControls={false}
+                                    isLooping
+                                    shouldPlay
+                                    isMuted={true}
+                                />
+                                {/* Video Controls Overlay */}
+                                <View style={styles.videoControlsOverlay}>
+                                    <View style={styles.playPauseBtn}>
+                                        <Play size={32} color={Colors.textPrimary} fill={Colors.textPrimary} />
+                                    </View>
+                                </View>
+                                {/* Video Duration / Indicator */}
+                                <View style={styles.videoIndicator}>
+                                    <View style={styles.videoIndicatorBg}>
+                                        <Text style={styles.videoIndicatorText}>VIDEO</Text>
+                                    </View>
+                                </View>
+                            </Pressable>
+                        ) : (
+                            <Pressable 
+                                onPress={() => {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                    setFullScreenMedia(true);
+                                }}
+                                style={styles.fbImageContainer}
+                            >
+                                <Image
+                                    source={{ uri: announcement.media_url || announcement.image_url || '' }}
+                                    style={styles.fbImage}
+                                    contentFit="cover"
+                                />
+                                {/* Image Count Badge for Multiple Images */}
+                                {announcement.media_urls && announcement.media_urls.length > 1 && (
+                                    <View style={styles.imageCountBadge}>
+                                        <Text style={styles.imageCountText}>1 / {announcement.media_urls.length}</Text>
+                                    </View>
+                                )}
+                            </Pressable>
                         )}
                     </View>
+                )}
 
-                    <Text style={styles.content} selectable>
-                        {announcement.content_html || announcement.description || 'No content available.'}
-                    </Text>
+                {/* Reaction Stats Bar - Facebook Style */}
+                <View style={styles.reactionBar}>
+                    <View style={styles.reactionLeft}>
+                        <View style={styles.reactionEmojis}>
+                            <View style={[styles.reactionEmoji, { backgroundColor: Colors.error }]}>
+                                <Heart size={10} color="#fff" fill="#fff" />
+                            </View>
+                        </View>
+                        <Text style={styles.reactionCount}>{reactionCount > 0 ? reactionCount : 'Be the first to like'}</Text>
+                    </View>
+                    <View style={styles.reactionRight}>
+                        <Text style={styles.commentsStat}>{comments.reduce((acc, c) => acc + 1 + (c.replies?.length || 0), 0)} comments</Text>
+                    </View>
+                </View>
 
-                    {announcement.cta && (
-                        <Pressable style={styles.ctaButton} onPress={() => {
+                {/* Action Bar - Facebook Style */}
+                <View style={styles.actionBar}>
+                    <Pressable 
+                        style={[styles.actionBarBtn, isLiked && styles.actionBarBtnActive]} 
+                        onPress={handleLike}
+                    >
+                        <Heart 
+                            size={20} 
+                            color={isLiked ? Colors.error : Colors.textMuted} 
+                            fill={isLiked ? Colors.error : 'none'}
+                        />
+                        <Text style={[styles.actionBarBtnText, isLiked && { color: Colors.error }]}>Like</Text>
+                    </Pressable>
+                    <Pressable 
+                        style={styles.actionBarBtn}
+                        onPress={() => {
+                            setShowCommentInput(!showCommentInput);
+                            if (!showCommentInput) {
+                                setTimeout(() => {
+                                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                                }, 100);
+                            }
+                        }}
+                    >
+                        <MessageCircle size={20} color={showCommentInput ? Colors.gold : Colors.textMuted} />
+                        <Text style={[styles.actionBarBtnText, showCommentInput && { color: Colors.gold }]}>Comment</Text>
+                    </Pressable>
+                    <Pressable style={styles.actionBarBtn} onPress={handleShare}>
+                        <Share2 size={20} color={Colors.textMuted} />
+                        <Text style={styles.actionBarBtnText}>Share</Text>
+                    </Pressable>
+                </View>
+
+                {/* CTA Section */}
+                {announcement.cta && (
+                    <View style={styles.fbCtaSection}>
+                        <Pressable style={styles.fbCtaButton} onPress={() => {
                             (supabase as any).rpc('increment_clicks', { row_id: announcement.id, table_name: 'announcements' });
                             router.push({
                                 pathname: '/(tabs)/chat',
                                 params: { initialMessage: `Hi, I'm interested in "${announcement.title}"` }
                             }); 
                         }}>
-                            <Text style={styles.ctaText}>{announcement.cta}</Text>
-                            <ExternalLink size={20} color="#000" />
+                            <LinearGradient
+                                colors={[Colors.gold, Colors.goldDark]}
+                                style={styles.fbCtaGradient}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                            >
+                                <Text style={styles.fbCtaText}>{announcement.cta}</Text>
+                                <ExternalLink size={18} color="#000" />
+                            </LinearGradient>
                         </Pressable>
-                    )}
-
-                    <View style={styles.divider} />
-
-                    {/* Comments Section */}
-                    <View style={styles.commentsSection}>
-                        <View style={styles.commentsHeader}>
-                            <MessageCircle size={20} color={Colors.textPrimary} />
-                            <Text style={styles.commentsTitle}>Discussion ({comments.reduce((acc, c) => acc + 1 + (c.replies?.length || 0), 0)})</Text>
-                        </View>
-
-                        {comments.length === 0 ? (
-                            <Text style={styles.emptyComments}>No comments yet. Be the first to say something!</Text>
-                        ) : (
-                            comments.map((comment) => (
-                                <View key={comment.id}>
-                                    {renderCommentItem(comment)}
-                                    {/* Render Replies */}
-                                    {comment.replies?.map(reply => renderCommentItem(reply, true))}
-                                </View>
-                            ))
-                        )}
                     </View>
+                )}
+
+                {/* Comments Section Header */}
+                <View style={styles.fbCommentsHeader}>
+                    <Text style={styles.fbCommentsTitle}>Comments</Text>
+                    <View style={styles.fbCommentsDivider} />
+                </View>
+
+                {/* Comments List - Facebook Style */}
+                <View style={styles.fbCommentsContainer}>
+                    {comments.length === 0 ? (
+                        <View style={styles.fbEmptyComments}>
+                            <Text style={styles.fbEmptyCommentsText}>No comments yet. Start the conversation!</Text>
+                        </View>
+                    ) : (
+                        comments.map((comment) => (
+                            <View key={comment.id} style={styles.fbCommentThread}>
+                                {renderCommentItem(comment)}
+                                {comment.replies?.map(reply => renderCommentItem(reply, true))}
+                            </View>
+                        ))
+                    )}
                 </View>
             </ScrollView>
 
-            {/* Comment Input */}
-            <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+            {/* Premium Comment Input - Conditional */}
+            {showCommentInput && (
+                <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 12) + 80 }]}>
                 {replyingToId && (
                   <View style={styles.replyingToBanner}>
-                    <Text style={styles.replyingToText}>Replying to comment...</Text>
-                    <Pressable onPress={() => setReplyingToId(null)} style={{ padding: 4 }}>
+                    <View style={styles.replyingToIcon}>
+                        <CornerDownRight size={14} color={Colors.gold} />
+                    </View>
+                    <Text style={styles.replyingToText}>Replying to comment</Text>
+                    <Pressable onPress={() => setReplyingToId(null)} style={styles.replyingToClose}>
                       <X size={16} color={Colors.textMuted} />
                     </Pressable>
                   </View>
@@ -391,14 +570,16 @@ export default function AnnouncementViewerScreen() {
                   </ScrollView>
                 </View>
                 <View style={styles.inputRow}>
-                  <TextInput
-                      style={styles.input}
-                      placeholder={replyingToId ? "Write a reply..." : "Write a comment..."}
-                      placeholderTextColor={Colors.textMuted}
-                      value={commentText}
-                      onChangeText={setCommentText}
-                      multiline
-                  />
+                  <View style={styles.inputWrapper}>
+                      <TextInput
+                          style={styles.input}
+                          placeholder={replyingToId ? "Write a thoughtful reply..." : "Share your thoughts..."}
+                          placeholderTextColor={Colors.textMuted}
+                          value={commentText}
+                          onChangeText={setCommentText}
+                          multiline
+                      />
+                  </View>
                   <Pressable 
                       style={[styles.sendBtn, (!commentText.trim() || submittingComment) && styles.sendBtnDisabled]} 
                       onPress={submitComment}
@@ -411,8 +592,8 @@ export default function AnnouncementViewerScreen() {
                       )}
                   </Pressable>
                 </View>
-            </View>
-        </KeyboardAvoidingView>
+                </View>
+            )}
 
         <Modal
           visible={fullScreenMedia}
@@ -420,10 +601,7 @@ export default function AnnouncementViewerScreen() {
           animationType="fade"
           onRequestClose={() => setFullScreenMedia(false)}
         >
-          <Pressable 
-            style={styles.fullScreenBackdrop}
-            onPress={() => setFullScreenMedia(false)}
-          >
+          <View style={styles.fullScreenBackdrop}>
             {announcement?.media_type === 'video' ? (
               <Video
                 source={{ uri: announcement.media_url || announcement.image_url || '' }}
@@ -446,13 +624,15 @@ export default function AnnouncementViewerScreen() {
             >
               <X size={28} color="white" />
             </Pressable>
-          </Pressable>
+          </View>
         </Modal>
+        </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Container
   container: {
     flex: 1,
     backgroundColor: Colors.background,
@@ -461,150 +641,360 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: {
+
+  // Premium Floating Header
+  floatingHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  floatingHeaderContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    backgroundColor: Colors.background,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    zIndex: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
   },
-  backBtn: {
-    padding: 8,
-    marginLeft: -8,
+  floatingBackBtn: { padding: 4 },
+  floatingBackBtnBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(26,26,26,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  headerAction: {
-    padding: 8,
-    marginRight: -8,
+  floatingHeaderTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    letterSpacing: -0.3,
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 12,
   },
+  floatingActionBtn: { padding: 4 },
+  floatingActionBtnBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Colors.goldMuted,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
+  },
+
+  // Content
   scrollContent: {
     paddingBottom: 40,
   },
-  heroContainer: {
-    width: width,
-    height: width * 0.75, // 4:3 aspect ratio
-    backgroundColor: Colors.card,
-    position: 'relative',
-  },
-  heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.2)', // Light darkening to make it look premium
-  },
-  heroMedia: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  categoryBadge: {
-    position: 'absolute',
-    bottom: 16,
-    left: 20,
-    backgroundColor: Colors.gold,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-  },
-  categoryText: {
-    color: '#000',
-    fontWeight: '700',
-    fontSize: 12,
-    textTransform: 'uppercase',
-  },
-  body: {
-    padding: 20,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    marginBottom: 12,
-    lineHeight: 34,
-  },
-  metaRow: {
+
+  // Facebook-Style Post Header
+  postHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
-  date: {
-    fontSize: 14,
-    color: Colors.textMuted,
-    marginLeft: 6,
-    marginRight: 12,
-  },
-  tag: {
-    backgroundColor: Colors.goldMuted,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  tagText: {
-    fontSize: 12,
-    color: Colors.gold,
-    fontWeight: '600',
-  },
-  content: {
-    fontSize: 16,
-    lineHeight: 26,
-    color: Colors.textSecondary,
-    marginBottom: 32,
-  },
-  ctaButton: {
+  postHeaderLeft: {
     flexDirection: 'row',
-    backgroundColor: Colors.gold,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  postBackBtn: {
+    padding: 4,
+  },
+  postBackBtnBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.card,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  ctaText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '700',
+  postShareBtn: {
+    padding: 4,
   },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.border,
-    marginBottom: 24,
-  },
-  commentsSection: {
-    marginBottom: 20,
-  },
-  commentsHeader: {
-    flexDirection: 'row',
+  postShareBtnBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.goldMuted,
+    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
-    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
   },
-  commentsTitle: {
-    fontSize: 18,
+  postAvatarRing: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    padding: 2,
+    backgroundColor: Colors.goldMuted,
+  },
+  postAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  postHeaderInfo: {
+    gap: 2,
+  },
+  postAuthorName: {
+    fontSize: 16,
     fontWeight: '700',
     color: Colors.textPrimary,
   },
-  emptyComments: {
-    color: Colors.textMuted,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    padding: 24,
+  postMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
+  postTime: {
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  publicBadge: {
+    backgroundColor: Colors.card,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  publicText: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+
+  // Facebook-Style Post Content
+  postContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  postTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    lineHeight: 24,
+    marginBottom: 8,
+  },
+  postDescription: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+  },
+
+  // Facebook-Style Media
+  fbMediaContainer: {
+    width: width,
+    backgroundColor: Colors.cardDark,
+  },
+  fbImageContainer: {
+    width: '100%',
+    aspectRatio: 1,
+    position: 'relative',
+  },
+  fbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  fbVideoContainer: {
+    width: '100%',
+    aspectRatio: 16/9,
+    position: 'relative',
+    backgroundColor: '#000',
+  },
+  fbVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  videoControlsOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  playPauseBtn: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoIndicator: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+  },
+  videoIndicatorBg: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  videoIndicatorText: {
+    color: Colors.textPrimary,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  imageCountBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  imageCountText: {
+    color: Colors.textPrimary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  // Facebook-Style Reaction Bar
+  reactionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  reactionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  reactionEmojis: {
+    flexDirection: 'row',
+  },
+  reactionEmoji: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reactionCount: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    fontWeight: '500',
+  },
+  reactionRight: {},
+  commentsStat: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    fontWeight: '500',
+  },
+
+  // Facebook-Style Action Bar
+  actionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  actionBarBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  actionBarBtnActive: {},
+  actionBarBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+
+  // Facebook-Style CTA
+  fbCtaSection: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  fbCtaButton: {
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  fbCtaGradient: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  fbCtaText: {
+    color: '#000',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  // Facebook-Style Comments Header
+  fbCommentsHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  fbCommentsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 8,
+  },
+  fbCommentsDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+
+  // Facebook-Style Comments
+  fbCommentsContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  fbCommentThread: {
+    marginBottom: 12,
+  },
+  fbEmptyComments: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  fbEmptyCommentsText: {
+    fontSize: 14,
+    color: Colors.textMuted,
+  },
+
+  // Comments (shared)
   commentWrapper: {
     flexDirection: 'row',
-    marginBottom: 16,
     position: 'relative',
   },
   replyWrapper: {
-    marginLeft: 40,
-    marginBottom: 12,
+    marginLeft: 44,
+    marginTop: 8,
   },
   replyIcon: {
     position: 'absolute',
-    left: -24,
+    left: -28,
     top: 12,
   },
   commentItem: {
@@ -612,26 +1002,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: Colors.card,
     padding: 12,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: 'rgba(255,255,255,0.05)',
   },
   commentItemReply: {
     padding: 10,
-    borderRadius: 12,
+    borderRadius: 14,
+    backgroundColor: Colors.cardLight,
   },
   adminCommentItem: {
-    backgroundColor: 'rgba(212,175,55,0.05)',
-    borderColor: Colors.goldMuted,
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderColor: 'rgba(212,175,55,0.15)',
   },
   avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: Colors.border,
-    marginRight: 10,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   commentContent: {
     flex: 1,
@@ -645,7 +1036,7 @@ const styles = StyleSheet.create({
   authorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   commentAuthor: {
     fontSize: 14,
@@ -655,21 +1046,23 @@ const styles = StyleSheet.create({
   adminBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
     backgroundColor: Colors.goldMuted,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   adminBadgeText: {
-    fontSize: 9,
+    fontSize: 10,
     color: Colors.gold,
     fontWeight: '700',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   commentTime: {
-    fontSize: 11,
+    fontSize: 12,
     color: Colors.textMuted,
+    fontWeight: '500',
   },
   commentText: {
     fontSize: 14,
@@ -685,79 +1078,95 @@ const styles = StyleSheet.create({
     color: Colors.gold,
     fontWeight: '600',
   },
+
+  // Premium Input Section
   inputContainer: {
     flexDirection: 'column',
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: 'rgba(255,255,255,0.08)',
     backgroundColor: Colors.background,
   },
   replyingToBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: Colors.card,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
+  replyingToIcon: { marginRight: 8 },
   replyingToText: {
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.gold,
     fontWeight: '600',
+    flex: 1,
   },
+  replyingToClose: { padding: 4 },
   quickRepliesContainer: {
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   quickRepliesContent: {
-    paddingHorizontal: 12,
-    gap: 8,
+    paddingHorizontal: 16,
+    gap: 10,
   },
   quickReplyChip: {
     backgroundColor: Colors.card,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: Colors.border,
   },
   quickReplyText: {
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.textSecondary,
     fontWeight: '500',
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: 12,
-    gap: 10,
+    padding: 16,
+    gap: 12,
+  },
+  inputWrapper: {
+    flex: 1,
+    backgroundColor: Colors.card,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 4,
   },
   input: {
     flex: 1,
-    backgroundColor: Colors.card,
-    borderRadius: 20,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    paddingTop: 10,
-    minHeight: 44,
-    maxHeight: 100,
+    paddingVertical: 12,
+    paddingTop: 12,
+    minHeight: 48,
+    maxHeight: 120,
     fontSize: 15,
     color: Colors.textPrimary,
   },
   sendBtn: {
     backgroundColor: Colors.gold,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   sendBtnDisabled: {
     backgroundColor: Colors.card,
     opacity: 0.5,
   },
+
+  // Full Screen Media
   fullScreenBackdrop: {
     flex: 1,
     backgroundColor: 'black',
@@ -771,11 +1180,13 @@ const styles = StyleSheet.create({
   fullScreenClose: {
     position: 'absolute',
     right: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     width: 44,
     height: 44,
     borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
 });

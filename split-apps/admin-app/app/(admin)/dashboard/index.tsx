@@ -297,7 +297,6 @@ export default function AdminDashboard() {
   const router = useRouter();
   const { getGreeting, verifyAdminGuard } = useAuth();
   const [accessReady, setAccessReady] = useState<boolean>(false);
-  const [viewMode, setViewMode] = useState<'overview' | 'forecast'>('overview');
 
   const [stats, setStats] = useState<DashboardStats>(AdminService.cache.get('dashboard') || {
     totalClients: 0,
@@ -381,7 +380,7 @@ export default function AdminDashboard() {
             </View>
             <Pressable 
               style={styles.headerBadge}
-              onPress={() => router.push('/(admin)/settings')}
+              onPress={() => router.push('/settings')}
             >
               <Shield size={18} color={Colors.gold} />
             </Pressable>
@@ -390,25 +389,16 @@ export default function AdminDashboard() {
           {/* Premium Overview Card */}
           <View style={styles.tabContainer}>
             <Pressable
-              style={[styles.tab, viewMode === 'overview' && styles.tabActive]}
-              onPress={() => { setViewMode('overview'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+              style={[styles.tab, styles.tabActive]}
             >
-              <Text style={[styles.tabText, viewMode === 'overview' && styles.tabTextActive]}>Analytics Overview</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.tab, viewMode === 'forecast' && styles.tabActive]}
-              onPress={() => { setViewMode('forecast'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-            >
-              <TrendingUp size={14} color={viewMode === 'forecast' ? Colors.gold : Colors.textMuted} style={{ marginRight: 6 }} />
-              <Text style={[styles.tabText, viewMode === 'forecast' && styles.tabTextActive]}>Business Growth</Text>
+              <Text style={[styles.tabText, styles.tabTextActive]}>Analytics Overview</Text>
             </Pressable>
           </View>
 
-          {viewMode === 'overview' ? (
-            <LinearGradient
-              colors={['#1A1A1A', '#0F0F0F']}
-              style={styles.revenueSummary}
-            >
+          <LinearGradient
+            colors={['#1A1A1A', '#0F0F0F']}
+            style={styles.revenueSummary}
+          >
               <View style={styles.revenueMain}>
                 <Text style={styles.revenueLabel}>TOTAL BUSINESS REVENUE</Text>
                 <Text style={styles.revenueAmount}>{formatCurrency(stats.totalRevenue)}</Text>
@@ -449,28 +439,27 @@ export default function AdminDashboard() {
         {viewMode === 'overview' ? (
           <>
             <View style={styles.quickActionsSection}>
-              <Text style={styles.sectionTitle}>Quick Actions</Text>
               <View style={styles.quickActionsGrid}>
                 <QuickActionButton
                   icon={<Upload size={20} color={Colors.gold} />}
                   label="Upload Gallery"
-                  onPress={() => router.push('/(admin)/upload')}
+                  onPress={() => router.push('/upload')}
                 />
                 <QuickActionButton
                   icon={<UserPlus size={20} color={Colors.success} />}
                   label="Add Client"
-                  onPress={() => router.push('/(admin)/clients')}
+                  onPress={() => router.push('/clients')}
                 />
                 <QuickActionButton
                   icon={<CreditCard size={20} color={Colors.warning} />}
                   label="Pending Pay"
-                  onPress={() => router.push('/(admin)/clients')}
+                  onPress={() => router.push('/clients')}
                   badgeCount={unpaidGalleries.length}
                 />
                 <QuickActionButton
                   icon={<Calendar size={20} color="#6C9AED" />}
                   label="Today's Shoots"
-                  onPress={() => router.push('/(admin)/admin-bookings')}
+                  onPress={() => router.push('/admin-bookings')}
                   badgeCount={upcomingBookings.length}
                 />
               </View>
@@ -566,7 +555,7 @@ export default function AdminDashboard() {
                     style={styles.smsRefillButton}
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      router.push('/(admin)/settings');
+                      router.push('/settings');
                     }}
                   >
                     <Text style={styles.smsRefillText}>Refill</Text>
@@ -582,7 +571,7 @@ export default function AdminDashboard() {
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Pending Payments</Text>
-                  <Pressable onPress={() => router.push('/(admin)/clients')}>
+                  <Pressable onPress={() => router.push('/clients')}>
                     <Text style={styles.seeAll}>View all</Text>
                   </Pressable>
                 </View>
@@ -609,7 +598,7 @@ export default function AdminDashboard() {
               <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Upcoming Shoots</Text>
-                  <Pressable onPress={() => router.push('/(admin)/admin-bookings')}>
+                  <Pressable onPress={() => router.push('/admin-bookings')}>
                     <Text style={styles.seeAll}>View all</Text>
                   </Pressable>
                 </View>
@@ -634,8 +623,6 @@ export default function AdminDashboard() {
               </View>
             )}
           </>
-        ) : (
-          <BusinessForecast />
         )}
       </ScrollView>
     </View>

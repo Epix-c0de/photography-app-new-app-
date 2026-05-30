@@ -1,12 +1,15 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Alert, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Alert, Dimensions, ActivityIndicator, Platform, TextInput, Modal } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
-import { Calendar, MapPin, Clock, Check, Edit3, Camera, ChevronRight, ChevronLeft, Star, Zap, User, Shield } from 'lucide-react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Calendar, MapPin, Clock, Check, Edit3, Camera, ChevronRight, ChevronLeft, Star, Zap, User, Shield, Smartphone, X, Image as ImageIcon, ArrowRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { demoBookings, demoPackages } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 
@@ -16,6 +19,7 @@ type Package = Omit<DBPackage, 'features'> & {
   description?: string | null;
   detailed_description?: string | null;
   duration?: string | null;
+  cover_image_url?: string | null;
   features: string[];
 };
 type BookingRow = Database['public']['Tables']['bookings']['Row'];
@@ -130,13 +134,17 @@ function MiniCalendar({ selectedDate, onSelectDate, busyDates = [], availableDat
 function PackageCard({ pkg, index, isSelected, onSelect }: { pkg: Package; index: number; isSelected: boolean; onSelect: () => void }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
 
   useEffect(() => {
-    Animated.timing(fadeAnim, { toValue: 1, duration: 500, delay: index * 150, useNativeDriver: true }).start();
-  }, [fadeAnim, index]);
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, delay: index * 100, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 500, delay: index * 100, useNativeDriver: true }),
+    ]).start();
+  }, [fadeAnim, slideAnim, index]);
 
   return (
-    <Animated.View style={{ opacity: fadeAnim }}>
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
       <Pressable
         onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true }).start()}
         onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
@@ -149,38 +157,59 @@ function PackageCard({ pkg, index, isSelected, onSelect }: { pkg: Package; index
               <Text style={styles.popularText}>Most Popular</Text>
             </View>
           )}
-          <Text style={styles.packageName}>{pkg.name}</Text>
-          <View style={styles.priceRow}>
-            <Text style={styles.currency}>KES</Text>
-            <Text style={styles.price}>{pkg.price.toLocaleString()}</Text>
-          </View>
-          <Text style={styles.packageDesc}>{pkg.description || pkg.detailed_description || 'No description'}</Text>
-          {pkg.detailed_description && (
-            <Text style={styles.packageDetailedDesc} numberOfLines={3}>{pkg.detailed_description}</Text>
-          )}
-          <View style={styles.divider} />
-          {pkg.features.map((feature, i) => (
-            <View key={i} style={styles.featureRow}>
-              <Check size={14} color={Colors.gold} />
-              <Text style={styles.featureText}>{feature}</Text>
+          
+          {/* Cover Image Section */}
+          {pkg.cover_image_url ? (
+            <View style={styles.coverImageContainer}>
+              <Image
+                source={{ uri: pkg.cover_image_url }}
+                style={styles.coverImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                priority="high"
+              />
             </View>
-          ))}
-          <View style={styles.durationRow}>
-            <Clock size={14} color={Colors.textMuted} />
-            <Text style={styles.durationText}>{pkg.duration}</Text>
+          ) : (
+            <View style={styles.placeholderContainer}>
+              <ImageIcon size={40} color={Colors.textMuted} />
+              <Text style={styles.placeholderText}>No Cover Image</Text>
+            </View>
+          )}
+          
+          <View style={styles.packageContent}>
+            <Text style={styles.packageName}>{pkg.name}</Text>
+            <View style={styles.priceRow}>
+              <Text style={styles.currency}>KES</Text>
+              <Text style={styles.price}>{pkg.price.toLocaleString()}</Text>
+            </View>
+            <Text style={styles.packageDesc}>{pkg.description || pkg.detailed_description || 'No description'}</Text>
+            {pkg.detailed_description && (
+              <Text style={styles.packageDetailedDesc} numberOfLines={3}>{pkg.detailed_description}</Text>
+            )}
+            <View style={styles.divider} />
+            {pkg.features.map((feature, i) => (
+              <View key={i} style={styles.featureRow}>
+                <Check size={14} color={Colors.gold} />
+                <Text style={styles.featureText}>{feature}</Text>
+              </View>
+            ))}
+            <View style={styles.durationRow}>
+              <Clock size={14} color={Colors.textMuted} />
+              <Text style={styles.durationText}>{pkg.duration}</Text>
+            </View>
+            <Pressable style={styles.bookButton} onPress={onSelect}>
+              <LinearGradient
+                colors={isSelected ? [Colors.gold, Colors.goldDark] : pkg.is_popular ? [Colors.gold, Colors.goldDark] : [Colors.card, Colors.cardLight]}
+                style={styles.bookButtonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Text style={[styles.bookButtonText, (pkg.is_popular || isSelected) && styles.bookButtonTextPopular]}>
+                  {isSelected ? 'Selected' : 'Select Package'}
+                </Text>
+              </LinearGradient>
+            </Pressable>
           </View>
-          <Pressable style={styles.bookButton} onPress={onSelect}>
-            <LinearGradient
-              colors={isSelected ? [Colors.gold, Colors.goldDark] : pkg.is_popular ? [Colors.gold, Colors.goldDark] : [Colors.card, Colors.cardLight]}
-              style={styles.bookButtonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Text style={[styles.bookButtonText, (pkg.is_popular || isSelected) && styles.bookButtonTextPopular]}>
-                {isSelected ? 'Selected ✓' : 'Select Package'}
-              </Text>
-            </LinearGradient>
-          </Pressable>
         </Animated.View>
       </Pressable>
     </Animated.View>
@@ -230,7 +259,8 @@ function BookingCard({ booking }: { booking: Booking }) {
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
   const searchParams = useLocalSearchParams<{ section?: string }>();
-  const { user } = useAuth();
+  const router = useRouter();
+  const { user, isDemoMode } = useAuth();
   const [activeSection, setActiveSection] = useState<'bookings' | 'packages' | 'book'>('bookings');
   
   useEffect(() => {
@@ -241,14 +271,33 @@ export default function BookingsScreen() {
   }, [searchParams.section]);
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<number | null>(null);
+  const [bookingStep, setBookingStep] = useState<number>(1);
+  const [bookingTime, setBookingTime] = useState<string>('');
+  const [bookingLocation, setBookingLocation] = useState<string>('');
   const [packages, setPackages] = useState<Package[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Scroll refs for packages
+  const packagesScrollRef = useRef<ScrollView>(null);
+  const bookPackagesScrollRef = useRef<ScrollView>(null);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(false);
+  
+  // Payment modal state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentPhone, setPaymentPhone] = useState('');
+  const [paymentState, setPaymentState] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [pendingBookingId, setPendingBookingId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadData() {
       try {
         setLoading(true);
+        if (isDemoMode) {
+          setPackages(demoPackages as Package[]);
+          setBookings(demoBookings as Booking[]);
+          return;
+        }
         
         const { data: packagesData } = await supabase
           .from('packages')
@@ -262,6 +311,7 @@ export default function BookingsScreen() {
             description: (p as Record<string, unknown>)['description'] as string | null | undefined ?? null,
             detailed_description: (p as Record<string, unknown>)['detailed_description'] as string | null | undefined ?? null,
             duration: (p as Record<string, unknown>)['duration'] as string | null | undefined ?? null,
+            cover_image_url: (p as Record<string, unknown>)['cover_image_url'] as string | null | undefined ?? null,
             features: Array.isArray(p.features) ? (p.features as string[]) : [],
           }));
           setPackages(normalized);
@@ -284,7 +334,25 @@ export default function BookingsScreen() {
     }
     
     loadData();
-  }, [user]);
+  }, [isDemoMode, user]);
+
+  // Check if packages need scroll indicator
+  useEffect(() => {
+    if (packages.length > 1) {
+      setShowScrollIndicator(true);
+    }
+  }, [packages]);
+
+  // Scroll to end function
+  const scrollToPackagesEnd = useCallback(() => {
+    if (packagesScrollRef.current) {
+      packagesScrollRef.current.scrollToEnd({ animated: true });
+    }
+    if (bookPackagesScrollRef.current) {
+      bookPackagesScrollRef.current.scrollToEnd({ animated: true });
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
 
   const busyDates = useMemo(() => {
     return bookings.map(b => {
@@ -292,6 +360,142 @@ export default function BookingsScreen() {
       return d.getDate();
     });
   }, [bookings]);
+
+  // Handle M-Pesa payment for booking deposit
+  const handlePaymentSubmit = useCallback(async () => {
+    if (!paymentPhone || paymentPhone.length < 10) {
+      Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number (e.g., 254712345678)');
+      return;
+    }
+
+    setPaymentState('processing');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    try {
+      const pkg = packages.find(p => p.id === selectedPackage);
+      const depositAmount = Math.round((pkg?.price || 0) * 0.2); // 20% deposit
+
+      if (isDemoMode) {
+        const now = new Date();
+        const bookingDate = `${selectedDate}th of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+        const demoBooking: Booking = {
+          id: `demo-booking-${Date.now()}`,
+          user_id: user?.id ?? 'demo-user',
+          package_id: selectedPackage,
+          status: 'confirmed',
+          date: bookingDate,
+          time: bookingTime || 'TBD',
+          location: bookingLocation || 'TBD',
+          created_at: new Date().toISOString(),
+          packages: {
+            name: pkg?.name ?? 'Selected Package',
+          },
+        };
+        setBookings((prev) => [demoBooking, ...prev]);
+        setPaymentState('success');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setTimeout(() => {
+          setShowPaymentModal(false);
+          setActiveSection('bookings');
+          setPaymentState('idle');
+          setPaymentPhone('');
+        }, 1200);
+        return;
+      }
+
+      // Trigger STK Push via Edge Function
+      const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
+        body: {
+          phone_number: paymentPhone,
+          amount: depositAmount,
+          reference: `Booking-${selectedPackage}-${selectedDate}`,
+          description: `Deposit for ${pkg?.name} package`,
+        },
+      });
+
+      if (error) throw error;
+
+      // Create booking after payment initiated
+      const now = new Date();
+      const bookingDate = `${selectedDate}th of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+      
+      const { data: bookingData, error: bookingError } = await supabase
+        .from('bookings')
+        .insert({
+          user_id: user?.id,
+          package_id: selectedPackage,
+          status: 'booked',
+          date: bookingDate,
+          time: bookingTime || 'TBD',
+          location: bookingLocation || 'TBD',
+          payment_phone: paymentPhone,
+          deposit_amount: depositAmount,
+        })
+        .select()
+        .single();
+
+      if (bookingError) throw bookingError;
+      setPendingBookingId(bookingData.id);
+
+      // Poll for payment status
+      pollPaymentStatus(bookingData.id);
+
+    } catch (e: any) {
+      console.error('Payment failed:', e);
+      setPaymentState('error');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }, [bookingLocation, bookingTime, isDemoMode, packages, paymentPhone, selectedDate, selectedPackage, user]);
+
+  // Poll for payment status
+  const pollPaymentStatus = useCallback(async (bookingId: string) => {
+    if (isDemoMode) return;
+    const maxAttempts = 30;
+    let attempts = 0;
+
+    const checkStatus = async () => {
+      try {
+        const { data } = await supabase
+          .from('bookings')
+          .select('status')
+          .eq('id', bookingId)
+          .single();
+
+        if (data?.status === 'confirmed') {
+          setPaymentState('success');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          
+          // Reload bookings
+          const { data: bookingsData } = await supabase
+            .from('bookings')
+            .select('*, packages(name)')
+            .eq('user_id', user?.id)
+            .order('date', { ascending: false });
+          if (bookingsData) setBookings(bookingsData);
+          
+          setTimeout(() => {
+            setShowPaymentModal(false);
+            setActiveSection('bookings');
+            setPaymentState('idle');
+            setPaymentPhone('');
+          }, 2000);
+          return;
+        }
+
+        attempts++;
+        if (attempts < maxAttempts) {
+          setTimeout(checkStatus, 3000);
+        } else {
+          setPaymentState('error');
+        }
+      } catch (e) {
+        console.error('Error checking payment status:', e);
+        setPaymentState('error');
+      }
+    };
+
+    checkStatus();
+  }, [isDemoMode, user]);
 
   const handleConfirmBooking = useCallback(async () => {
     if (!selectedPackage) {
@@ -303,48 +507,13 @@ export default function BookingsScreen() {
       return;
     }
 
-    try {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      
-      // Get the current month and year for the booking date
-      const now = new Date();
-      const bookingDate = `${selectedDate}th of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
-      
-      // Insert the booking into the database
-      const { data, error } = await supabase
-        .from('bookings')
-        .insert({
-          user_id: user?.id,
-          package_id: selectedPackage,
-          status: 'booked',
-          date: bookingDate,
-          time: 'TBD', // Default time
-          location: 'TBD', // Default location
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Reload bookings to show the new one
-      const { data: bookingsData } = await supabase
-        .from('bookings')
-        .select('*, packages(name)')
-        .eq('user_id', user?.id)
-        .order('date', { ascending: false });
-        
-      if (bookingsData) setBookings(bookingsData);
-
-      const pkg = packages.find(p => p.id === selectedPackage);
-      Alert.alert(
-        'Booking Request Sent!',
-        `${pkg?.name} Package booked for the ${selectedDate}th.\n\nYou won't be charged yet. We'll confirm availability shortly.`,
-        [{ text: 'Great!', onPress: () => setActiveSection('bookings') }]
-      );
-    } catch (error) {
-      console.error('Error creating booking:', error);
-      Alert.alert('Error', 'Failed to create booking. Please try again.');
-    }
+    // Show payment modal instead of direct booking
+    const pkg = packages.find(p => p.id === selectedPackage);
+    const depositAmount = Math.round((pkg?.price || 0) * 0.2);
+    
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setPaymentPhone(user?.user_metadata?.phone || '');
+    setShowPaymentModal(true);
   }, [selectedPackage, selectedDate, packages, user]);
 
   const selectedPkg = packages.find(p => p.id === selectedPackage);
@@ -359,41 +528,78 @@ export default function BookingsScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
-        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-          <Text style={styles.headerTitle}>Bookings</Text>
-          <Text style={styles.headerSubtitle}>Book your next session or track existing ones</Text>
-        </View>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <Text style={styles.headerTitle}>Bookings</Text>
+        <Text style={styles.headerSubtitle}>Book your next session or track existing ones</Text>
+      </View>
 
-        <View style={styles.toggleRow}>
-          {(['bookings', 'packages', 'book'] as const).map(section => (
-            <Pressable
-              key={section}
-              style={[styles.toggleButton, activeSection === section && styles.toggleActive]}
-              onPress={() => { setActiveSection(section); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
-            >
-              <Text style={[styles.toggleText, activeSection === section && styles.toggleTextActive]}>
-                {section === 'bookings' ? 'My Bookings' : section === 'packages' ? 'Packages' : 'Book Now'}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+      <View style={styles.toggleRow}>
+        {(['bookings', 'packages', 'book'] as const).map(section => (
+          <Pressable
+            key={section}
+            style={[styles.toggleButton, activeSection === section && styles.toggleActive]}
+            onPress={() => { 
+              setActiveSection(section); 
+              if (section === 'book') setBookingStep(1);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); 
+            }}
+          >
+            <Text style={[styles.toggleText, activeSection === section && styles.toggleTextActive]}>
+              {section === 'bookings' ? 'My Bookings' : section === 'packages' ? 'Packages' : 'Book Now'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 120, 160) }}>
         {activeSection === 'bookings' && (
           <View style={styles.bookingsList}>
-            <View style={styles.timeline}>
-              {bookings.map((booking, index) => (
-                <View key={booking.id} style={styles.timelineItem}>
-                  <View style={styles.timelineLine}>
-                    <View style={[styles.timelineDot, { backgroundColor: statusConfig[booking.status]?.color || Colors.textMuted }]} />
-                    {index < bookings.length - 1 && <View style={styles.timelineConnector} />}
-                  </View>
-                  <View style={styles.timelineContent}>
-                    <BookingCard booking={booking} />
-                  </View>
+            {bookings.length === 0 ? (
+              <View style={styles.emptyBookingsContainer}>
+                <View style={styles.emptyBookingsIconWrapper}>
+                  <Calendar size={32} color={Colors.gold} />
                 </View>
-              ))}
-            </View>
+                <Text style={styles.emptyBookingsTitle}>No bookings yet</Text>
+                <Text style={styles.emptyBookingsDesc}>
+                  You don't have any upcoming or past sessions. Let's create some magic together!
+                </Text>
+                <View style={styles.emptyBookingsActions}>
+                  <Pressable 
+                    style={styles.emptyBookingsPrimaryBtn}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setActiveSection('book');
+                      setBookingStep(1);
+                    }}
+                  >
+                    <Text style={styles.emptyBookingsPrimaryBtnText}>Book Now</Text>
+                  </Pressable>
+                  <Pressable 
+                    style={styles.emptyBookingsSecondaryBtn}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      router.push('/(tabs)/chat');
+                    }}
+                  >
+                    <Text style={styles.emptyBookingsSecondaryBtnText}>Custom Booking</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.timeline}>
+                {bookings.map((booking, index) => (
+                  <View key={booking.id} style={styles.timelineItem}>
+                    <View style={styles.timelineLine}>
+                      <View style={[styles.timelineDot, { backgroundColor: statusConfig[booking.status]?.color || Colors.textMuted }]} />
+                      {index < bookings.length - 1 && <View style={styles.timelineConnector} />}
+                    </View>
+                    <View style={styles.timelineContent}>
+                      <BookingCard booking={booking} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
@@ -414,88 +620,490 @@ export default function BookingsScreen() {
 
         {activeSection === 'book' && (
           <View style={styles.bookSection}>
-            <MiniCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} busyDates={busyDates} />
-
-            <View style={styles.bookSectionLabel}>
-              <Text style={styles.bookSectionLabelText}>Select Package</Text>
+            <View style={styles.stepperContainer}>
+              {[1, 2, 3, 4].map(step => (
+                <View key={step} style={styles.stepperStep}>
+                  <View style={[styles.stepperCircle, bookingStep >= step && styles.stepperCircleActive]}>
+                    {bookingStep > step ? (
+                      <Check size={12} color={Colors.background} />
+                    ) : (
+                      <Text style={[styles.stepperNum, bookingStep >= step && styles.stepperNumActive]}>{step}</Text>
+                    )}
+                  </View>
+                  <Text style={[styles.stepperLabel, bookingStep >= step && styles.stepperLabelActive]}>
+                    {step === 1 ? 'Package' : step === 2 ? 'Date' : step === 3 ? 'Details' : 'Review'}
+                  </Text>
+                  {step < 4 && <View style={[styles.stepperLine, bookingStep > step && styles.stepperLineActive]} />}
+                </View>
+              ))}
             </View>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pkgChipsRow}>
-              {packages.map(pkg => (
+            {bookingStep === 1 && (
+              <View style={styles.stepContent}>
+                <Text style={styles.stepTitle}>Select a Package</Text>
+                {packages.map((pkg, index) => (
+                  <PackageCard
+                    key={pkg.id}
+                    pkg={pkg}
+                    index={index}
+                    isSelected={selectedPackage === pkg.id}
+                    onSelect={() => setSelectedPackage(pkg.id)}
+                  />
+                ))}
                 <Pressable
-                  key={pkg.id}
-                  style={[styles.pkgChip, selectedPackage === pkg.id && styles.pkgChipSelected]}
-                  onPress={() => { setSelectedPackage(pkg.id); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                  style={[styles.wizardButton, !selectedPackage && styles.wizardButtonDisabled]}
+                  onPress={() => setBookingStep(2)}
+                  disabled={!selectedPackage}
                 >
-                  <Text style={[styles.pkgChipName, selectedPackage === pkg.id && styles.pkgChipNameSelected]}>{pkg.name}</Text>
-                  <Text style={[styles.pkgChipPrice, selectedPackage === pkg.id && styles.pkgChipPriceSelected]}>KES {pkg.price.toLocaleString()}</Text>
+                  <Text style={styles.wizardButtonText}>Next: Choose Date</Text>
                 </Pressable>
-              ))}
-            </ScrollView>
+              </View>
+            )}
 
-            {selectedPkg && selectedDate && (
-              <View style={styles.bookingSummary}>
-                <Text style={styles.summaryTitle}>Booking Summary</Text>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Package</Text>
-                  <Text style={styles.summaryValue}>{selectedPkg.name}</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Date</Text>
-                  <Text style={styles.summaryValue}>{selectedDate}th of this month</Text>
-                </View>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Duration</Text>
-                  <Text style={styles.summaryValue}>{selectedPkg.duration}</Text>
-                </View>
-                <View style={styles.summaryDivider} />
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Total</Text>
-                  <Text style={styles.summaryTotal}>KES {selectedPkg.price.toLocaleString()}</Text>
+            {bookingStep === 2 && (
+              <View style={styles.stepContent}>
+                <Text style={styles.stepTitle}>Select a Date</Text>
+                <MiniCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} busyDates={busyDates} />
+                <View style={styles.wizardRow}>
+                  <Pressable style={styles.wizardBackButton} onPress={() => setBookingStep(1)}>
+                    <Text style={styles.wizardBackText}>Back</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.wizardButton, { flex: 1 }, !selectedDate && styles.wizardButtonDisabled]}
+                    onPress={() => setBookingStep(3)}
+                    disabled={!selectedDate}
+                  >
+                    <Text style={styles.wizardButtonText}>Next: Details</Text>
+                  </Pressable>
                 </View>
               </View>
             )}
 
-            <View style={styles.trustSignals}>
-              <View style={styles.trustSignal}>
-                <Shield size={14} color={Colors.gold} />
-                <Text style={styles.trustSignalText}>Free reschedule</Text>
+            {bookingStep === 3 && (
+              <View style={styles.stepContent}>
+                <Text style={styles.stepTitle}>Shoot Details</Text>
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Preferred Time (Optional)</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. 10:00 AM, Morning, Golden Hour"
+                    placeholderTextColor={Colors.textMuted}
+                    value={bookingTime}
+                    onChangeText={setBookingTime}
+                  />
+                </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.formLabel}>Location (Optional)</Text>
+                  <TextInput
+                    style={styles.formInput}
+                    placeholder="e.g. Studio, CBD, Outside town"
+                    placeholderTextColor={Colors.textMuted}
+                    value={bookingLocation}
+                    onChangeText={setBookingLocation}
+                  />
+                </View>
+                <View style={styles.wizardRow}>
+                  <Pressable style={styles.wizardBackButton} onPress={() => setBookingStep(2)}>
+                    <Text style={styles.wizardBackText}>Back</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.wizardButton, { flex: 1 }]}
+                    onPress={() => setBookingStep(4)}
+                  >
+                    <Text style={styles.wizardButtonText}>Next: Review</Text>
+                  </Pressable>
+                </View>
               </View>
-              <View style={styles.trustSignal}>
-                <User size={14} color={Colors.gold} />
-                <Text style={styles.trustSignalText}>No hidden fees</Text>
-              </View>
-            </View>
+            )}
 
-            <Pressable
-              style={[styles.confirmBookingButton, (!selectedPackage || !selectedDate) && styles.confirmBookingButtonDisabled]}
-              onPress={() => {
-                console.log('Confirm Booking pressed');
-                console.log('selectedPackage:', selectedPackage);
-                console.log('selectedDate:', selectedDate);
-                console.log('user:', user);
-                handleConfirmBooking();
-              }}
-              disabled={!selectedPackage || !selectedDate}
-            >
-              <LinearGradient
-                colors={selectedPackage && selectedDate ? [Colors.gold, Colors.goldDark] : [Colors.card, Colors.cardLight]}
-                style={styles.confirmBookingGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <Camera size={18} color={selectedPackage && selectedDate ? Colors.background : Colors.textMuted} />
-                <Text style={[styles.confirmBookingText, (!selectedPackage || !selectedDate) && styles.confirmBookingTextDisabled]}>
-                  Confirm Booking
-                </Text>
-              </LinearGradient>
-            </Pressable>
+            {bookingStep === 4 && selectedPkg && selectedDate && (
+              <View style={styles.stepContent}>
+                <Text style={styles.stepTitle}>Review Booking</Text>
+                <View style={styles.bookingSummary}>
+                  <Text style={styles.summaryTitle}>Booking Summary</Text>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Package</Text>
+                    <Text style={styles.summaryValue}>{selectedPkg.name}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Date</Text>
+                    <Text style={styles.summaryValue}>{selectedDate}th of this month</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Time</Text>
+                    <Text style={styles.summaryValue}>{bookingTime || 'To be discussed'}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Location</Text>
+                    <Text style={styles.summaryValue}>{bookingLocation || 'To be discussed'}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Duration</Text>
+                    <Text style={styles.summaryValue}>{selectedPkg.duration}</Text>
+                  </View>
+                  <View style={styles.summaryDivider} />
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Total Amount</Text>
+                    <Text style={styles.summaryTotal}>KES {selectedPkg.price.toLocaleString()}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.trustSignals}>
+                  <View style={styles.trustSignal}>
+                    <Shield size={14} color={Colors.gold} />
+                    <Text style={styles.trustSignalText}>Free reschedule</Text>
+                  </View>
+                  <View style={styles.trustSignal}>
+                    <User size={14} color={Colors.gold} />
+                    <Text style={styles.trustSignalText}>No hidden fees</Text>
+                  </View>
+                </View>
+
+                <View style={styles.wizardRow}>
+                  <Pressable style={styles.wizardBackButton} onPress={() => setBookingStep(3)}>
+                    <Text style={styles.wizardBackText}>Back</Text>
+                  </Pressable>
+                  
+                  <Pressable
+                    style={[styles.bookNowButton, (!selectedPackage || !selectedDate) && styles.confirmBookingButtonDisabled]}
+                    onPress={async () => {
+                      if (!selectedPackage || !selectedDate) return;
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      try {
+                        const now = new Date();
+                        const bookingDate = `${selectedDate}th of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+                        const { error } = await supabase.from('bookings').insert({
+                          user_id: user?.id,
+                          package_id: selectedPackage,
+                          status: 'booked',
+                          date: bookingDate,
+                          time: bookingTime || 'TBD',
+                          location: bookingLocation || 'TBD',
+                        });
+                        if (error) throw error;
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        Alert.alert('Success', 'Your session has been booked successfully!');
+                        setActiveSection('bookings');
+                      } catch (e: any) {
+                        Alert.alert('Error', 'Could not create booking. Please try again.');
+                      }
+                    }}
+                    disabled={!selectedPackage || !selectedDate}
+                  >
+                    <Text style={styles.bookNowText}>Book Now</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[styles.payDepositButton, (!selectedPackage || !selectedDate) && styles.confirmBookingButtonDisabled]}
+                    onPress={() => {
+                      if (!selectedPackage || !selectedDate) return;
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      setShowPaymentModal(true);
+                    }}
+                    disabled={!selectedPackage || !selectedDate}
+                  >
+                    <LinearGradient
+                      colors={[Colors.gold, Colors.goldDark]}
+                      style={styles.payDepositGradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    >
+                      <Smartphone size={18} color={Colors.white} />
+                      <Text style={styles.confirmBookingText}>Pay Deposit</Text>
+                    </LinearGradient>
+                  </Pressable>
+                </View>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
+
+      {/* Payment Modal */}
+      <Modal
+        visible={showPaymentModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (paymentState !== 'processing') {
+            setShowPaymentModal(false);
+            setPaymentState('idle');
+          }
+        }}
+      >
+        <View style={paymentStyles.modalOverlay}>
+          <BlurView intensity={100} tint="dark" style={StyleSheet.absoluteFillObject} />
+          <View style={paymentStyles.modalContent}>
+            {paymentState === 'idle' && (
+              <>
+                <Text style={paymentStyles.modalTitle}>Complete Booking</Text>
+                <Text style={paymentStyles.modalSubtitle}>
+                  A 20% deposit is required to secure your date
+                </Text>
+                
+                <View style={paymentStyles.depositInfo}>
+                  <Text style={paymentStyles.depositLabel}>Deposit Amount</Text>
+                  <Text style={paymentStyles.depositAmount}>
+                    KES {Math.round((selectedPkg?.price || 0) * 0.2).toLocaleString()}
+                  </Text>
+                </View>
+
+                <TextInput
+                  style={paymentStyles.phoneInput}
+                  placeholder="M-Pesa Phone Number"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="phone-pad"
+                  value={paymentPhone}
+                  onChangeText={setPaymentPhone}
+                  maxLength={12}
+                />
+
+                <Pressable 
+                  style={[paymentStyles.payButton, !paymentPhone && paymentStyles.payButtonDisabled]}
+                  onPress={handlePaymentSubmit}
+                  disabled={!paymentPhone || paymentPhone.length < 10}
+                >
+                  <LinearGradient
+                    colors={[Colors.gold, Colors.goldDark]}
+                    style={paymentStyles.payButtonGradient}
+                  >
+                    <Smartphone size={18} color={Colors.background} />
+                    <Text style={paymentStyles.payButtonText}>Pay with M-Pesa</Text>
+                  </LinearGradient>
+                </Pressable>
+
+                <Pressable 
+                  style={paymentStyles.cancelButton}
+                  onPress={() => {
+                    setShowPaymentModal(false);
+                    setPaymentState('idle');
+                  }}
+                >
+                  <Text style={paymentStyles.cancelButtonText}>Cancel</Text>
+                </Pressable>
+              </>
+            )}
+
+            {paymentState === 'processing' && (
+              <View style={paymentStyles.processingContainer}>
+                <ActivityIndicator size="large" color={Colors.gold} />
+                <Text style={paymentStyles.processingText}>Processing Payment...</Text>
+                <Text style={paymentStyles.processingSubtext}>
+                  Check your phone for the M-Pesa prompt
+                </Text>
+              </View>
+            )}
+
+            {paymentState === 'success' && (
+              <View style={paymentStyles.successContainer}>
+                <View style={paymentStyles.successIcon}>
+                  <Check size={40} color={Colors.background} />
+                </View>
+                <Text style={paymentStyles.successText}>Payment Successful!</Text>
+                <Text style={paymentStyles.successSubtext}>
+                  Your booking has been confirmed
+                </Text>
+              </View>
+            )}
+
+            {paymentState === 'error' && (
+              <View style={paymentStyles.errorContainer}>
+                <Text style={paymentStyles.errorText}>Payment Failed</Text>
+                <Text style={paymentStyles.errorSubtext}>
+                  Please try again or contact support
+                </Text>
+                <Pressable 
+                  style={paymentStyles.retryButton}
+                  onPress={() => setPaymentState('idle')}
+                >
+                  <Text style={paymentStyles.retryButtonText}>Try Again</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
+
+const paymentStyles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  modalContent: {
+    width: '100%',
+    backgroundColor: Colors.card,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: 40,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: '800' as const,
+    color: Colors.white,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 15,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  depositInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
+  },
+  depositLabel: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    fontWeight: '600' as const,
+  },
+  depositAmount: {
+    fontSize: 24,
+    fontWeight: '800' as const,
+    color: Colors.gold,
+  },
+  phoneInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    fontSize: 18,
+    fontWeight: '600' as const,
+    color: Colors.white,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  payButton: {
+    borderRadius: 16,
+    overflow: 'hidden' as const,
+    marginBottom: 16,
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  payButtonDisabled: {
+    opacity: 0.5,
+  },
+  payButtonGradient: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    gap: 10,
+  },
+  payButtonText: {
+    fontSize: 18,
+    fontWeight: '800' as const,
+    color: Colors.background,
+  },
+  cancelButton: {
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: Colors.textSecondary,
+  },
+  processingContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  processingText: {
+    fontSize: 22,
+    fontWeight: '700' as const,
+    color: Colors.white,
+    marginTop: 24,
+    marginBottom: 10,
+  },
+  processingSubtext: {
+    fontSize: 16,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    lineHeight: 24,
+  },
+  successContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  successIcon: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: Colors.success,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: Colors.success,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+  },
+  successText: {
+    fontSize: 26,
+    fontWeight: '800' as const,
+    color: Colors.white,
+    marginBottom: 10,
+  },
+  successSubtext: {
+    fontSize: 16,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  errorContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  errorText: {
+    fontSize: 24,
+    fontWeight: '700' as const,
+    color: Colors.error,
+    marginBottom: 10,
+  },
+  errorSubtext: {
+    fontSize: 16,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 30,
+    paddingHorizontal: 20,
+  },
+  retryButton: {
+    backgroundColor: Colors.gold,
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 16,
+  },
+  retryButtonText: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: Colors.background,
+  },
+});
 
 const calStyles = StyleSheet.create({
   calendarContainer: {
@@ -682,6 +1290,76 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     paddingLeft: 8,
   },
+  emptyBookingsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  emptyBookingsIconWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
+  },
+  emptyBookingsTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: Colors.white,
+    marginBottom: 10,
+  },
+  emptyBookingsDesc: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginBottom: 30,
+    lineHeight: 22,
+    paddingHorizontal: 10,
+  },
+  emptyBookingsActions: {
+    flexDirection: 'row',
+    gap: 16,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  emptyBookingsPrimaryBtn: {
+    backgroundColor: Colors.gold,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 24,
+    minWidth: 140,
+    alignItems: 'center',
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  emptyBookingsPrimaryBtnText: {
+    color: Colors.background,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  emptyBookingsSecondaryBtn: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    minWidth: 140,
+    alignItems: 'center',
+  },
+  emptyBookingsSecondaryBtnText: {
+    color: Colors.white,
+    fontSize: 15,
+    fontWeight: '600',
+  },
   bookingCard: {
     backgroundColor: Colors.card,
     borderRadius: 14,
@@ -753,7 +1431,46 @@ const styles = StyleSheet.create({
   },
   packagesList: {
     paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 30,
     gap: 16,
+  },
+  horizontalPackagesContainer: {
+    gap: 16,
+    paddingHorizontal: 0,
+  },
+  packageCardWrapper: {
+    width: 320,
+    marginRight: 16,
+  },
+  packagesScrollContainer: {
+    position: 'relative' as const,
+  },
+  scrollIndicator: {
+    position: 'absolute' as const,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  scrollIndicatorGradient: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.3)',
+  },
+  scrollIndicatorText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: Colors.gold,
   },
   packagesNote: {
     fontSize: 13,
@@ -764,9 +1481,46 @@ const styles = StyleSheet.create({
   packageCard: {
     backgroundColor: Colors.card,
     borderRadius: 16,
-    padding: 20,
     borderWidth: 1,
     borderColor: Colors.border,
+    marginBottom: 16,
+    overflow: 'hidden' as const,
+  },
+  coverImageContainer: {
+    width: '100%',
+    height: 200,
+    position: 'relative' as const,
+  },
+  coverImage: {
+    width: '100%',
+    height: '100%',
+  },
+  coverImageOverlay: {
+    position: 'absolute' as const,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 80,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  placeholderContainer: {
+    width: '100%',
+    height: 200,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  placeholderText: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    fontWeight: '500',
+  },
+  packageContent: {
+    padding: 20,
   },
   packageCardPopular: {
     borderColor: Colors.gold,
@@ -976,6 +1730,13 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     overflow: 'hidden' as const,
   },
+  payDepositButton: {
+    flex: 1,
+    marginLeft: 12,
+    borderRadius: 14,
+    overflow: 'hidden' as const,
+    height: 54,
+  },
   confirmBookingButtonDisabled: {
     opacity: 0.6,
   },
@@ -986,6 +1747,13 @@ const styles = StyleSheet.create({
     height: 54,
     gap: 10,
   },
+  payDepositGradient: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+    gap: 10,
+  },
   confirmBookingText: {
     fontSize: 16,
     fontWeight: '700' as const,
@@ -993,5 +1761,142 @@ const styles = StyleSheet.create({
   },
   confirmBookingTextDisabled: {
     color: Colors.textMuted,
+  },
+  stepperContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 30,
+    marginBottom: 30,
+  },
+  stepperStep: {
+    alignItems: 'center',
+    position: 'relative',
+    width: 50,
+  },
+  stepperCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.card,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+    zIndex: 2,
+  },
+  stepperCircleActive: {
+    borderColor: Colors.gold,
+    backgroundColor: Colors.gold,
+  },
+  stepperNum: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textMuted,
+  },
+  stepperNumActive: {
+    color: Colors.background,
+  },
+  stepperLabel: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
+  stepperLabelActive: {
+    color: Colors.gold,
+    fontWeight: '600',
+  },
+  stepperLine: {
+    position: 'absolute',
+    top: 13,
+    left: 40,
+    width: Dimensions.get('window').width / 4 - 20,
+    height: 2,
+    backgroundColor: Colors.border,
+    zIndex: 1,
+  },
+  stepperLineActive: {
+    backgroundColor: Colors.gold,
+  },
+  stepContent: {
+    paddingHorizontal: 20,
+    gap: 16,
+  },
+  stepTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  wizardRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 10,
+  },
+  wizardButton: {
+    backgroundColor: Colors.gold,
+    borderRadius: 14,
+    height: 54,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flex: 1,
+  },
+  wizardButtonDisabled: {
+    opacity: 0.5,
+  },
+  wizardButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.background,
+  },
+  wizardBackButton: {
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 14,
+    height: 54,
+    width: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  wizardBackText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  bookNowButton: {
+    flex: 1,
+    height: 54,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.3)',
+  },
+  bookNowText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  formGroup: {
+    marginBottom: 8,
+  },
+  formLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginBottom: 8,
+  },
+  formInput: {
+    backgroundColor: Colors.inputBg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    height: 50,
+    paddingHorizontal: 16,
+    color: Colors.white,
+    fontSize: 15,
   },
 });

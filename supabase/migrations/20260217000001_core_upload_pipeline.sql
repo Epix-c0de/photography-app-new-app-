@@ -39,22 +39,36 @@ ALTER TABLE public.galleries
 CREATE INDEX IF NOT EXISTS galleries_client_phone_idx ON public.galleries(client_phone);
 CREATE INDEX IF NOT EXISTS galleries_created_by_admin_idx ON public.galleries(created_by_admin_id);
 
-CREATE TABLE IF NOT EXISTS public.photos (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  gallery_id uuid NOT NULL REFERENCES public.galleries(id) ON DELETE CASCADE,
-  file_url text NOT NULL,
-  file_name text,
-  file_size integer,
-  mime_type text,
-  checksum text,
-  medium_url text,
-  thumbnail_url text,
-  upload_status public.photo_upload_status NOT NULL DEFAULT 'pending',
-  created_at timestamptz NOT NULL DEFAULT now()
-);
+-- photos table may already exist from schema.sql / earlier migrations; just add missing columns below
+-- Add file_url column if photos table already existed with storage_path schema
+ALTER TABLE public.photos ADD COLUMN IF NOT EXISTS file_url text;
+ALTER TABLE public.photos ADD COLUMN IF NOT EXISTS file_name text;
+ALTER TABLE public.photos ADD COLUMN IF NOT EXISTS file_size integer;
+ALTER TABLE public.photos ADD COLUMN IF NOT EXISTS mime_type text;
+ALTER TABLE public.photos ADD COLUMN IF NOT EXISTS checksum text;
+ALTER TABLE public.photos ADD COLUMN IF NOT EXISTS medium_url text;
+ALTER TABLE public.photos ADD COLUMN IF NOT EXISTS thumbnail_url text;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'photo_upload_status') THEN
+    CREATE TYPE public.photo_upload_status AS ENUM ('pending', 'uploaded', 'failed');
+  END IF;
+END $$;
+ALTER TABLE public.photos ADD COLUMN IF NOT EXISTS upload_status public.photo_upload_status NOT NULL DEFAULT 'pending';
+
+-- Populate file_url from storage_path for existing rows
+UPDATE public.photos SET file_url = storage_path WHERE file_url IS NULL AND storage_path IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS photos_gallery_id_idx ON public.photos(gallery_id);
-CREATE UNIQUE INDEX IF NOT EXISTS photos_gallery_file_url_idx ON public.photos(gallery_id, file_url);
+-- Only create unique index on file_url if all rows have a value
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'photos' AND indexname = 'photos_gallery_file_url_idx') THEN
+    IF NOT EXISTS (SELECT 1 FROM public.photos WHERE file_url IS NULL) THEN
+      CREATE UNIQUE INDEX photos_gallery_file_url_idx ON public.photos(gallery_id, file_url);
+    END IF;
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS photos_gallery_created_at_idx ON public.photos(gallery_id, created_at);
 
 ALTER TABLE public.photos ENABLE ROW LEVEL SECURITY;

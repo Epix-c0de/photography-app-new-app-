@@ -5,6 +5,14 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { ClientService } from '@/services/client';
+import {
+  demoProfile,
+  demoSession,
+  demoUser,
+  getStoredDemoModeEnabled,
+  isDemoModeEnvEnabled,
+  setStoredDemoModeEnabled,
+} from '@/lib/demo';
 
 interface UserProfile {
   id: string;
@@ -25,6 +33,7 @@ interface AuthState {
   profile: UserProfile | null;
   session: any | null;
   isLoading: boolean;
+  isDemoMode: boolean;
   isAuthenticated: boolean;
   hasSeenOnboarding: boolean;
   requiresSecuritySetup: boolean;
@@ -33,29 +42,10 @@ interface AuthState {
   pinLockedUntil: Date | null;
 }
 
-interface AdminSecurityDevice {
-  id: string;
-  label: string;
-  lastUsedLabel: string;
-  status: 'active' | 'revoked';
-}
 
-interface AdminSecurityState {
-  lastLoginAtLabel: string;
-  biometricEnabled: boolean;
-  requireBiometricForDashboard: boolean;
-  requireBiometricForUpload: boolean;
-  requireBiometricForMpesa: boolean;
-  requireBiometricForSmsBundles: boolean;
-  remoteLockEnabled: boolean;
-  registeredDevices: AdminSecurityDevice[];
-}
-
-type AdminGuardAction = 'open_dashboard' | 'upload_galleries' | 'buy_sms_bundles' | 'mpesa_payment';
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
-  loginAsAdmin: (email: string, password: string) => Promise<void>;
   loginWithOtp: (email: string) => Promise<void>;
   verifyOtp: (email: string, token: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -65,10 +55,9 @@ interface AuthContextType extends AuthState {
   clearPinLock: () => void;
   completeOnboarding: () => Promise<void>;
   getGreeting: () => string;
-  adminSecurity: AdminSecurityState;
-  updateAdminSecurity: (updates: Partial<AdminSecurityState>) => void;
-  verifyAdminGuard: (action: AdminGuardAction) => Promise<boolean>;
   isLoggedIn: boolean;
+  enableDemoMode: () => Promise<void>;
+  disableDemoMode: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -88,6 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     profile: null,
     session: null,
     isLoading: true,
+    isDemoMode: false,
     isAuthenticated: false,
     hasSeenOnboarding: false,
     requiresSecuritySetup: false,
@@ -95,24 +85,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     pinAttempts: 0,
     pinLockedUntil: null,
   });
-  const [adminSecurity, setAdminSecurity] = useState<AdminSecurityState>({
-    lastLoginAtLabel: 'Just now',
-    biometricEnabled: false,
-    requireBiometricForDashboard: false,
-    requireBiometricForUpload: false,
-    requireBiometricForMpesa: false,
-    requireBiometricForSmsBundles: false,
-    remoteLockEnabled: false,
-    registeredDevices: [
-      {
-        id: 'current-device',
-        label: 'Current device',
-        lastUsedLabel: 'Just now',
-        status: 'active',
-      },
-    ],
-  });
-  const ADMIN_SECURITY_KEY = 'admin_security_state';
+
 
   const router = useRouter();
 
@@ -182,6 +155,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const enableDemoMode = useCallback(async () => {
+    await setStoredDemoModeEnabled(true);
+    setState(prev => ({
+      ...prev,
+      user: demoUser,
+      profile: demoProfile,
+      session: demoSession,
+      isLoading: false,
+      isDemoMode: true,
+      isAuthenticated: true,
+      requiresSecuritySetup: false,
+      requiresAuthOnLaunch: false,
+    }));
+  }, []);
+
+  const disableDemoMode = useCallback(async () => {
+    await setStoredDemoModeEnabled(false);
+    setState(prev => ({
+      ...prev,
+      user: null,
+      profile: null,
+      session: null,
+      isLoading: false,
+      isDemoMode: false,
+      isAuthenticated: false,
+      requiresSecuritySetup: false,
+      requiresAuthOnLaunch: false,
+    }));
+  }, []);
+
   const getGreeting = useCallback(() => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -189,48 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return 'Good evening';
   }, []);
 
-  const updateAdminSecurity = useCallback((updates: Partial<AdminSecurityState>) => {
-    setAdminSecurity((prev) => {
-      const next = { ...prev, ...updates };
-      SecureStore.setItemAsync(ADMIN_SECURITY_KEY, JSON.stringify(next)).catch(() => {});
-      
-      // Sync seamlessly to backend user_metadata in real time
-      supabase.auth.updateUser({ data: { adminSecurity: next } }).catch(console.error);
 
-      // If biometricEnabled toggled, also persist to user_profiles table directly
-      if (updates.biometricEnabled !== undefined && state.user?.id) {
-        supabase.from('user_profiles')
-          .update({ biometric_enabled: updates.biometricEnabled })
-          .eq('id', state.user.id)
-          .then(({ error }) => { if (error) console.error('Failed to sync biometric state:', error); });
-      }
-
-      return next;
-    });
-  }, [state.user?.id]);
-
-  const verifyAdminGuard = useCallback(async (action: AdminGuardAction): Promise<boolean> => {
-    if (adminSecurity.remoteLockEnabled) return false;
-
-    const requiresBiometric =
-      adminSecurity.biometricEnabled &&
-      ((action === 'open_dashboard' && adminSecurity.requireBiometricForDashboard) ||
-        (action === 'upload_galleries' && adminSecurity.requireBiometricForUpload) ||
-        (action === 'buy_sms_bundles' && adminSecurity.requireBiometricForSmsBundles) ||
-        (action === 'mpesa_payment' && adminSecurity.requireBiometricForMpesa));
-
-    if (!requiresBiometric) return true;
-
-    try {
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Verify to continue',
-      });
-      return result.success;
-    } catch (error) {
-      console.error('Admin guard verification error:', error);
-      return false;
-    }
-  }, [adminSecurity]);
 
   // Increment PIN attempts and handle lockout
   const incrementPinAttempts = useCallback(async () => {
@@ -341,80 +303,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const loginAsAdmin = useCallback(async (email: string, password: string) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
 
-    if (error) {
-      if (normalizedEmail === 'admin@lexnart.com' && error.message.includes('Invalid login credentials')) {
-        throw new Error(
-          'Default admin user not found or password not set in Supabase. Create it in Supabase Auth first, then try again.'
-        );
-      }
-      throw error;
-    }
-
-    const authRole =
-      (data.user?.app_metadata as any)?.role ??
-      (data.user?.user_metadata as any)?.role;
-    const isAdminByAuth = authRole === 'admin' || authRole === 'super_admin';
-
-    const { data: profile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', data.user.id)
-      .single();
-
-    const isAdminByProfile = profile?.role === 'admin' || profile?.role === 'super_admin';
-    if (!isAdminByProfile && !isAdminByAuth) {
-      await supabase.auth.signOut();
-      if (normalizedEmail === 'admin@lexnart.com') {
-        if (profileError) {
-          throw new Error('Admin role check failed. Ensure user_profiles is readable and role is admin for this user.');
-        }
-        throw new Error('Admin role is not set. Set user_profiles.role = admin for this user.');
-      }
-      throw new Error('Unauthorized: Admin access only');
-    }
-
-    const resolvedProfile: UserProfile = profile ?? {
-      id: data.user.id,
-      role: 'admin',
-      name: null,
-      email: data.user.email ?? normalizedEmail,
-      phone: null,
-      avatar_url: null,
-      pin_hash: null,
-      biometric_enabled: null,
-      client_type: null,
-      profile_complete: true,
-      created_at: new Date().toISOString(),
-    };
-
-    const hasSecurity = resolvedProfile.pin_hash !== null || resolvedProfile.biometric_enabled === true;
-    let requiresSecuritySetup = false;
-    if (!hasSecurity && !resolvedProfile.profile_complete) {
-      const lastPrompt = await SecureStore.getItemAsync('last_security_prompt');
-      const now = Date.now();
-      if (!lastPrompt || now - parseInt(lastPrompt) > 24 * 60 * 60 * 1000) {
-        requiresSecuritySetup = true;
-        await SecureStore.setItemAsync('last_security_prompt', now.toString());
-      }
-    }
-
-    setState(prev => ({
-      ...prev,
-      user: data.user,
-      session: data.session,
-      profile: resolvedProfile,
-      isAuthenticated: true,
-      requiresSecuritySetup: false, // Admin never requires security setup via this flow
-      requiresAuthOnLaunch: false,
-    }));
-  }, []);
 
   const loginWithOtp = useCallback(async (email: string) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -503,6 +392,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Logout function
   const logout = useCallback(async () => {
+    if (state.isDemoMode) {
+      await disableDemoMode();
+      await clearPinLock();
+      return;
+    }
+
     await supabase.auth.signOut();
     setState(prev => ({
       ...prev,
@@ -510,6 +405,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       profile: null,
       session: null,
       isLoading: false,
+      isDemoMode: false,
       isAuthenticated: false,
       requiresSecuritySetup: false,
       requiresAuthOnLaunch: false,
@@ -517,7 +413,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       pinLockedUntil: null,
     }));
     await clearPinLock();
-  }, [clearPinLock]);
+  }, [clearPinLock, disableDemoMode, state.isDemoMode]);
 
   const syncTemporaryUploads = useCallback(async () => {
     try {
@@ -532,26 +428,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setState(prev => ({ ...prev, isLoading: true }));
 
     try {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        // Prefer cloud-synced adminSecurity over local raw JSON if available
-        let backendAdminSecurity = null;
-        if (session?.user?.user_metadata?.adminSecurity) {
-          backendAdminSecurity = session.user.user_metadata.adminSecurity;
-        }
-
-        const raw = await SecureStore.getItemAsync(ADMIN_SECURITY_KEY);
-        if (backendAdminSecurity) {
-          setAdminSecurity((prev) => ({ ...prev, ...backendAdminSecurity }));
-        } else if (raw) {
-          const parsed = JSON.parse(raw);
-          setAdminSecurity((prev) => ({ ...prev, ...parsed }));
-        }
-      } catch {}
       await loadOnboardingState();
       // Load PIN lock state first
       await loadPinLockState();
+
+      const isDemoMode = isDemoModeEnvEnabled || await getStoredDemoModeEnabled();
+      if (isDemoMode) {
+        setState(prev => ({
+          ...prev,
+          user: demoUser,
+          profile: demoProfile,
+          session: demoSession,
+          isAuthenticated: true,
+          isDemoMode: true,
+          requiresSecuritySetup: false,
+          requiresAuthOnLaunch: false,
+          isLoading: false,
+        }));
+        return;
+      }
 
       // Check current session
       const { data: { session }, error } = await supabase.auth.getSession();
@@ -599,6 +494,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           profile,
           session,
           isAuthenticated: true,
+          isDemoMode: false,
           requiresSecuritySetup,
           requiresAuthOnLaunch,
           isLoading: false,
@@ -636,6 +532,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           profile: resolvedProfile,
           session,
           isAuthenticated: true,
+          isDemoMode: false,
           requiresSecuritySetup: false,
           requiresAuthOnLaunch: false,
           isLoading: false,
@@ -644,7 +541,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (profileError) {
           console.error('Profile fetch failed:', profileError);
         }
-        setState(prev => ({ ...prev, isLoading: false, isAuthenticated: false }));
+        const fallbackProfile: UserProfile = {
+          id: session.user.id,
+          role: 'client',
+          name:
+            (session.user?.user_metadata as any)?.full_name ??
+            (session.user?.user_metadata as any)?.name ??
+            session.user.email ??
+            null,
+          email: session.user.email ?? null,
+          phone: (session.user?.user_metadata as any)?.phone ?? null,
+          avatar_url: (session.user?.user_metadata as any)?.avatar_url ?? null,
+          pin_hash: null,
+          biometric_enabled: null,
+          client_type: null,
+          profile_complete: false,
+          created_at: new Date().toISOString(),
+        };
+        setState(prev => ({
+          ...prev,
+          user: session.user,
+          profile: fallbackProfile,
+          session,
+          isAuthenticated: true,
+          isDemoMode: false,
+          requiresSecuritySetup: false,
+          requiresAuthOnLaunch: false,
+          isLoading: false,
+        }));
+        try {
+          await ClientService.clients.ensureLinkedRecordsForCurrentUser();
+        } catch {}
       }
     } catch (error) {
       console.error('Auth check error:', error);
@@ -665,6 +592,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             user: null,
             profile: null,
             session: null,
+            isDemoMode: false,
             isAuthenticated: false,
             requiresSecuritySetup: false,
             requiresAuthOnLaunch: false,
@@ -716,6 +644,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               profile: effectiveProfile,
               session,
               isAuthenticated: true,
+              isDemoMode: false,
               requiresSecuritySetup,
               requiresAuthOnLaunch: isAdminProfile ? false : hasSecurity,
             }));
@@ -736,7 +665,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value: AuthContextType = {
     ...state,
     login,
-    loginAsAdmin,
     loginWithOtp,
     verifyOtp,
     logout,
@@ -746,10 +674,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     clearPinLock,
     completeOnboarding,
     getGreeting,
-    adminSecurity,
-    updateAdminSecurity,
-    verifyAdminGuard,
     isLoggedIn: state.isAuthenticated,
+    enableDemoMode,
+    disableDemoMode,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

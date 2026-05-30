@@ -360,7 +360,7 @@ export default function BTSViewerScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionBtn} onPress={() => {
-             router.push('/(tabs)/bookings');
+             router.push('/admin-bookings');
              (supabase as any).rpc('increment_clicks', { row_id: item.id, table_name: 'bts_posts' });
           }}>
             <View style={styles.bookIconWrapper}>

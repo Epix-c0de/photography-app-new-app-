@@ -6,7 +6,6 @@ export default function AnnouncementsLayout() {
       screenOptions={{
         headerShown: false,
         presentation: 'modal',
-        animationEnabled: true,
       }}
     >
       <Stack.Screen 

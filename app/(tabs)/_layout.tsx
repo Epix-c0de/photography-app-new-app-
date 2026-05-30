@@ -2,9 +2,22 @@ import { Tabs } from 'expo-router';
 import { Home, Images, Calendar, MessageCircle, User } from 'lucide-react-native';
 import { View, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
+import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
+  const handleTabPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const insets = useSafeAreaInsets();
+  // Tab bar sits 12pt above the safe area bottom edge
+  const TAB_BAR_BOTTOM = 12 + insets.bottom;
+  // Tab bar height is 72; add bottom offset so content clears it
+  const TAB_BAR_HEIGHT = 72;
+  const SCENE_PADDING_BOTTOM = TAB_BAR_BOTTOM + TAB_BAR_HEIGHT + 8;
+
   return (
     <Tabs
       screenOptions={{
@@ -13,7 +26,7 @@ export default function TabLayout() {
         tabBarInactiveTintColor: Colors.textMuted,
         sceneStyle: {
           backgroundColor: Colors.background,
-          paddingBottom: 104,
+          paddingBottom: SCENE_PADDING_BOTTOM,
         },
         tabBarHideOnKeyboard: true,
         tabBarBackground: () => (
@@ -26,8 +39,8 @@ export default function TabLayout() {
           position: 'absolute',
           left: 14,
           right: 14,
-          bottom: 12,
-          height: 72,
+          bottom: TAB_BAR_BOTTOM,
+          height: TAB_BAR_HEIGHT,
           borderRadius: 24,
           borderTopWidth: 0,
           backgroundColor: 'transparent',
@@ -53,6 +66,7 @@ export default function TabLayout() {
     >
       <Tabs.Screen
         name="home"
+        listeners={{ tabPress: handleTabPress }}
         options={{
           title: 'Home',
           tabBarIcon: ({ color, focused }) => (
@@ -64,6 +78,7 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="gallery"
+        listeners={{ tabPress: handleTabPress }}
         options={{
           title: 'My Galleries',
           tabBarIcon: ({ color, focused }) => (
@@ -75,6 +90,7 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="bookings"
+        listeners={{ tabPress: handleTabPress }}
         options={{
           title: 'Bookings',
           tabBarIcon: ({ color, focused }) => (
@@ -86,6 +102,7 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="chat"
+        listeners={{ tabPress: handleTabPress }}
         options={{
           title: 'Chat',
           tabBarIcon: ({ color, focused }) => (
@@ -97,6 +114,7 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="profile"
+        listeners={{ tabPress: handleTabPress }}
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, focused }) => (

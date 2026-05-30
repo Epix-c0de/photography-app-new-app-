@@ -290,7 +290,8 @@ export const AdminService = {
    */
   clients: {
     list: async (): Promise<any[]> => {
-      if (USE_MOCK) return [];
+      // Always fetch from database for clients, never use mock
+      // if (USE_MOCK) return [];
 
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
@@ -341,7 +342,8 @@ export const AdminService = {
 
     // Fetch all clients in the system specifically for modals (like Inbox and Upload)
     listAll: async (): Promise<any[]> => {
-      if (USE_MOCK) return [];
+      // Always fetch from database for clients, never use mock
+      // if (USE_MOCK) return [];
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');

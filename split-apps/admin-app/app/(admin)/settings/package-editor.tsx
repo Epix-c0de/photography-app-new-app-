@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Alert, TextInput, Switch, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert, TextInput, Switch, ActivityIndicator, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { 
   ChevronLeft, 
@@ -10,9 +10,12 @@ import {
   X,
   Clock,
   Image as ImageIcon,
-  Star
+  Star,
+  Upload,
+  Trash
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { AdminService } from '@/services/admin';
@@ -31,6 +34,7 @@ interface PackageFormState {
   description?: string;
   detailed_description?: string;
   is_popular?: boolean;
+  cover_image_url?: string | null;
 }
 
 export default function PackageEditorScreen() {
@@ -169,6 +173,7 @@ export default function PackageEditorScreen() {
           description: editForm.description,
           detailed_description: editForm.detailed_description,
           is_popular: editForm.is_popular,
+          cover_image_url: editForm.cover_image_url,
         })
         .eq('id', editingId);
       
@@ -187,6 +192,7 @@ export default function PackageEditorScreen() {
           description: editForm.description,
           detailed_description: editForm.detailed_description,
           is_popular: editForm.is_popular,
+          cover_image_url: editForm.cover_image_url ?? null,
         } : p
       ));
       
@@ -242,6 +248,7 @@ export default function PackageEditorScreen() {
       description: (pkg as any).description || '',
       detailed_description: (pkg as any).detailed_description || '',
       is_popular: (pkg as any).is_popular || false,
+      cover_image_url: (pkg as any).cover_image_url,
     });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -256,6 +263,54 @@ export default function PackageEditorScreen() {
   const handleFeaturesChange = (text: string) => {
     const features = text.split('\n').filter(f => f.trim());
     setEditForm(prev => prev ? { ...prev, features } : null);
+  };
+
+  const handleImageUpload = async () => {
+    if (!editingId) return;
+    
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+      });
+
+      if (result.canceled) return;
+
+      const file = result.assets[0];
+      const fileName = `package-${editingId}-${Date.now()}.jpg`;
+      const filePath = `package-covers/${editingId}/${fileName}`;
+
+      // Convert to blob and upload
+      const response = await fetch(file.uri);
+      const blob = await response.blob();
+
+      const { error: uploadError } = await supabase.storage
+        .from('package-images')
+        .upload(filePath, blob, {
+          contentType: 'image/jpeg',
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('package-images')
+        .getPublicUrl(filePath);
+
+      setEditForm(prev => prev ? { ...prev, cover_image_url: publicUrl } : null);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      Alert.alert('Error', 'Failed to upload image. Please try again.');
+    }
+  };
+
+  const handleImageRemove = () => {
+    setEditForm(prev => prev ? { ...prev, cover_image_url: null } : null);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   if (loading) {
@@ -377,6 +432,33 @@ export default function PackageEditorScreen() {
                     placeholder="This comprehensive package includes professional lighting, multiple outfit changes, location scouting, and online gallery access with high-resolution downloads..."
                     placeholderTextColor={Colors.textMuted}
                   />
+                </View>
+
+                <View style={styles.formRow}>
+                  <Text style={styles.formLabel}>Package Cover Image</Text>
+                  <Text style={styles.formSub}>This image will be shown to clients when browsing packages</Text>
+                  
+                  {editForm?.cover_image_url ? (
+                    <View style={styles.imageContainer}>
+                      <Image source={{ uri: editForm.cover_image_url }} style={styles.coverImage} resizeMode="cover" />
+                      <View style={styles.imageActions}>
+                        <Pressable style={styles.imageActionBtn} onPress={handleImageUpload}>
+                          <Upload size={16} color={Colors.gold} />
+                          <Text style={styles.imageActionText}>Change</Text>
+                        </Pressable>
+                        <Pressable style={[styles.imageActionBtn, styles.imageActionBtnDanger]} onPress={handleImageRemove}>
+                          <Trash size={16} color={Colors.error} />
+                          <Text style={[styles.imageActionText, styles.imageActionTextDanger]}>Remove</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : (
+                    <Pressable style={styles.uploadPlaceholder} onPress={handleImageUpload}>
+                      <ImageIcon size={32} color={Colors.textMuted} />
+                      <Text style={styles.uploadPlaceholderText}>Tap to upload package image</Text>
+                      <Text style={styles.uploadPlaceholderSub}>Recommended: 16:9 ratio, max 2MB</Text>
+                    </Pressable>
+                  )}
                 </View>
 
                 <View style={styles.formToggleRow}>
@@ -520,4 +602,14 @@ const styles = StyleSheet.create({
   saveBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.gold, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
   saveBtnDisabled: { opacity: 0.7 },
   saveBtnText: { fontSize: 14, fontWeight: '700', color: Colors.background, marginLeft: 8 },
+  imageContainer: { marginTop: 8, borderRadius: 12, overflow: 'hidden' },
+  coverImage: { width: '100%', height: 160, borderRadius: 12 },
+  imageActions: { flexDirection: 'row', justifyContent: 'center', gap: 16, marginTop: 12 },
+  imageActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: Colors.card },
+  imageActionBtnDanger: { backgroundColor: 'rgba(255,59,48,0.1)' },
+  imageActionText: { fontSize: 13, fontWeight: '600', color: Colors.gold },
+  imageActionTextDanger: { color: Colors.error },
+  uploadPlaceholder: { alignItems: 'center', justifyContent: 'center', padding: 24, borderWidth: 2, borderColor: Colors.border, borderStyle: 'dashed', borderRadius: 12, marginTop: 8 },
+  uploadPlaceholderText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginTop: 12 },
+  uploadPlaceholderSub: { fontSize: 11, color: Colors.textMuted, marginTop: 4 },
 });

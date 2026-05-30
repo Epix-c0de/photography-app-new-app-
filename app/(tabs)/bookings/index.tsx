@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Alert, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Alert, Dimensions, ActivityIndicator, Platform, Modal, TextInput } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
-import { Calendar, MapPin, Clock, Check, Edit3, Camera, ChevronRight, ChevronLeft, Star, Zap, User, Shield } from 'lucide-react-native';
+import { Calendar, MapPin, Clock, Check, Edit3, Camera, ChevronRight, ChevronLeft, Star, Zap, User, Shield, Smartphone, X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
@@ -245,6 +245,10 @@ export default function BookingsScreen() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [mpesaModalVisible, setMpesaModalVisible] = useState(false);
+  const [mpesaPhone, setMpesaPhone] = useState(user?.user_metadata?.phone || '');
+  const [mpesaLoading, setMpesaLoading] = useState(false);
+
   useEffect(() => {
     async function loadData() {
       try {
@@ -470,11 +474,9 @@ export default function BookingsScreen() {
             <Pressable
               style={[styles.confirmBookingButton, (!selectedPackage || !selectedDate) && styles.confirmBookingButtonDisabled]}
               onPress={() => {
-                console.log('Confirm Booking pressed');
-                console.log('selectedPackage:', selectedPackage);
-                console.log('selectedDate:', selectedDate);
-                console.log('user:', user);
-                handleConfirmBooking();
+                if (!selectedPackage || !selectedDate) return;
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setMpesaModalVisible(true);
               }}
               disabled={!selectedPackage || !selectedDate}
             >
@@ -484,15 +486,73 @@ export default function BookingsScreen() {
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
               >
-                <Camera size={18} color={selectedPackage && selectedDate ? Colors.background : Colors.textMuted} />
-                <Text style={[styles.confirmBookingText, (!selectedPackage || !selectedDate) && styles.confirmBookingTextDisabled]}>
-                  Confirm Booking
+                <Smartphone size={18} color={selectedPackage && selectedDate ? Colors.white : Colors.textMuted} />
+                <Text style={[styles.confirmBookingText, (!selectedPackage || !selectedDate) && styles.confirmBookingTextDisabled, { color: selectedPackage && selectedDate ? Colors.white : Colors.textMuted }]}>
+                  Pay Deposit & Book
                 </Text>
               </LinearGradient>
             </Pressable>
           </View>
         )}
       </ScrollView>
+
+      {/* M-Pesa Payment Modal */}
+      <Modal visible={mpesaModalVisible} transparent animationType="slide" onRequestClose={() => setMpesaModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>M-Pesa Deposit</Text>
+              <Pressable onPress={() => setMpesaModalVisible(false)} hitSlop={12}>
+                <X size={24} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+
+            <View style={styles.modalBody}>
+              <Text style={styles.modalDescription}>
+                A deposit of KES {(selectedPkg?.price || 0) * 0.2} (20%) is required to secure this date.
+              </Text>
+              
+              <Text style={styles.inputLabel}>M-Pesa Number</Text>
+              <View style={styles.inputContainer}>
+                <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter M-Pesa Number"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="phone-pad"
+                  value={mpesaPhone}
+                  onChangeText={setMpesaPhone}
+                />
+              </View>
+
+              <Pressable
+                style={[styles.payButton, mpesaLoading && styles.payButtonDisabled]}
+                onPress={() => {
+                  if (!mpesaPhone) {
+                    Alert.alert('Error', 'Please enter a valid M-Pesa number');
+                    return;
+                  }
+                  setMpesaLoading(true);
+                  console.log('Sending STK prompt to:', mpesaPhone);
+                  // Simulate STK push delay
+                  setTimeout(() => {
+                    setMpesaLoading(false);
+                    setMpesaModalVisible(false);
+                    handleConfirmBooking();
+                  }, 2000);
+                }}
+                disabled={mpesaLoading}
+              >
+                {mpesaLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.payButtonText}>Send Payment Prompt</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -607,6 +667,77 @@ const calStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  modalBody: {
+    gap: 16,
+  },
+  modalDescription: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 8,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.textPrimary,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 12,
+    height: 50,
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    color: Colors.textPrimary,
+    fontSize: 16,
+  },
+  payButton: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 12,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  payButtonDisabled: {
+    opacity: 0.7,
+  },
+  payButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   container: {
     flex: 1,
     backgroundColor: Colors.background,

@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated, Dimensions, Alert, Share, ActivityIndicator, Platform, PermissionsAndroid, Linking, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated as RNAnimated, Dimensions, Alert, Share, ActivityIndicator, Platform, PermissionsAndroid, Linking, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Lock, Unlock, Search, Heart, Download, Eye, X, Share2, ShoppingBag, ArrowLeft, CreditCard, AlertCircle, Zap } from 'lucide-react-native';
+import { Lock, Unlock, Search, Heart, Download, Eye, X, Share2, ShoppingBag, ArrowLeft, CreditCard, Zap } from 'lucide-react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ScreenCapture from 'expo-screen-capture';
@@ -18,7 +19,12 @@ import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
 import PaymentModal from '@/components/PaymentModal';
 import { LocalSmsGateway } from '@lenzart/local-sms-gateway';
-import { useLocalSearchParams, usePathname } from 'expo-router';
+import { useRouter, usePathname, useLocalSearchParams } from 'expo-router';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
+
+// @ts-ignore
+import { MasonryFlashList } from '@shopify/flash-list';
 
 const { width } = Dimensions.get('window');
 const COL_GAP = 8;
@@ -32,7 +38,6 @@ type ShareSheetPayload = { title: string; message: string; link: string };
 type GalleryRow = Database['public']['Tables']['galleries']['Row'];
 type GalleryRowWithCounts = GalleryRow & { photo_count?: number | null };
 type PhotoRow = ClientPhoto;
-type BTSPost = Database['public']['Tables']['bts_posts']['Row'];
 
 function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, isBlurred, accessCodeLink, shareAppLink, isGalleryUnpaid }: { photo: PhotoRow; index: number; onLike: (id: string) => void; onOpenPhoto: (photo: PhotoRow) => void; isLiked: boolean; showWatermark: boolean; isBlurred?: boolean; accessCodeLink: string; shareAppLink: string; isGalleryUnpaid?: boolean }) {
   const {
@@ -43,11 +48,11 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
     watermarkSize,
     watermarkPosition,
   } = useBranding();
-  const heartScale = useRef(new Animated.Value(0)).current;
-  const cardFade = useRef(new Animated.Value(0)).current;
+  const heartScale = useRef(new RNAnimated.Value(0)).current;
+  const cardFade = useRef(new RNAnimated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(cardFade, { toValue: 1, duration: 400, delay: index * 80, useNativeDriver: true }).start();
+    RNAnimated.timing(cardFade, { toValue: 1, duration: 400, delay: index * 80, useNativeDriver: true }).start();
   }, [cardFade, index]);
 
   const handleDoubleTap = useCallback(() => {
@@ -58,9 +63,9 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
     }
     onLike(photo.id);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Animated.sequence([
-      Animated.spring(heartScale, { toValue: 1, friction: 3, useNativeDriver: true }),
-      Animated.timing(heartScale, { toValue: 0, duration: 600, delay: 400, useNativeDriver: true }),
+    RNAnimated.sequence([
+      RNAnimated.spring(heartScale, { toValue: 1, friction: 3, useNativeDriver: true }),
+      RNAnimated.timing(heartScale, { toValue: 0, duration: 600, delay: 400, useNativeDriver: true }),
     ]).start();
   }, [heartScale, onLike, photo.id, isGalleryUnpaid]);
 
@@ -139,7 +144,7 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
   }, [photo.id]);
 
   return (
-    <Animated.View style={[styles.photoCard, { opacity: cardFade }]}>
+    <RNAnimated.View style={[styles.photoCard, { opacity: cardFade }]}>
       <Pressable onPress={handleOpen} onLongPress={handleDoubleTap}>
         <Image
           source={{ uri: photo.thumbnailUrl || photo.url }}
@@ -202,10 +207,10 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
               </Text>
             )}
           </View>
-        )}
-        <Animated.View style={[styles.heartOverlay, { transform: [{ scale: heartScale }], opacity: heartScale }]}>
+        )}                                                                                                                                                                                                                                                                                                                                                                                                                     
+        <RNAnimated.View style={[styles.heartOverlay, { transform: [{ scale: heartScale }], opacity: heartScale }]}>
           <Heart size={40} color={Colors.gold} fill={Colors.gold} />
-        </Animated.View>
+        </RNAnimated.View>
         {isLiked && (
           <View style={styles.likedBadge}>
             <Heart size={12} color={Colors.gold} fill={Colors.gold} />
@@ -215,15 +220,15 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
           <Share2 size={12} color={Colors.white} />
         </Pressable>
       </Pressable>
-    </Animated.View>
+    </RNAnimated.View>
   );
 }
 
 function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; index: number; onLike: (id: string, isPortfolio: boolean) => void; onPress: (item: PortfolioItem) => void }) {
-  const cardFade = useRef(new Animated.Value(0)).current;
+  const cardFade = useRef(new RNAnimated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(cardFade, { toValue: 1, duration: 400, delay: index * 80, useNativeDriver: true }).start();
+    RNAnimated.timing(cardFade, { toValue: 1, duration: 400, delay: index * 80, useNativeDriver: true }).start();
   }, [cardFade, index]);
 
   const handlePress = useCallback(() => {
@@ -231,7 +236,7 @@ function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; 
   }, [onPress, item]);
 
   return (
-    <Animated.View style={[styles.photoCard, { opacity: cardFade, marginBottom: 12 }]}>
+    <RNAnimated.View style={[styles.photoCard, { opacity: cardFade, marginBottom: 12 }]}>
       <Pressable onPress={handlePress}>
         <Image source={{ uri: item.image_url || item.media_url }} style={[styles.photoImage, { height: COL_WIDTH * 1.5 }]} contentFit="cover" />
         <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.galleryTileOverlay} />
@@ -244,7 +249,97 @@ function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; 
           </View>
         </View>
       </Pressable>
-    </Animated.View>
+    </RNAnimated.View>
+  );
+}
+
+function FluidPhotoViewer({ photo, onClose, onLike, onDownload, onShare, isLiked, galleryName }: {
+  photo: PhotoRow;
+  onClose: () => void;
+  onLike: (id: string) => void;
+  onDownload: (photo: PhotoRow) => void;
+  onShare: () => void;
+  isLiked: boolean;
+  galleryName: string;
+}) {
+  const translateY = useSharedValue(0);
+  const scale = useSharedValue(1);
+
+  const panGesture = Gesture.Pan()
+    .onChange((event) => {
+      translateY.value = event.translationY;
+      scale.value = Math.max(0.6, 1 - Math.abs(event.translationY) / 500);
+    })
+    .onEnd((event) => {
+      if (Math.abs(event.translationY) > 150 || Math.abs(event.velocityY) > 1000) {
+        runOnJS(onClose)();
+      } else {
+        translateY.value = withSpring(0);
+        scale.value = withSpring(1);
+      }
+    });
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: translateY.value },
+      { scale: scale.value }
+    ]
+  }));
+
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: scale.value
+  }));
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <Animated.View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'black' }, backdropStyle]} />
+      <GestureDetector gesture={panGesture}>
+        <Animated.View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center' }, animatedStyle]}>
+          <Image
+            source={{ uri: photo.url || photo.thumbnailUrl }}
+            style={styles.photoViewerImage}
+            contentFit="contain"
+          />
+          <LinearGradient colors={['rgba(0,0,0,0.82)', 'transparent']} style={styles.photoViewerTopGradient}>
+            <SafeAreaView edges={['top']} style={styles.photoViewerTopSafe}>
+              <View style={styles.photoViewerHeader}>
+                <Pressable onPress={onClose} hitSlop={10} style={styles.photoViewerBack}>
+                  <ArrowLeft size={22} color={Colors.white} />
+                </Pressable>
+                <View style={styles.photoViewerActions}>
+                  <Pressable hitSlop={10} style={styles.photoViewerActionBtn} onPress={() => onLike(photo.id)}>
+                    <Heart
+                      size={18}
+                      color={isLiked ? Colors.gold : Colors.white}
+                      fill={isLiked ? Colors.gold : 'transparent'}
+                    />
+                  </Pressable>
+                  <Pressable hitSlop={10} style={styles.photoViewerActionBtn} onPress={() => onDownload(photo)}>
+                    <Download size={18} color={Colors.gold} />
+                  </Pressable>
+                  <Pressable hitSlop={10} style={styles.photoViewerActionBtn} onPress={onShare}>
+                    <Share2 size={18} color={Colors.gold} />
+                  </Pressable>
+                </View>
+              </View>
+            </SafeAreaView>
+          </LinearGradient>
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.9)']} style={styles.photoViewerBottomGradient}>
+            <SafeAreaView edges={['bottom']}>
+              <View style={styles.photoViewerMetaRow}>
+                <Text style={styles.photoViewerMetaTitle} numberOfLines={1}>{galleryName}</Text>
+                <View style={styles.photoViewerBadge}>
+                  <Text style={styles.photoViewerBadgeText}>{photo.variant === 'clean' ? 'High Quality' : 'Preview'}</Text>
+                </View>
+              </View>
+              <Text style={styles.photoViewerMetaHint}>
+                Tap icons to like, download to storage, or share to social apps. Swipe up or down to dismiss.
+              </Text>
+            </SafeAreaView>
+          </LinearGradient>
+        </Animated.View>
+      </GestureDetector>
+    </GestureHandlerRootView>
   );
 }
 
@@ -254,13 +349,14 @@ export default function GalleryScreen() {
   const { brandName, blockScreenshots, setActiveAdminId, accessCodeLink, shareAppLink, galleryShareLink } = useBranding();
   const pathname = usePathname();
   const searchParams = useLocalSearchParams();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabType>('my-galleries');
   const [accessCode, setAccessCode] = useState<string>((searchParams.accessCode as string) || '');
   const smsAutofillLastTriedAt = useRef<number>(0);
   const [selectedGallery, setSelectedGallery] = useState<GalleryRowWithCounts | null>(null);
   const [likedPhotos, setLikedPhotos] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const unlockAnim = useRef(new Animated.Value(0)).current;
+  const unlockAnim = useRef(new RNAnimated.Value(0)).current;
   const photosRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const galleriesRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSharingRef = useRef(false);
@@ -361,10 +457,10 @@ export default function GalleryScreen() {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Animated.sequence([
-      Animated.timing(unlockAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.timing(unlockAnim, { toValue: 0, duration: 300, delay: 1500, useNativeDriver: true }),
-    ]).start();
+    RNAnimated.sequence([
+        RNAnimated.timing(unlockAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+        RNAnimated.timing(unlockAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+      ]).start();
     const normalizedCode = codeToUse.trim().toUpperCase();
     try {
       await ClientService.tempUploads.syncByAccessCode(normalizedCode);
@@ -485,7 +581,7 @@ export default function GalleryScreen() {
   const handleLikePhoto = useCallback(async (id: string, isPortfolio: boolean = false) => {
     if (isPortfolio) {
       try {
-        const isLikedNow = await ClientService.portfolio.toggleLike(id);
+        await ClientService.portfolio.toggleLike(id);
         if (activeTab === 'portfolio') {
           const items = await ClientService.portfolio.list();
           setPortfolioItems(items);
@@ -509,27 +605,6 @@ export default function GalleryScreen() {
       });
     }
   }, [activeTab]);
-
-  const handleShareItem = useCallback(async (item: PortfolioItem) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    try {
-      // Check if gallery is paid/unlocked
-      if (selectedGallery && !selectedGallery.is_paid && selectedGallery.is_locked) {
-        Alert.alert('Payment Required', 'Please unlock this gallery to share photos.');
-        return;
-      }
-
-      // Share a friendly message + deep link (avoid exposing raw storage URLs)
-      await Share.share({
-        message: `Check out "${item.title || 'Portfolio Item'}" from ${brandName}!\n${shareAppLink}`,
-        url: shareAppLink,
-        title: 'Share Portfolio Item',
-      });
-      await ClientService.portfolio.incrementShare(item.id);
-    } catch (error) {
-      console.error('Failed to share portfolio item:', error);
-    }
-  }, [brandName, selectedGallery, shareAppLink]);
 
   useEffect(() => {
     if (activeTab !== 'unlock' || selectedGallery) return;
@@ -633,16 +708,16 @@ export default function GalleryScreen() {
     if (galleryIds.length > 0) {
       const { data: thumbRows, error: thumbError } = await supabase
         .from('gallery_photos')
-        .select('gallery_id, thumbnail_url, created_at')
+        .select('gallery_id, photo_url, created_at')
         .in('gallery_id', galleryIds)
-        .not('thumbnail_url', 'is', null)
+        .not('photo_url', 'is', null)
         .order('created_at', { ascending: false });
       if (thumbError) {
         console.error('Error loading gallery thumbnails:', thumbError);
       } else {
         (thumbRows || []).forEach((row: any) => {
-          if (!galleryThumbnailMap.has(row.gallery_id) && row.thumbnail_url) {
-            galleryThumbnailMap.set(row.gallery_id, row.thumbnail_url);
+          if (!galleryThumbnailMap.has(row.gallery_id) && row.photo_url) {
+            galleryThumbnailMap.set(row.gallery_id, row.photo_url);
           }
         });
       }
@@ -974,7 +1049,7 @@ export default function GalleryScreen() {
     }
   }, [downloadOnWeb, selectedGallery?.id, selectedGallery?.name]);
 
-  const handleSharePhotoItem = useCallback(async (photo: PhotoRow) => {
+  const handleSharePhotoItem = useCallback(async () => {
     if (!selectedGallery) return;
     try {
       const link = resolveGalleryLink(selectedGallery);
@@ -1133,9 +1208,6 @@ export default function GalleryScreen() {
 
   const hasPendingPayments = pendingPaymentGalleries.length > 0;
 
-  const leftColumn = useMemo(() => photos.filter((_, i) => i % 2 === 0), [photos]);
-  const rightColumn = useMemo(() => photos.filter((_, i) => i % 2 !== 0), [photos]);
-
   const unlockScale = unlockAnim.interpolate({
     inputRange: [0, 0.5, 1],
     outputRange: [1, 1.2, 1],
@@ -1143,8 +1215,8 @@ export default function GalleryScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
-        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View style={{ zIndex: 10 }}>
+        <BlurView intensity={80} tint="dark" style={[styles.header, { paddingTop: insets.top + 12 }]}>
           {selectedGallery ? (
             <View style={styles.galleryDetailHeader}>
               <Pressable onPress={() => setSelectedGallery(null)} hitSlop={12}>
@@ -1188,11 +1260,11 @@ export default function GalleryScreen() {
               </View>
             </>
           )}
-        </View>
+        </BlurView>
 
         {!selectedGallery && (
           <View style={styles.tabsWrapper}>
-            <View style={styles.tabsContent}>
+            <BlurView intensity={40} tint="dark" style={styles.tabsContent}>
               <Pressable
                 style={[styles.tab, activeTab === 'my-galleries' && styles.tabActive]}
                 onPress={() => { setActiveTab('my-galleries'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
@@ -1217,10 +1289,12 @@ export default function GalleryScreen() {
               >
                 <Text style={[styles.tabText, activeTab === 'unlock' && styles.tabTextActive]} numberOfLines={1}>Unlock</Text>
               </Pressable>
-            </View>
+            </BlurView>
           </View>
         )}
+      </View>
 
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20, paddingTop: 10 }}>
         {favoritesCount > 0 && !selectedGallery && activeTab !== 'unlock' && (
           <Pressable style={styles.favoritesBar} onPress={handleDownloadFavorites}>
             <LinearGradient
@@ -1270,11 +1344,11 @@ export default function GalleryScreen() {
 
         {activeTab === 'unlock' && !selectedGallery && (
           <View style={styles.unlockSection}>
-            <Animated.View style={[styles.unlockIcon, { transform: [{ scale: unlockScale }] }]}>
+            <RNAnimated.View style={[styles.unlockIcon, { transform: [{ scale: unlockScale }] }]}>
               <LinearGradient colors={[Colors.goldMuted, 'rgba(212,175,55,0.05)']} style={styles.unlockIconGradient}>
                 <Lock size={32} color={Colors.gold} />
               </LinearGradient>
-            </Animated.View>
+            </RNAnimated.View>
             <Text style={styles.unlockTitle}>Enter Access Code</Text>
             <Text style={styles.unlockDesc}>Your photographer will send you a unique code to unlock your private gallery.</Text>
             <View style={styles.codeInputContainer}>
@@ -1341,6 +1415,59 @@ export default function GalleryScreen() {
             <View style={styles.stateContainer}>
               <Text style={styles.stateText}>{galleriesError}</Text>
             </View>
+          ) : myGalleries.length === 0 ? (
+            <View style={[styles.stateContainer, { justifyContent: 'flex-start', paddingTop: 40 }]}>
+              <View style={{ alignItems: 'center', marginBottom: 40 }}>
+                <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(212,175,55,0.1)', justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+                  <Lock size={32} color={Colors.gold} />
+                </View>
+                <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.white, marginBottom: 12 }}>No Galleries Yet</Text>
+                <Text style={{ fontSize: 15, color: Colors.textMuted, textAlign: 'center', paddingHorizontal: 40, lineHeight: 22 }}>
+                  You don't have any unlocked galleries. Get started by exploring the options below.
+                </Text>
+              </View>
+
+              <View style={{ width: '100%', paddingHorizontal: 20, gap: 16 }}>
+                <Pressable
+                  style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 20, padding: 20, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(212,175,55,0.2)' }}
+                  onPress={() => setActiveTab('unlock')}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(212,175,55,0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+                    <Unlock size={24} color={Colors.gold} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '600', marginBottom: 4 }}>Unlock a Gallery</Text>
+                    <Text style={{ color: Colors.textMuted, fontSize: 13 }}>Got an access code? Enter it here</Text>
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 20, padding: 20, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(212,175,55,0.2)' }}
+                  onPress={() => router.push('/(tabs)/bookings')}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(212,175,55,0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+                    <MaterialCommunityIcons name="calendar-month" size={24} color={Colors.gold} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '600', marginBottom: 4 }}>Book a Session</Text>
+                    <Text style={{ color: Colors.textMuted, fontSize: 13 }}>Schedule your next photoshoot</Text>
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 20, padding: 20, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(212,175,55,0.2)' }}
+                  onPress={() => router.push('/(tabs)/chat')}
+                >
+                  <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(212,175,55,0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+                    <MaterialCommunityIcons name="message-text-outline" size={24} color={Colors.gold} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '600', marginBottom: 4 }}>Contact Photographer</Text>
+                    <Text style={{ color: Colors.textMuted, fontSize: 13 }}>Chat with us for custom inquiries</Text>
+                  </View>
+                </Pressable>
+              </View>
+            </View>
           ) : (
             <View style={styles.galleriesGrid}>
               {myGalleries.map((gallery) => (
@@ -1353,7 +1480,7 @@ export default function GalleryScreen() {
                   }}
                 >
                   {gallery.cover_photo_url ? (
-                    <Image source={{ uri: gallery.cover_photo_url }} style={styles.galleryTileImage} contentFit="cover" />
+                    <Image source={{ uri: gallery.cover_photo_url }} style={styles.galleryTileImage} contentFit="contain" />
                   ) : (
                     <LinearGradient colors={[Colors.card, Colors.cardLight]} style={styles.galleryTileImage} />
                   )}
@@ -1396,17 +1523,18 @@ export default function GalleryScreen() {
               <Text style={styles.stateText}>No portfolio items found.</Text>
             </View>
           ) : (
-            <View style={styles.masonryGrid}>
-              <View style={styles.masonryColumn}>
-                {portfolioItems.filter((_, i) => i % 2 === 0).map((item, i) => (
-                  <PortfolioCard key={item.id} item={item} index={i * 2} onLike={(id) => handleLikePhoto(id, true)} onPress={setSelectedPortfolioItem} />
-                ))}
-              </View>
-              <View style={styles.masonryColumn}>
-                {portfolioItems.filter((_, i) => i % 2 !== 0).map((item, i) => (
-                  <PortfolioCard key={item.id} item={item} index={i * 2 + 1} onLike={(id) => handleLikePhoto(id, true)} onPress={setSelectedPortfolioItem} />
-                ))}
-              </View>
+            <View style={{ flex: 1, minHeight: Dimensions.get('window').height * 0.8 }}>
+              <MasonryFlashList
+                data={portfolioItems}
+                numColumns={2}
+                estimatedItemSize={250}
+                contentContainerStyle={{ paddingHorizontal: PADDING }}
+                renderItem={({ item, index }: { item: PortfolioItem; index: number }) => (
+                  <View style={{ padding: COL_GAP / 2 }}>
+                    <PortfolioCard key={item.id} item={item} index={index} onLike={(id) => handleLikePhoto(id, true)} onPress={setSelectedPortfolioItem} />
+                  </View>
+                )}
+              />
             </View>
           )
         )}
@@ -1421,19 +1549,18 @@ export default function GalleryScreen() {
               <Text style={styles.stateText}>No top-rated items yet.</Text>
             </View>
           ) : (
-            <View>
-              <View style={styles.masonryGrid}>
-                <View style={styles.masonryColumn}>
-                  {topRatedItems.filter((_, i) => i % 2 === 0).map((item, i) => (
-                    <PortfolioCard key={item.id} item={item} index={i * 2} onLike={(id) => handleLikePhoto(id, true)} onPress={setSelectedPortfolioItem} />
-                  ))}
-                </View>
-                <View style={styles.masonryColumn}>
-                  {topRatedItems.filter((_, i) => i % 2 !== 0).map((item, i) => (
-                    <PortfolioCard key={item.id} item={item} index={i * 2 + 1} onLike={(id) => handleLikePhoto(id, true)} onPress={setSelectedPortfolioItem} />
-                  ))}
-                </View>
-              </View>
+            <View style={{ flex: 1, minHeight: Dimensions.get('window').height * 0.8 }}>
+              <MasonryFlashList
+                data={topRatedItems}
+                numColumns={2}
+                estimatedItemSize={250}
+                contentContainerStyle={{ paddingHorizontal: PADDING }}
+                renderItem={({ item, index }: { item: PortfolioItem; index: number }) => (
+                  <View style={{ padding: COL_GAP / 2 }}>
+                    <PortfolioCard key={item.id} item={item} index={index} onLike={(id) => handleLikePhoto(id, true)} onPress={setSelectedPortfolioItem} />
+                  </View>
+                )}
+              />
             </View>
           )
         )}
@@ -1478,67 +1605,54 @@ export default function GalleryScreen() {
                 <Text style={styles.stateText}>{photosError}</Text>
               </View>
             ) : (
-              <View>
-                <View style={styles.masonryGrid}>
-                  <View style={styles.masonryColumn}>
-                    {leftColumn.map((photo, i) => (
+              <View style={{ flex: 1, minHeight: Dimensions.get('window').height * 0.8 }}>
+                <MasonryFlashList
+                  data={photos}
+                  numColumns={2}
+                  estimatedItemSize={250}
+                  contentContainerStyle={{ paddingHorizontal: PADDING }}
+                  renderItem={({ item, index }: { item: PhotoRow; index: number }) => (
+                    <View style={{ padding: COL_GAP / 2 }}>
                       <PhotoCard
-                        key={photo.id}
-                        photo={photo}
-                        index={i * 2}
+                        photo={item}
+                        index={index}
                         onLike={handleLikePhoto}
                         onOpenPhoto={handleOpenPhoto}
-                        isLiked={likedPhotos.has(photo.id)}
+                        isLiked={likedPhotos.has(item.id)}
                         showWatermark={!canViewClean}
-                        isBlurred={!canViewClean && (i * 2) >= 3}
+                        isBlurred={!canViewClean && index >= 3}
                         accessCodeLink={accessCodeLink}
                         shareAppLink={galleryShareLink || shareAppLink}
                         isGalleryUnpaid={!!selectedGallery && !selectedGallery.is_paid && selectedGallery.is_locked}
                       />
-                    ))}
-                  </View>
-                  <View style={styles.masonryColumn}>
-                    {rightColumn.map((photo, i) => (
-                      <PhotoCard
-                        key={photo.id}
-                        photo={photo}
-                        index={i * 2 + 1}
-                        onLike={handleLikePhoto}
-                        onOpenPhoto={handleOpenPhoto}
-                        isLiked={likedPhotos.has(photo.id)}
-                        showWatermark={!canViewClean}
-                        isBlurred={!canViewClean && (i * 2 + 1) >= 3}
-                        accessCodeLink={accessCodeLink}
-                        shareAppLink={galleryShareLink || shareAppLink}
-                        isGalleryUnpaid={!!selectedGallery && !selectedGallery.is_paid && selectedGallery.is_locked}
-                      />
-                    ))}
-                  </View>
-                </View>
-
-                {selectedGallery && !selectedGallery.is_paid && selectedGallery.is_locked && (
-                  <View style={styles.payToUnlockContainer}>
-                    <LinearGradient
-                      colors={['rgba(212,175,55,0.1)', 'rgba(212,175,55,0.02)']}
-                      style={styles.payToUnlockGradient}
-                    >
-                      <Lock size={32} color={Colors.gold} style={{ marginBottom: 12 }} />
-                      <Text style={styles.payToUnlockTitle}>Unlock Full Resolution</Text>
-                      <Text style={styles.payToUnlockDesc}>
-                        Purchase this gallery to remove watermarks and enable high-quality downloads for all {photos.length} photos.
-                      </Text>
-                      <Pressable
-                        style={styles.floatingPayButton}
-                        onPress={() => handlePayGallery(selectedGallery)}
-                      >
-                        <CreditCard size={20} color={Colors.background} />
-                        <Text style={styles.floatingPayButtonText}>
-                          Pay KES {selectedGallery.price?.toLocaleString()}
-                        </Text>
-                      </Pressable>
-                    </LinearGradient>
-                  </View>
-                )}
+                    </View>
+                  )}
+                  ListFooterComponent={
+                    selectedGallery && !selectedGallery.is_paid && selectedGallery.is_locked ? (
+                      <View style={styles.payToUnlockContainer}>
+                        <LinearGradient
+                          colors={['rgba(212,175,55,0.1)', 'rgba(212,175,55,0.02)']}
+                          style={styles.payToUnlockGradient}
+                        >
+                          <Lock size={32} color={Colors.gold} style={{ marginBottom: 12 }} />
+                          <Text style={styles.payToUnlockTitle}>Unlock Full Resolution</Text>
+                          <Text style={styles.payToUnlockDesc}>
+                            Purchase this gallery to remove watermarks and enable high-quality downloads for all {photos.length} photos.
+                          </Text>
+                          <Pressable
+                            style={styles.floatingPayButton}
+                            onPress={() => handlePayGallery(selectedGallery)}
+                          >
+                            <CreditCard size={20} color={Colors.background} />
+                            <Text style={styles.floatingPayButtonText}>
+                              Pay KES {selectedGallery.price?.toLocaleString()}
+                            </Text>
+                          </Pressable>
+                        </LinearGradient>
+                      </View>
+                    ) : null
+                  }
+                />
               </View>
             )}
           </ScrollView>
@@ -1546,54 +1660,17 @@ export default function GalleryScreen() {
       </Modal>
 
       <Modal visible={!!selectedPhotoItem} transparent animationType="fade" onRequestClose={() => setSelectedPhotoItem(null)}>
-        <View style={styles.photoViewerContainer}>
-          {selectedPhotoItem && (
-            <>
-              <Image
-                source={{ uri: selectedPhotoItem.url || selectedPhotoItem.thumbnailUrl }}
-                style={styles.photoViewerImage}
-                contentFit="contain"
-              />
-              <LinearGradient colors={['rgba(0,0,0,0.82)', 'transparent']} style={styles.photoViewerTopGradient}>
-                <SafeAreaView edges={['top']} style={styles.photoViewerTopSafe}>
-                  <View style={styles.photoViewerHeader}>
-                    <Pressable onPress={() => setSelectedPhotoItem(null)} hitSlop={10} style={styles.photoViewerBack}>
-                      <ArrowLeft size={22} color={Colors.white} />
-                    </Pressable>
-                    <View style={styles.photoViewerActions}>
-                      <Pressable hitSlop={10} style={styles.photoViewerActionBtn} onPress={() => handleLikePhoto(selectedPhotoItem.id)}>
-                        <Heart
-                          size={18}
-                          color={likedPhotos.has(selectedPhotoItem.id) ? Colors.gold : Colors.white}
-                          fill={likedPhotos.has(selectedPhotoItem.id) ? Colors.gold : 'transparent'}
-                        />
-                      </Pressable>
-                      <Pressable hitSlop={10} style={styles.photoViewerActionBtn} onPress={() => handleDownloadPhotoItem(selectedPhotoItem)}>
-                        <Download size={18} color={Colors.gold} />
-                      </Pressable>
-                      <Pressable hitSlop={10} style={styles.photoViewerActionBtn} onPress={() => handleSharePhotoItem(selectedPhotoItem)}>
-                        <Share2 size={18} color={Colors.gold} />
-                      </Pressable>
-                    </View>
-                  </View>
-                </SafeAreaView>
-              </LinearGradient>
-              <LinearGradient colors={['transparent', 'rgba(0,0,0,0.9)']} style={styles.photoViewerBottomGradient}>
-                <SafeAreaView edges={['bottom']}>
-                  <View style={styles.photoViewerMetaRow}>
-                    <Text style={styles.photoViewerMetaTitle} numberOfLines={1}>{selectedGallery?.name || 'Gallery'}</Text>
-                    <View style={styles.photoViewerBadge}>
-                      <Text style={styles.photoViewerBadgeText}>{selectedPhotoItem.variant === 'clean' ? 'High Quality' : 'Preview'}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.photoViewerMetaHint}>
-                    Tap icons to like, download to storage, or share to social apps.
-                  </Text>
-                </SafeAreaView>
-              </LinearGradient>
-            </>
-          )}
-        </View>
+        {selectedPhotoItem && (
+          <FluidPhotoViewer
+            photo={selectedPhotoItem}
+            onClose={() => setSelectedPhotoItem(null)}
+            onLike={handleLikePhoto}
+            onDownload={handleDownloadPhotoItem}
+            onShare={handleSharePhotoItem}
+            isLiked={likedPhotos.has(selectedPhotoItem.id)}
+            galleryName={selectedGallery?.name || 'Gallery'}
+          />
+        )}
       </Modal>
 
       <Modal visible={!!shareSheet} transparent animationType="fade" onRequestClose={() => setShareSheet(null)}>
@@ -1777,10 +1854,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(212,175,55,0.28)',
+    overflow: 'hidden',
   },
   tab: {
     flex: 1,

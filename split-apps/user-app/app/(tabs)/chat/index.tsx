@@ -1,12 +1,14 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, AppState } from 'react-native';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, AppState, Keyboard } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
-import { Send, Clock, Check, CheckCheck, Paperclip, User } from 'lucide-react-native';
+import { Send, Clock, Check, CheckCheck, Paperclip, User, Sparkles, Images, CreditCard, CalendarDays, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { useBranding } from '@/contexts/BrandingContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { demoMessages, demoProfile } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
 
 interface ChatMessage {
@@ -15,9 +17,105 @@ interface ChatMessage {
   sender: 'client' | 'admin';
   timestamp: string;
   read: boolean;
+  createdAt?: string;
+  kind?: 'text' | 'system' | 'invoice' | 'gallery_ready' | 'booking_confirmation';
+}
+
+const quickActions = [
+  { label: 'Send inquiry', icon: Sparkles, message: 'Hi, I would love to send an inquiry about a shoot.' },
+  { label: 'Ask about delivery', icon: Images, message: 'Hi, can you share an update on gallery delivery timing?' },
+  { label: 'Request edit', icon: CreditCard, message: 'Hi, I would like to request an edit on a delivered image.' },
+];
+
+const quickReplies = [
+  'What is my delivery timeline?',
+  'Can I unlock my gallery today?',
+  'I want to confirm my booking details.',
+  'Can you help with payment?',
+];
+
+function inferMessageKind(text: string): ChatMessage['kind'] {
+  const normalized = text.toLowerCase();
+  if (normalized.includes('invoice') || normalized.includes('deposit') || normalized.includes('payment link')) {
+    return 'invoice';
+  }
+  if (normalized.includes('gallery ready') || normalized.includes('gallery is ready') || normalized.includes('photos are ready')) {
+    return 'gallery_ready';
+  }
+  if (normalized.includes('booking confirmed') || normalized.includes('shoot booked') || normalized.includes('confirmed for')) {
+    return 'booking_confirmation';
+  }
+  if (normalized.includes('conversation started') || normalized.includes('system update')) {
+    return 'system';
+  }
+  return 'text';
+}
+
+function StructuredMessageCard({ message }: { message: ChatMessage }) {
+  const isClient = message.sender === 'client';
+  const cardStyles = [styles.structuredCard, isClient ? styles.clientStructuredCard : styles.adminStructuredCard];
+
+  if (message.kind === 'system') {
+    return (
+      <View style={styles.systemMessageWrap}>
+        <View style={styles.systemMessagePill}>
+          <Sparkles size={12} color={Colors.gold} />
+          <Text style={styles.systemMessageText}>{message.text}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  let icon = <Sparkles size={16} color={Colors.gold} />;
+  let eyebrow = 'Studio update';
+  let title = 'Conversation update';
+  let cta = 'Review';
+
+  if (message.kind === 'invoice') {
+    icon = <CreditCard size={16} color={Colors.gold} />;
+    eyebrow = 'Invoice';
+    title = 'Payment details shared';
+    cta = 'Review payment';
+  } else if (message.kind === 'gallery_ready') {
+    icon = <Images size={16} color={Colors.gold} />;
+    eyebrow = 'Gallery ready';
+    title = 'Your gallery is ready to view';
+    cta = 'Open gallery';
+  } else if (message.kind === 'booking_confirmation') {
+    icon = <CalendarDays size={16} color={Colors.gold} />;
+    eyebrow = 'Booking confirmed';
+    title = 'Your session details are locked in';
+    cta = 'See booking';
+  }
+
+  return (
+    <View style={[styles.messageBubbleRow, isClient && styles.messageBubbleRowClient]}>
+      <View style={cardStyles}>
+        <View style={styles.structuredHeader}>
+          <View style={styles.structuredIcon}>{icon}</View>
+          <View style={styles.structuredHeaderCopy}>
+            <Text style={styles.structuredEyebrow}>{eyebrow}</Text>
+            <Text style={styles.structuredTitle}>{title}</Text>
+          </View>
+        </View>
+        <Text style={styles.structuredBody}>{message.text}</Text>
+        <View style={styles.structuredFooter}>
+          <Text style={styles.structuredTime}>{message.timestamp}</Text>
+          <View style={styles.structuredCta}>
+            <Text style={styles.structuredCtaText}>{cta}</Text>
+            <ChevronRight size={14} color={Colors.gold} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {
+  if (message.kind && message.kind !== 'text') {
+    return <StructuredMessageCard message={message} />;
+  }
+
   const isClient = message.sender === 'client';
 
   return (
@@ -27,9 +125,14 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         <View style={styles.messageFooter}>
           <Text style={[styles.messageTime, isClient && styles.clientMessageTime]}>{message.timestamp}</Text>
           {isClient && (
-            message.read
-              ? <CheckCheck size={12} color={Colors.gold} />
-              : <Check size={12} color={Colors.textMuted} />
+            <>
+              <Text style={[styles.receiptText, message.read && styles.receiptTextRead]}>
+                {message.read ? 'Read' : 'Delivered'}
+              </Text>
+              {message.read
+                ? <CheckCheck size={12} color={Colors.gold} />
+                : <Check size={12} color={Colors.textMuted} />}
+            </>
           )}
         </View>
       </View>
@@ -41,6 +144,7 @@ export default function ChatScreen() {
   const { initialMessage } = useLocalSearchParams<{ initialMessage: string }>();
   const insets = useSafeAreaInsets();
   const { brandName, logoUrl, activeAdminId } = useBranding();
+  const { isDemoMode } = useAuth();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState<string>(initialMessage || '');
@@ -55,12 +159,24 @@ export default function ChatScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
   const [adminOnline, setAdminOnline] = useState<boolean>(false);
+  const [typingIndicatorVisible, setTypingIndicatorVisible] = useState(false);
   const adminLastPingRef = useRef<number>(0);
   const presenceChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const offlineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scrollRef = useRef<ScrollView>(null);
   const sendScale = useRef(new Animated.Value(1)).current;
+
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // ─── INIT: resolve client row + admin ──────────────────────────────────────
   useEffect(() => {
@@ -71,6 +187,27 @@ export default function ChatScreen() {
       setInitError(null);
 
       try {
+        if (isDemoMode) {
+          if (!cancelled) {
+            setOwnerAdminId('demo-admin');
+            setClientRowId('demo-client');
+            setMessageClientId('demo-client');
+            setAdminName('Epix Visuals Team');
+            setAdminAvatar(demoProfile.avatar_url);
+            setAdminOnline(true);
+            setMessages(demoMessages.map((m) => ({
+              id: m.id,
+              text: m.content,
+              sender: m.sender_role,
+              timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              read: m.is_read,
+              createdAt: m.created_at,
+              kind: inferMessageKind(m.content),
+            })));
+          }
+          return;
+        }
+
         const { data: { user: authUser } } = await supabase.auth.getUser();
         if (!authUser) {
           if (!cancelled) setInitError('Not signed in. Please log in and try again.');
@@ -255,15 +392,26 @@ export default function ChatScreen() {
           setAdminName(finalAdminName);
           setAdminAvatar(finalAdminAvatar);
           setAvatarVersion((v) => v + 1);
-          setMessages(
-            (existingMsgs ?? []).map((m: any) => ({
-              id: m.id,
-              text: m.content,
-              sender: m.sender_role,
-              timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              read: m.is_read,
-            }))
-          );
+          const loadedMessages = (existingMsgs ?? []).map((m: any) => ({
+            id: m.id,
+            text: m.content,
+            sender: m.sender_role,
+            timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            read: m.is_read,
+            createdAt: m.created_at,
+            kind: inferMessageKind(m.content),
+          })) as ChatMessage[];
+
+          const introMessage: ChatMessage = {
+            id: 'chat-system-intro',
+            text: `Conversation started with ${finalAdminName ?? brandName}.`,
+            sender: 'admin',
+            timestamp: 'Now',
+            read: true,
+            kind: 'system',
+          };
+
+          setMessages(loadedMessages.length > 0 ? [introMessage, ...loadedMessages] : []);
         }
       } catch (e: any) {
         console.error('[Chat] Init error:', e);
@@ -275,10 +423,11 @@ export default function ChatScreen() {
 
     initChat();
     return () => { cancelled = true; };
-  }, [activeAdminId]);
+  }, [activeAdminId, brandName, isDemoMode]);
 
   // ─── Real-time: new messages ────────────────────────────────────────────────
   useEffect(() => {
+    if (isDemoMode) return;
     if (!messageClientId) return;
 
     const channel = supabase
@@ -303,19 +452,25 @@ export default function ChatScreen() {
                 sender: newMsg.sender_role,
                 timestamp: new Date(newMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 read: newMsg.is_read,
+                createdAt: newMsg.created_at,
+                kind: inferMessageKind(newMsg.content),
               },
             ];
           });
+          if (newMsg.sender_role === 'admin') {
+            setTypingIndicatorVisible(false);
+          }
           setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
         }
       )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [messageClientId]);
+  }, [isDemoMode, messageClientId]);
 
   // ─── Real-time: admin profile changes ──────────────────────────────────────
   useEffect(() => {
+    if (isDemoMode) return;
     if (!ownerAdminId) return;
 
     // Poll admin profile every 5 seconds for faster updates
@@ -372,10 +527,11 @@ export default function ChatScreen() {
       sub.remove();
       supabase.removeChannel(channel);
     };
-  }, [ownerAdminId]);
+  }, [isDemoMode, ownerAdminId]);
 
   // ─── Presence: admin online/offline ────────────────────────────────────────
   useEffect(() => {
+    if (isDemoMode) return;
     let interval: ReturnType<typeof setInterval> | null = null;
     let mounted = true;
     async function setupPresence() {
@@ -424,7 +580,7 @@ export default function ChatScreen() {
         presenceChannelRef.current = null;
       }
     };
-  }, [ownerAdminId, clientRowId]);
+  }, [clientRowId, isDemoMode, ownerAdminId]);
 
   // ─── SEND ───────────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
@@ -447,8 +603,43 @@ export default function ChatScreen() {
 
     const textToSend = inputText.trim();
     setInputText('');
+    setTypingIndicatorVisible(adminOnline);
 
     try {
+      if (isDemoMode) {
+        const createdAt = new Date().toISOString();
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `demo-${Date.now()}`,
+            text: textToSend,
+            sender: 'client',
+            timestamp: new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            read: true,
+            createdAt,
+            kind: inferMessageKind(textToSend),
+          },
+        ]);
+        setTimeout(() => {
+          const replyTime = new Date().toISOString();
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `demo-reply-${Date.now()}`,
+              text: 'Demo mode reply: thanks, your message has been captured locally for UI testing.',
+              sender: 'admin',
+              timestamp: new Date(replyTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              read: true,
+              createdAt: replyTime,
+              kind: 'system',
+            },
+          ]);
+          setTypingIndicatorVisible(false);
+          setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+        }, 500);
+        return;
+      }
+
       // Get the current user to verify identity
       const { data: { user } } = await supabase.auth.getUser();
       
@@ -498,8 +689,13 @@ export default function ChatScreen() {
             sender: m.sender_role,
             timestamp: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             read: m.is_read,
+            createdAt: m.created_at,
+            kind: inferMessageKind(m.content),
           },
         ]);
+        if (adminOnline) {
+          setTimeout(() => setTypingIndicatorVisible(false), 2500);
+        }
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
       }
     } catch (e: any) {
@@ -507,12 +703,25 @@ export default function ChatScreen() {
       setInputText(textToSend);
       Alert.alert('Error', `Failed to send message: ${e.message || 'Please try again.'}`);
     }
-  }, [inputText, sendScale, clientRowId, messageClientId, ownerAdminId]);
+  }, [clientRowId, inputText, isDemoMode, messageClientId, ownerAdminId, sendScale, adminOnline]);
 
   const isOfficeHours = () => {
     const hour = new Date().getHours();
     return hour >= 8 && hour < 18;
   };
+
+  const promiseText = adminOnline
+    ? 'Usually replies within a few minutes'
+    : isOfficeHours()
+      ? 'Replies during studio hours'
+      : 'We will pick this up next business window';
+
+  const displayMessages = useMemo(() => messages, [messages]);
+  // composerSpacing only needs to clear the safe area bottom — the tab bar space
+  // is already handled by sceneStyle.paddingBottom in the tab layout
+  const composerSpacing = isKeyboardVisible
+    ? Math.max(insets.bottom, 4)
+    : 0;
 
   // ─── LOADING ────────────────────────────────────────────────────────────────
   if (isLoading) {
@@ -545,80 +754,147 @@ export default function ChatScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        {adminAvatar ? (
-          <Image
-            source={{
-              uri: `${adminAvatar}${adminAvatar.includes('?') ? '&' : '?'}v=${avatarVersion}`
-            }}
-            style={styles.headerAvatar}
-            contentFit="cover"
-          />
-        ) : (
-          <View style={styles.headerAvatarPlaceholder}>
-            <User size={20} color={Colors.gold} />
+        <View style={styles.headerTopRow}>
+          {logoUrl ? (
+            <Image source={{ uri: logoUrl }} style={styles.headerLogo} contentFit="cover" />
+          ) : adminAvatar ? (
+            <Image
+              source={{
+                uri: `${adminAvatar}${adminAvatar.includes('?') ? '&' : '?'}v=${avatarVersion}`
+              }}
+              style={styles.headerAvatar}
+              contentFit="cover"
+            />
+          ) : (
+            <View style={styles.headerAvatarPlaceholder}>
+              <User size={20} color={Colors.gold} />
+            </View>
+          )}
+          <View style={styles.headerInfo}>
+            <Text style={styles.headerEyebrow}>Studio chat</Text>
+            <Text style={styles.headerName}>{adminName || brandName}</Text>
+            <View style={styles.statusRow}>
+              <View style={[styles.onlineDot, !adminOnline && styles.offlineDot]} />
+              <Text style={styles.statusLabel}>{promiseText}</Text>
+            </View>
           </View>
-        )}
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerName}>{adminName || brandName}</Text>
-          <View style={styles.statusRow}>
-            <View style={[styles.onlineDot, !adminOnline && styles.offlineDot]} />
-            <Text style={styles.statusLabel}>
-              {adminOnline ? 'Online • Usually replies instantly' : 'Offline • Typically responds within office hours'}
-            </Text>
+        </View>
+
+        <View style={styles.headerSupportCard}>
+          <View style={styles.headerSupportBadge}>
+            <Sparkles size={12} color={Colors.gold} />
+            <Text style={styles.headerSupportBadgeText}>Personal support</Text>
           </View>
+          <Text style={styles.headerSupportTitle}>Delivery, bookings, invoices and edits in one calm thread.</Text>
         </View>
       </View>
-
-      {!adminOnline && (
-        <View style={styles.officeHoursBanner}>
-          <Clock size={14} color={Colors.gold} />
-          <Text style={styles.officeHoursText}>
-            We&apos;re currently offline. We&apos;ll respond as soon as we&apos;re back online.
-          </Text>
-        </View>
-      )}
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.flex}
-        keyboardVerticalOffset={0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <ScrollView
           ref={scrollRef}
           style={styles.messagesList}
-          contentContainerStyle={styles.messagesContent}
+          contentContainerStyle={[
+            styles.messagesContent,
+            { paddingBottom: displayMessages.length > 0 ? 8 : 40 },
+          ]}
           showsVerticalScrollIndicator={false}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
         >
-          {messages.length === 0 ? (
+          {displayMessages.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No messages yet. Start a conversation!</Text>
+              <View style={styles.emptyStateBadge}>
+                <Sparkles size={16} color={Colors.gold} />
+                <Text style={styles.emptyStateBadgeText}>Start with a prompt</Text>
+              </View>
+              <Text style={styles.emptyTitle}>Your studio is one message away</Text>
+              <Text style={styles.emptyText}>
+                Keep questions, updates, approvals, and delivery requests in one focused thread.
+              </Text>
+              <View style={styles.emptyQuickActionList}>
+                {quickActions.map((action) => {
+                  const Icon = action.icon;
+                  return (
+                    <Pressable
+                      key={action.label}
+                      style={styles.emptyQuickAction}
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        setInputText(action.message);
+                      }}
+                    >
+                      <View style={styles.emptyQuickActionIcon}>
+                        <Icon size={16} color={Colors.gold} />
+                      </View>
+                      <View style={styles.emptyQuickActionCopy}>
+                        <Text style={styles.emptyPromptTitle}>{action.label}</Text>
+                        <Text style={styles.emptyPromptBody}>{action.message}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
           ) : (
-            messages.map((msg) => (
+            displayMessages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))
           )}
+          {typingIndicatorVisible && (
+            <View style={styles.typingRow}>
+              <View style={styles.typingBubble}>
+                <View style={styles.typingDots}>
+                  <View style={styles.typingDot} />
+                  <View style={styles.typingDot} />
+                  <View style={styles.typingDot} />
+                </View>
+                <Text style={styles.typingLabel}>{adminName || brandName} is typing…</Text>
+              </View>
+            </View>
+          )}
         </ScrollView>
 
-        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <Pressable style={styles.attachButton} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
-            <Paperclip size={20} color={Colors.textSecondary} />
-          </Pressable>
-          <TextInput
-            style={styles.input}
-            placeholder="Type a message..."
-            placeholderTextColor={Colors.textMuted}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={500}
-          />
-          <Pressable onPress={handleSend} disabled={!inputText.trim()}>
-            <Animated.View style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled, { transform: [{ scale: sendScale }] }]}>
-              <Send size={20} color={Colors.white} />
-            </Animated.View>
-          </Pressable>
+        <View style={[styles.composerSection, { paddingBottom: composerSpacing }]}>
+          <View style={styles.composerHandle} />
+          {!isKeyboardVisible && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickReplyRow} style={styles.quickReplyWrap}>
+              {quickReplies.map((reply) => (
+                <Pressable
+                  key={reply}
+                  style={styles.quickReplyChip}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setInputText(reply);
+                  }}
+                >
+                  <Text style={styles.quickReplyText}>{reply}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
+
+          <View style={styles.inputContainer}>
+            <Pressable style={styles.attachButton} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
+              <Paperclip size={20} color={Colors.textSecondary} />
+            </Pressable>
+            <TextInput
+              style={styles.input}
+              placeholder="Type a message..."
+              placeholderTextColor={Colors.textMuted}
+              value={inputText}
+              onChangeText={setInputText}
+              multiline
+              maxLength={500}
+            />
+            <Pressable onPress={handleSend} disabled={!inputText.trim()}>
+              <Animated.View style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled, { transform: [{ scale: sendScale }] }]}>
+                <Send size={20} color={Colors.white} />
+              </Animated.View>
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -634,28 +910,37 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingBottom: 18,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
     backgroundColor: Colors.background,
     zIndex: 10,
   },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerLogo: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    marginRight: 14,
+    backgroundColor: Colors.card,
+  },
   headerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(212,175,55,0.25)',
   },
   headerAvatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 12,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 14,
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.card,
@@ -665,8 +950,16 @@ const styles = StyleSheet.create({
   headerInfo: {
     flex: 1,
   },
+  headerEyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.gold,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
   headerName: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     color: Colors.white,
     marginBottom: 2,
@@ -689,18 +982,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
   },
-  officeHoursBanner: {
+  headerSupportCard: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.14)',
+    gap: 10,
+  },
+  headerSupportBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     backgroundColor: 'rgba(212,175,55,0.1)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
     gap: 8,
   },
-  officeHoursText: {
-    flex: 1,
-    fontSize: 12,
+  headerSupportBadgeText: {
     color: Colors.gold,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  headerSupportTitle: {
+    color: Colors.white,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '600',
   },
   messagesList: {
     flex: 1,
@@ -709,6 +1019,7 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 16,
     flexGrow: 1,
+    paddingBottom: 28,
   },
   messageBubbleRow: {
     flexDirection: 'row',
@@ -721,6 +1032,8 @@ const styles = StyleSheet.create({
     maxWidth: '80%',
     padding: 12,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   photoBubble: {
     backgroundColor: Colors.card,
@@ -745,6 +1058,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 4,
   },
+  receiptText: {
+    fontSize: 10,
+    color: Colors.textMuted,
+  },
+  receiptTextRead: {
+    color: Colors.gold,
+  },
   messageTime: {
     fontSize: 10,
     color: Colors.textSecondary,
@@ -755,11 +1075,45 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    gap: 12,
+  },
+  composerSection: {
     borderTopWidth: 1,
     borderTopColor: Colors.border,
-    backgroundColor: Colors.background,
-    gap: 12,
+    backgroundColor: 'rgba(10,10,10,0.96)',
+  },
+  composerHandle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    marginTop: 8,
+  },
+  quickReplyWrap: {
+    maxHeight: 44,
+  },
+  quickReplyRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 10,
+  },
+  quickReplyChip: {
+    height: 32,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  quickReplyText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '500',
   },
   attachButton: {
     padding: 10,
@@ -791,12 +1145,190 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 50,
+    marginTop: 40,
+  },
+  emptyStateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    marginBottom: 16,
+  },
+  emptyStateBadgeText: {
+    fontSize: 12,
+    color: Colors.gold,
+    fontWeight: '700',
+  },
+  emptyTitle: {
+    color: Colors.white,
+    fontSize: 24,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 10,
   },
   emptyText: {
     color: Colors.textMuted,
     fontSize: 14,
+    lineHeight: 22,
+    textAlign: 'center',
+    paddingHorizontal: 12,
+    marginBottom: 20,
+  },
+  emptyCardRow: {
+    gap: 12,
+  },
+  emptyQuickActionList: {
+    gap: 12,
+  },
+  emptyQuickAction: {
+    backgroundColor: Colors.card,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  emptyQuickActionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    marginTop: 2,
+  },
+  emptyQuickActionCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  emptyPromptTitle: {
+    color: Colors.white,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  emptyPromptBody: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  systemMessageWrap: {
+    alignItems: 'center',
+  },
+  systemMessagePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  systemMessageText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+  },
+  structuredCard: {
+    maxWidth: '88%',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    gap: 12,
+  },
+  adminStructuredCard: {
+    backgroundColor: Colors.card,
+    borderColor: 'rgba(212,175,55,0.15)',
+  },
+  clientStructuredCard: {
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(212,175,55,0.28)',
+  },
+  structuredHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  structuredIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(212,175,55,0.1)',
+  },
+  structuredHeaderCopy: {
+    flex: 1,
+  },
+  structuredEyebrow: {
+    color: Colors.gold,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    marginBottom: 2,
+  },
+  structuredTitle: {
+    color: Colors.white,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  structuredBody: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  structuredFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  structuredTime: {
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  structuredCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  structuredCtaText: {
+    color: Colors.gold,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  typingRow: {
+    marginTop: 8,
+  },
+  typingBubble: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    gap: 8,
+  },
+  typingDots: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  typingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: Colors.textSecondary,
+  },
+  typingLabel: {
+    color: Colors.textSecondary,
+    fontSize: 12,
   },
 });

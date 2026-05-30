@@ -17,7 +17,7 @@ interface PaymentModalProps {
   onSuccess: () => void;
 }
 
-type PaymentState = 'idle' | 'initiating' | 'waiting' | 'verifying' | 'success' | 'failed';
+type PaymentState = 'idle' | 'initiating' | 'waiting' | 'verifying' | 'success' | 'failed' | 'manual_payment';
 
 export default function PaymentModal({ visible, onClose, gallery, clientPhone, onSuccess }: PaymentModalProps) {
   const [paymentState, setPaymentState] = useState<PaymentState>('idle');
@@ -25,6 +25,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
   const [errorMessage, setErrorMessage] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [paymentSettings, setPaymentSettings] = useState<any>(null);
+  const [mpesaMessage, setMpesaMessage] = useState('');
 
   const readString = useCallback((value: unknown, key: string): string | null => {
     if (!value || typeof value !== 'object') return null;
@@ -42,6 +43,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       setPaymentState('idle');
       setErrorMessage('');
       setPhoneNumber(clientPhone || '');
+      setMpesaMessage('');
       loadPaymentSettings();
 
       Animated.parallel([
@@ -87,6 +89,10 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       if (simple) {
         setPaymentSettings(simple);
         setRecipientName(simple.business_name || 'Photographer');
+        // If mpesa is disabled, switch to manual payment state
+        if (simple.mpesa_enabled === false) {
+          setPaymentState('manual_payment');
+        }
         return;
       }
 
@@ -100,6 +106,10 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       if (advanced) {
         setPaymentSettings(advanced);
         setRecipientName(`Paybill/Till: ${advanced.shortcode}`);
+        // If mpesa is disabled, switch to manual payment state
+        if (advanced.mpesa_enabled === false) {
+          setPaymentState('manual_payment');
+        }
       }
     } catch (e) {
       console.error('Error loading payment settings:', e);
@@ -338,6 +348,50 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     }, pollInterval);
   };
 
+  const handleSubmitManualMessage = async () => {
+    if (!gallery) return;
+    if (!mpesaMessage.trim()) {
+      Alert.alert('Missing Message', 'Please paste your M-Pesa confirmation message.');
+      return;
+    }
+
+    setPaymentState('verifying');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    try {
+      // Extract M-Pesa code from message (common format: [Code] or Confirmation Code [Code])
+      const codeMatch = mpesaMessage.match(/(?:Confirmation Code|code|ref)[\s:\[]*([A-Z0-9]+)/i);
+      const mpesaCode = codeMatch ? codeMatch[1] : null;
+
+      // Submit to mpesa_messages table
+      const { error } = await supabase
+        .from('mpesa_messages')
+        .insert({
+          user_id: gallery.client_id,
+          admin_id: gallery.owner_admin_id,
+          gallery_id: gallery.id,
+          mpesa_message: mpesaMessage.trim(),
+          mpesa_code: mpesaCode,
+          sender_phone: phoneNumber,
+          amount: gallery.price,
+          status: 'pending',
+        });
+
+      if (error) throw error;
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        'Message Sent',
+        'Your M-Pesa confirmation has been sent to the admin. Your gallery will be unlocked once verified.',
+        [{ text: 'OK', onPress: () => onClose() }]
+      );
+    } catch (e: any) {
+      console.error('Failed to submit message:', e);
+      setPaymentState('manual_payment');
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+    }
+  };
+
   // For demo/dev purposes, let's allow a "Simulate Success" if long press on title
   const handleSimulateSuccess = () => {
     if (__DEV__) {
@@ -473,6 +527,68 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                   </View>
                 )}
               </>
+            )}
+
+            {paymentState === 'manual_payment' && (
+              <View style={styles.manualPaymentContainer}>
+                <Text style={styles.manualPaymentTitle}>Manual Payment</Text>
+                <Text style={styles.manualPaymentDesc}>
+                  M-Pesa STK push is currently disabled. Please send payment manually:
+                </Text>
+
+                <View style={styles.payeeCard}>
+                  <Text style={styles.payeeLabel}>Send to:</Text>
+                  <Text style={styles.payeeName}>
+                    {paymentSettings?.manual_mpesa_name || paymentSettings?.business_name || 'Photographer'}
+                  </Text>
+                  <Text style={styles.payeeNumber}>
+                    {paymentSettings?.manual_mpesa_number || paymentSettings?.mpesa_number || 'Contact admin'}
+                  </Text>
+                </View>
+
+                <View style={styles.amountCard}>
+                  <Text style={styles.amountLabel}>Amount:</Text>
+                  <Text style={styles.amountValue}>KES {gallery?.price?.toLocaleString()}</Text>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Your Phone Number (Used for payment)</Text>
+                  <View style={styles.inputWrapper}>
+                    <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={phoneNumber}
+                      onChangeText={setPhoneNumber}
+                      placeholder="e.g. 0712345678"
+                      placeholderTextColor={Colors.textMuted}
+                      keyboardType="phone-pad"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Paste M-Pesa Confirmation Message</Text>
+                  <View style={[styles.inputWrapper, { height: 100, alignItems: 'flex-start' }]}>
+                    <TextInput
+                      style={[styles.input, { height: 100, textAlignVertical: 'top', paddingTop: 12 }]}
+                      value={mpesaMessage}
+                      onChangeText={setMpesaMessage}
+                      placeholder="Paste the entire confirmation message you received from M-Pesa..."
+                      placeholderTextColor={Colors.textMuted}
+                      multiline
+                      numberOfLines={4}
+                    />
+                  </View>
+                </View>
+
+                <Pressable style={styles.payButton} onPress={handleSubmitManualMessage}>
+                  <Text style={styles.payButtonText}>Submit for Verification</Text>
+                </Pressable>
+
+                <Text style={styles.manualPaymentNote}>
+                  The admin will verify your payment and unlock your gallery. This may take a few minutes.
+                </Text>
+              </View>
             )}
 
             {paymentState === 'initiating' && (
@@ -805,5 +921,72 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  manualPaymentContainer: {
+    gap: 16,
+  },
+  manualPaymentTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  manualPaymentDesc: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  payeeCard: {
+    backgroundColor: Colors.gold + '15',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.gold + '40',
+    alignItems: 'center',
+  },
+  payeeLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  payeeName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.gold,
+    marginBottom: 4,
+  },
+  payeeNumber: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  amountCard: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  amountLabel: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  amountValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  manualPaymentNote: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: 8,
   },
 });

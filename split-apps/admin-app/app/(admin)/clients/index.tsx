@@ -220,7 +220,7 @@ function GalleryCard({ gallery, onDeleted }: { gallery: AdminGallery; onDeleted:
       onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
       onPress={() => {
         router.push({
-          pathname: '/(admin)/clients/gallery/[id]',
+          pathname: '/clients/gallery/[id]',
           params: { id: gallery.id }
         });
       }}
@@ -620,7 +620,7 @@ export default function AdminClientsScreen() {
                 onPressShortcut={(type) => {
                   if (type === 'upload') {
                     router.push({
-                      pathname: '/(admin)/upload',
+                      pathname: '/upload',
                       params: { userId: client.id }
                     } as any);
                   }

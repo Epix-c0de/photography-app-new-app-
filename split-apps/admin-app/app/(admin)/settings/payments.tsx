@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, ScrollView, Alert, ActivityIndicator, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, CreditCard, Save, Smartphone, User, Hash, Clock } from 'lucide-react-native';
+import { ChevronLeft, CreditCard, Save, Smartphone, User, Hash, Clock, ToggleLeft, ToggleRight, MessageSquare } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -30,6 +30,10 @@ export default function PaymentConfigurationScreen() {
   const [initiatorPassword, setInitiatorPassword] = useState('');
   const [defaultPrice, setDefaultPrice] = useState('0');
   const [configId, setConfigId] = useState<string | null>(null);
+  const [mpesaEnabled, setMpesaEnabled] = useState(true);
+  const [manualMpesaNumber, setManualMpesaNumber] = useState('');
+  const [manualMpesaName, setManualMpesaName] = useState('');
+  const [mpesaInboxEnabled, setMpesaInboxEnabled] = useState(true);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -62,6 +66,10 @@ export default function PaymentConfigurationScreen() {
         setValidationUrl(data.validation_url || '');
         setInitiatorName(data.initiator_name || '');
         setInitiatorPassword(data.initiator_password || '');
+        setMpesaEnabled(data.mpesa_enabled !== false);
+        setManualMpesaNumber(data.manual_mpesa_number || '');
+        setManualMpesaName(data.manual_mpesa_name || '');
+        setMpesaInboxEnabled(data.mpesa_inbox_enabled !== false);
       }
     } catch (e) {
       console.error('Exception loading config:', e);
@@ -103,6 +111,10 @@ export default function PaymentConfigurationScreen() {
         validation_url: validationUrl,
         initiator_name: initiatorName,
         initiator_password: initiatorPassword,
+        mpesa_enabled: mpesaEnabled,
+        manual_mpesa_number: manualMpesaNumber,
+        manual_mpesa_name: manualMpesaName,
+        mpesa_inbox_enabled: mpesaInboxEnabled,
         updated_at: new Date().toISOString(),
       };
 
@@ -140,7 +152,7 @@ export default function PaymentConfigurationScreen() {
         </Pressable>
         <Text style={styles.headerTitle}>Payments Configuration</Text>
         <Pressable 
-          onPress={() => router.push('/(admin)/settings/mpesa-transactions')} 
+          onPress={() => router.push('/settings/mpesa-transactions')} 
           style={styles.historyButton}
         >
           <Clock size={20} color={Colors.gold} />
@@ -165,6 +177,92 @@ export default function PaymentConfigurationScreen() {
               <ActivityIndicator size="large" color={Colors.gold} style={{ marginTop: 20 }} />
             ) : (
               <>
+                {/* M-Pesa Enabled Toggle */}
+                <View style={styles.inputGroup}>
+                  <View style={styles.toggleRow}>
+                    <View>
+                      <Text style={styles.label}>M-Pesa STK Push Enabled</Text>
+                      <Text style={styles.helperText}>Allow automatic M-Pesa payments via STK push</Text>
+                    </View>
+                    <Pressable
+                      style={[styles.toggleButton, mpesaEnabled && styles.toggleButtonActive]}
+                      onPress={() => setMpesaEnabled(!mpesaEnabled)}
+                    >
+                      {mpesaEnabled ? (
+                        <ToggleRight size={28} color={Colors.success} />
+                      ) : (
+                        <ToggleLeft size={28} color={Colors.textMuted} />
+                      )}
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                {/* Manual Payment Settings */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Manual Payment Number</Text>
+                  <Text style={styles.helperText}>Shown to users when STK push is disabled</Text>
+                  <View style={styles.inputContainer}>
+                    <Smartphone size={18} color={Colors.textMuted} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={manualMpesaNumber}
+                      onChangeText={setManualMpesaNumber}
+                      placeholder="e.g. 254712345678"
+                      placeholderTextColor={Colors.textMuted}
+                      keyboardType="phone-pad"
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Display Name for Payments</Text>
+                  <Text style={styles.helperText}>Name shown with the payment number</Text>
+                  <View style={styles.inputContainer}>
+                    <User size={18} color={Colors.textMuted} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={manualMpesaName}
+                      onChangeText={setManualMpesaName}
+                      placeholder="e.g. Epix Visuals Studios"
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                  </View>
+                </View>
+
+                {/* M-Pesa Inbox Toggle */}
+                <View style={styles.inputGroup}>
+                  <View style={styles.toggleRow}>
+                    <View>
+                      <Text style={styles.label}>M-Pesa Message Inbox</Text>
+                      <Text style={styles.helperText}>Allow users to submit M-Pesa confirmation messages</Text>
+                    </View>
+                    <Pressable
+                      style={[styles.toggleButton, mpesaInboxEnabled && styles.toggleButtonActive]}
+                      onPress={() => setMpesaInboxEnabled(!mpesaInboxEnabled)}
+                    >
+                      {mpesaInboxEnabled ? (
+                        <ToggleRight size={28} color={Colors.success} />
+                      ) : (
+                        <ToggleLeft size={28} color={Colors.textMuted} />
+                      )}
+                    </Pressable>
+                  </View>
+                </View>
+
+                {mpesaInboxEnabled && (
+                  <Pressable
+                    style={styles.inboxButton}
+                    onPress={() => router.push('/settings/mpesa-inbox')}
+                  >
+                    <MessageSquare size={20} color={Colors.gold} />
+                    <Text style={styles.inboxButtonText}>View M-Pesa Messages</Text>
+                  </Pressable>
+                )}
+
+                <View style={styles.divider} />
+
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Business Paybill / Till Number</Text>
                   <View style={styles.inputContainer}>
@@ -514,6 +612,35 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: '#000',
     fontWeight: '500',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  toggleButton: {
+    padding: 4,
+  },
+  toggleButtonActive: {
+    opacity: 1,
+  },
+  inboxButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    paddingVertical: 14,
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.gold,
+  },
+  inboxButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.gold,
   },
   saveButton: {
     flexDirection: 'row',

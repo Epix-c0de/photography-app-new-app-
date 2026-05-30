@@ -583,6 +583,47 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>ACHIEVEMENTS</Text>
+          </View>
+          <View style={styles.achievementsContainer}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.achievementsScroll}>
+              <View style={[styles.achievementBadge, styles.achievementUnlocked]}>
+                <View style={styles.achievementIcon}>
+                  <Camera size={24} color={Colors.gold} />
+                </View>
+                <Text style={styles.achievementTitle}>First Shoot</Text>
+                <Text style={styles.achievementDesc}>Booked your first session</Text>
+              </View>
+              
+              <View style={[styles.achievementBadge, sessionCount >= 3 && styles.achievementUnlocked]}>
+                <View style={styles.achievementIcon}>
+                  <Star size={24} color={sessionCount >= 3 ? Colors.gold : Colors.textMuted} />
+                </View>
+                <Text style={[styles.achievementTitle, sessionCount < 3 && styles.achievementLocked]}>Regular</Text>
+                <Text style={[styles.achievementDesc, sessionCount < 3 && styles.achievementLocked]}>3+ sessions booked</Text>
+              </View>
+              
+              <View style={[styles.achievementBadge, unlockedGalleries.length >= 5 && styles.achievementUnlocked]}>
+                <View style={styles.achievementIcon}>
+                  <Heart size={24} color={unlockedGalleries.length >= 5 ? Colors.gold : Colors.textMuted} />
+                </View>
+                <Text style={[styles.achievementTitle, unlockedGalleries.length < 5 && styles.achievementLocked]}>Collector</Text>
+                <Text style={[styles.achievementDesc, unlockedGalleries.length < 5 && styles.achievementLocked]}>5+ galleries unlocked</Text>
+              </View>
+              
+              <View style={[styles.achievementBadge, totalSpent > 50000 && styles.achievementUnlocked]}>
+                <View style={styles.achievementIcon}>
+                  <Award size={24} color={totalSpent > 50000 ? Colors.gold : Colors.textMuted} />
+                </View>
+                <Text style={[styles.achievementTitle, totalSpent <= 50000 && styles.achievementLocked]}>VIP</Text>
+                <Text style={[styles.achievementDesc, totalSpent <= 50000 && styles.achievementLocked]}>Spent KES 50K+</Text>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+
         <Pressable style={styles.logoutButton} onPress={handleLogout}>
           <LogOut size={20} color={Colors.error} />
           <Text style={styles.logoutText}>Sign Out</Text>
@@ -933,5 +974,52 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 10,
     fontSize: 14,
+  },
+  // Achievements styles
+  achievementsContainer: {
+    marginHorizontal: 20,
+  },
+  achievementsScroll: {
+    paddingRight: 20,
+    gap: 12,
+  },
+  achievementBadge: {
+    width: 120,
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    opacity: 0.6,
+  },
+  achievementUnlocked: {
+    opacity: 1,
+    borderColor: Colors.gold,
+    backgroundColor: 'rgba(212,175,55,0.05)',
+  },
+  achievementIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  achievementTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.white,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  achievementDesc: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
+  achievementLocked: {
+    color: Colors.textMuted,
   },
 });

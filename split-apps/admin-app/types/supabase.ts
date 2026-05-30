@@ -819,6 +819,7 @@ export interface Database {
           storage_limit_gb: number
           features: Json
           is_active: boolean
+          cover_image_url: string | null
           created_at: string
           updated_at: string
         }
@@ -831,6 +832,7 @@ export interface Database {
           storage_limit_gb?: number
           features?: Json
           is_active?: boolean
+          cover_image_url?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -843,6 +845,7 @@ export interface Database {
           storage_limit_gb?: number
           features?: Json
           is_active?: boolean
+          cover_image_url?: string | null
           created_at?: string
           updated_at?: string
         }

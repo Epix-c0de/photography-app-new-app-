@@ -284,12 +284,29 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
         ) : messages.length === 0 ? (
           <Text style={{ color: Colors.textMuted, textAlign: 'center', marginTop: 20 }}>No messages yet</Text>
         ) : (
-          messages.map((msg) => (
-            <View key={msg.id} style={[styles.messageBubble, msg.sender === 'admin' ? styles.adminBubble : styles.clientBubble]}>
-              <Text style={[styles.messageText, msg.sender === 'admin' && styles.adminMessageText]}>{msg.text}</Text>
-              <Text style={[styles.messageTime, msg.sender === 'admin' && styles.adminMessageTime]}>{msg.time}</Text>
-            </View>
-          ))
+          messages.map((msg, index) => {
+            const prevMsg = messages[index - 1];
+            const nextMsg = messages[index + 1];
+            const isFirstInGroup = !prevMsg || prevMsg.sender !== msg.sender;
+            const isLastInGroup = !nextMsg || nextMsg.sender !== msg.sender;
+            
+            return (
+              <View key={msg.id} style={[
+                styles.messageBubble, 
+                msg.sender === 'admin' ? styles.adminBubble : styles.clientBubble,
+                isFirstInGroup && (msg.sender === 'admin' ? styles.adminBubbleFirst : styles.clientBubbleFirst),
+                isLastInGroup && (msg.sender === 'admin' ? styles.adminBubbleLast : styles.clientBubbleLast),
+              ]}>
+                <Text style={[styles.messageText, msg.sender === 'admin' && styles.adminMessageText]}>{msg.text}</Text>
+                <View style={styles.messageFooter}>
+                  <Text style={[styles.messageTime, msg.sender === 'admin' && styles.adminMessageTime]}>{msg.time}</Text>
+                  {msg.sender === 'admin' && (
+                    <Text style={styles.messageStatus}>{msg.pending ? 'Sending...' : 'Sent'}</Text>
+                  )}
+                </View>
+              </View>
+            );
+          })
         )}
       </ScrollView>
 
@@ -1207,5 +1224,29 @@ const styles = StyleSheet.create({
     color: Colors.background,
     fontSize: 16,
     fontWeight: '700',
+  },
+  // Message grouping styles
+  clientBubbleFirst: {
+    borderTopLeftRadius: 16,
+  },
+  clientBubbleLast: {
+    borderBottomLeftRadius: 16,
+  },
+  adminBubbleFirst: {
+    borderTopRightRadius: 16,
+  },
+  adminBubbleLast: {
+    borderBottomRightRadius: 16,
+  },
+  messageFooter: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    marginTop: 4,
+  },
+  messageStatus: {
+    fontSize: 10,
+    color: 'rgba(0,0,0,0.5)',
   },
 });

@@ -12,7 +12,7 @@ const DebugNetworkScreen = () => {
   const runFullDiagnostics = async () => {
     setLoading(true);
     try {
-      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://ujunohfpcmjywsblsoel.supabase.co';
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://gghqurnamjdxoriuuopf.supabase.co';
       
       // Run comprehensive diagnostics
       const diagnostics = await runNetworkDiagnostics(supabaseUrl);

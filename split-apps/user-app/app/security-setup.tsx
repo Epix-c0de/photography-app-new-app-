@@ -50,7 +50,7 @@ export default function SecuritySetupScreen() {
 
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           Alert.alert('Biometric Login Enabled', 'You can now use your fingerprint or face to log in.');
-          router.replace('/(tabs)/home' as any);
+          router.replace('/(tabs)/home');
         }
       } else {
         Alert.alert('Setup Failed', 'Biometric authentication was not completed.');
@@ -94,7 +94,7 @@ export default function SecuritySetupScreen() {
 
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('PIN Set Up', 'Your PIN has been set up successfully.');
-        router.replace('/(tabs)/home' as any);
+        router.replace('/(tabs)/home');
       }
     } catch (error: any) {
       console.error('PIN setup error:', error);
@@ -113,10 +113,10 @@ export default function SecuritySetupScreen() {
         // We do nothing to the profile here.
 
         Alert.alert(
-            'Security Warning',
-            'Your account is less secure without additional protection. You can enable security features later in settings.',
-            [{ text: 'Continue', onPress: () => router.replace('/(tabs)/home' as any) }]
-          );
+          'Security Warning',
+          'Your account is less secure without additional protection. You can enable security features later in settings.',
+          [{ text: 'Continue', onPress: () => router.replace('/(tabs)/home') }]
+        );
       }
     } catch (error: any) {
       console.error('Skip error:', error);

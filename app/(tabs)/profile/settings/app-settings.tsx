@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Switch, Alert } from 'react-native';
-import { Stack } from 'expo-router';
+import { View, Text, StyleSheet, ScrollView, Switch, Pressable, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronRight, Smartphone, Wifi, Trash2, HardDrive, Moon, Sun, Monitor } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
+import { Stack, useRouter } from 'expo-router';
+import { Moon, Wifi, HardDrive, Trash2, ChevronLeft, Sun, Smartphone, DownloadCloud, Database, Shield } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';
+import { Image } from 'expo-image';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -19,54 +22,64 @@ function SettingsSection({ title, children }: { title: string; children: React.R
   );
 }
 
-function SettingsRow({ icon, label, description, value, onPress, showArrow, danger }: {
-  icon: React.ReactNode;
-  label: string;
+function SettingsRow({ 
+  icon, 
+  label, 
+  value, 
+  description,
+  onPress 
+}: { 
+  icon: React.ReactNode; 
+  label: string; 
+  value?: string; 
   description?: string;
-  value?: string;
   onPress?: () => void;
-  showArrow?: boolean;
-  danger?: boolean;
 }) {
   return (
-    <Pressable style={styles.settingsRow} onPress={onPress} disabled={!onPress}>
-      <View style={[styles.settingsRowIcon, danger && styles.settingsRowIconDanger]}>
+    <Pressable 
+      style={({ pressed }) => [styles.row, pressed && onPress && { opacity: 0.7 }]} 
+      onPress={onPress}
+      disabled={!onPress}
+    >
+      <View style={styles.rowIconBox}>
         {icon}
       </View>
-      <View style={styles.settingsRowContent}>
-        <Text style={[styles.settingsRowLabel, danger && styles.settingsRowLabelDanger]}>{label}</Text>
-        {description && <Text style={styles.settingsRowDescription}>{description}</Text>}
-        {value && <Text style={styles.settingsRowValue}>{value}</Text>}
+      <View style={styles.rowInfo}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        {description && <Text style={styles.rowDesc}>{description}</Text>}
       </View>
-      {showArrow && <ChevronRight size={16} color={Colors.textMuted} />}
+      {value && <Text style={styles.rowValue}>{value}</Text>}
     </Pressable>
   );
 }
 
-function SettingsToggle({ icon, label, description, value, onToggle }: {
-  icon: React.ReactNode;
-  label: string;
+function SettingsToggle({ 
+  icon, 
+  label, 
+  description,
+  value, 
+  onToggle 
+}: { 
+  icon: React.ReactNode; 
+  label: string; 
   description?: string;
-  value: boolean;
-  onToggle: (val: boolean) => void;
+  value: boolean; 
+  onToggle: (v: boolean) => void;
 }) {
   return (
-    <View style={styles.settingsRow}>
-      <View style={styles.settingsRowIcon}>
+    <View style={styles.row}>
+      <View style={styles.rowIconBox}>
         {icon}
       </View>
-      <View style={styles.settingsRowContent}>
-        <Text style={styles.settingsRowLabel}>{label}</Text>
-        {description && <Text style={styles.settingsRowDescription}>{description}</Text>}
+      <View style={styles.rowInfo}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        {description && <Text style={styles.rowDesc}>{description}</Text>}
       </View>
-      <Switch
-        value={value}
-        onValueChange={(val) => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          onToggle(val);
-        }}
-        trackColor={{ false: Colors.border, true: Colors.goldMuted }}
-        thumbColor={value ? Colors.gold : Colors.textMuted}
+      <Switch 
+        value={value} 
+        onValueChange={onToggle}
+        trackColor={{ false: 'rgba(255,255,255,0.1)', true: Colors.gold }}
+        thumbColor={Colors.white}
       />
     </View>
   );
@@ -91,21 +104,29 @@ export default function AppSettings() {
     setWifiOnly(val);
     try {
       await AsyncStorage.setItem('user_wifiOnly', String(val));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (e) {}
   };
 
-  const handleClearCache = () => {
+  const handleClearCache = async () => {
     Alert.alert(
       'Clear Cache',
-      'Are you sure you want to clear 12 MB of cached images?',
+      'Are you sure you want to clear all cached images? This will free up storage but images may take longer to load next time.',
       [
         { text: 'Cancel', style: 'cancel' },
         { 
-          text: 'Clear', 
+          text: 'Clear Cache', 
           style: 'destructive',
-          onPress: () => {
-             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-             Alert.alert('Success', 'Cache cleared.');
+          onPress: async () => {
+             try {
+               await Image.clearDiskCache();
+               await Image.clearMemoryCache();
+               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+               Alert.alert('Success', 'Image cache cleared successfully.');
+             } catch (e) {
+               console.error('Failed to clear cache:', e);
+               Alert.alert('Error', 'Failed to clear cache.');
+             }
           }
         }
       ]
@@ -121,45 +142,80 @@ export default function AppSettings() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
       >
-        <Text style={styles.headerSub}>Manage display, storage, and data usage.</Text>
+        <Text style={styles.headerSub}>Manage your app experience, storage, and data usage preferences.</Text>
         
         <SettingsSection title="APPEARANCE">
-          <View style={styles.themeSelectorRow}>
-            <Pressable style={[styles.themeBox, styles.themeBoxActive]}>
-              <Moon size={24} color={Colors.gold} />
-              <Text style={[styles.themeBoxText, styles.themeBoxTextActive]}>Dark (Locked)</Text>
-            </Pressable>
-          </View>
-          <Text style={{ color: Colors.textMuted, fontSize: 12, paddingHorizontal: 16, marginTop: -8, marginBottom: 16 }}>
-            The app theme is locked to Dark Mode for the best viewing experience.
-          </Text>
+          <BlurView intensity={20} tint="dark" style={styles.glassCard}>
+            <View style={styles.themeSelectorRow}>
+              <Pressable style={[styles.themeBox, styles.themeBoxActive]}>
+                <Moon size={24} color={Colors.gold} />
+                <Text style={[styles.themeBoxText, styles.themeBoxTextActive]}>Dark (Locked)</Text>
+              </Pressable>
+              <Pressable style={[styles.themeBox, { opacity: 0.5 }]} disabled>
+                <Sun size={24} color={Colors.textMuted} />
+                <Text style={styles.themeBoxText}>Light</Text>
+              </Pressable>
+              <Pressable style={[styles.themeBox, { opacity: 0.5 }]} disabled>
+                <Smartphone size={24} color={Colors.textMuted} />
+                <Text style={styles.themeBoxText}>System</Text>
+              </Pressable>
+            </View>
+            <Text style={{ color: Colors.textMuted, fontSize: 12, marginTop: 12, textAlign: 'center' }}>
+              Epix Visuals is optimized for Dark Mode to highlight your beautiful photos.
+            </Text>
+          </BlurView>
         </SettingsSection>
 
-        <SettingsSection title="DATA USAGE">
-          <SettingsToggle
-            icon={<Wifi size={18} color="#6C9AED" />}
-            label="Stream over Wi-Fi only"
-            description="Reduce cellular data usage for high-res images"
-            value={wifiOnly}
-            onToggle={handleToggleWifi}
-          />
+        <SettingsSection title="DATA & DOWNLOADS">
+          <BlurView intensity={20} tint="dark" style={styles.glassCard}>
+            <SettingsToggle
+              icon={<Wifi size={20} color="#6C9AED" />}
+              label="Stream over Wi-Fi only"
+              description="Reduce cellular data usage for high-res images"
+              value={wifiOnly}
+              onToggle={handleToggleWifi}
+            />
+            <View style={styles.divider} />
+            <SettingsRow
+              icon={<DownloadCloud size={20} color="#4CAF50" />}
+              label="Download Quality"
+              description="Original resolution"
+              value="Highest"
+            />
+          </BlurView>
         </SettingsSection>
         
-        <SettingsSection title="STORAGE">
-          <SettingsRow
-            icon={<HardDrive size={18} color={Colors.textSecondary} />}
-            label="App Storage"
-            value="1.2 GB"
-          />
-          <SettingsRow
-            icon={<Trash2 size={18} color={Colors.error} />}
-            label="Clear Image Cache"
-            description="Free up space on your device"
-            value="12 MB"
-            onPress={handleClearCache}
-            showArrow
-          />
+        <SettingsSection title="STORAGE MANAGEMENT">
+          <BlurView intensity={20} tint="dark" style={styles.glassCard}>
+            <SettingsRow
+              icon={<Database size={20} color={Colors.gold} />}
+              label="App Storage"
+              description="Space used by Epix Visuals"
+              value="~ 150 MB"
+            />
+            <View style={styles.divider} />
+            <SettingsRow
+              icon={<Trash2 size={20} color={Colors.error} />}
+              label="Clear Image Cache"
+              description="Free up space on your device"
+              onPress={handleClearCache}
+            />
+          </BlurView>
         </SettingsSection>
+
+        <SettingsSection title="ABOUT">
+          <BlurView intensity={20} tint="dark" style={styles.glassCard}>
+            <SettingsRow
+              icon={<Shield size={20} color={Colors.textSecondary} />}
+              label="Version"
+              value="2.0.1 (Build 42)"
+            />
+          </BlurView>
+        </SettingsSection>
+
+        <View style={styles.footerLogo}>
+          <Text style={styles.footerText}>Powered by Lexnart</Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -171,98 +227,115 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   scrollContent: {
-    padding: 20,
+    paddingTop: 20,
   },
   headerSub: {
     fontSize: 14,
     color: Colors.textMuted,
+    paddingHorizontal: 20,
     marginBottom: 24,
+    lineHeight: 22,
   },
   section: {
     marginBottom: 32,
+    paddingHorizontal: 20,
   },
   sectionTitle: {
     fontSize: 12,
     fontWeight: '700',
     color: Colors.textMuted,
-    letterSpacing: 1.2,
     marginBottom: 12,
+    letterSpacing: 1,
     marginLeft: 4,
   },
   sectionContent: {
-    backgroundColor: Colors.card,
     borderRadius: 16,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: Colors.border,
   },
-  settingsRow: {
+  glassCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingVertical: 4,
+    backgroundColor: 'rgba(20,20,20,0.4)',
+  },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
-  settingsRowIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(212,175,55,0.1)',
+  rowIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
-  settingsRowIconDanger: {
-    backgroundColor: 'rgba(239,68,68,0.1)',
-  },
-  settingsRowContent: {
+  rowInfo: {
     flex: 1,
+    justifyContent: 'center',
   },
-  settingsRowLabel: {
+  rowLabel: {
     fontSize: 16,
     fontWeight: '500',
     color: Colors.white,
     marginBottom: 2,
   },
-  settingsRowLabelDanger: {
-    color: Colors.error,
-  },
-  settingsRowDescription: {
-    fontSize: 12,
+  rowDesc: {
+    fontSize: 13,
     color: Colors.textMuted,
   },
-  settingsRowValue: {
-    fontSize: 14,
+  rowValue: {
+    fontSize: 15,
     color: Colors.textSecondary,
-    marginLeft: 12,
+    fontWeight: '500',
+  },
+  divider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginLeft: 64,
   },
   themeSelectorRow: {
     flexDirection: 'row',
-    padding: 16,
     gap: 12,
-    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   themeBox: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderWidth: 1,
-    borderColor: Colors.border,
+    height: 90,
+    backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 12,
-    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
   themeBoxActive: {
+    backgroundColor: 'rgba(212,175,55,0.1)',
     borderColor: Colors.gold,
-    backgroundColor: 'rgba(212,175,55,0.05)',
   },
   themeBoxText: {
-    fontSize: 14,
-    color: Colors.textMuted,
+    fontSize: 13,
     fontWeight: '500',
+    color: Colors.textMuted,
   },
   themeBoxTextActive: {
     color: Colors.gold,
+  },
+  footerLogo: {
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 40,
+  },
+  footerText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '600',
+    letterSpacing: 1,
   },
 });

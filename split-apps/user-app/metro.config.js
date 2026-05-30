@@ -1,27 +1,30 @@
-const { getDefaultConfig } = require("expo/metro-config");
-const { withRorkMetro } = require("@rork-ai/toolkit-sdk/metro");
+const { getDefaultConfig } = require('expo/metro-config');
+const { withRorkMetro } = require('@rork-ai/toolkit-sdk/metro');
 const path = require('path');
 
-// Find the project and workspace roots
 const projectRoot = __dirname;
-const workspaceRoot = path.resolve(projectRoot, '../..');
-
 const config = getDefaultConfig(projectRoot);
 
-// 1. Watch all files within the monorepo
-config.watchFolders = [workspaceRoot];
-
-// 2. Let Metro know where to resolve modules and in what order
-config.resolver.nodeModulesPaths = [
-  path.resolve(projectRoot, 'node_modules'),
-  path.resolve(workspaceRoot, 'node_modules'),
+config.resolver.sourceExts = [
+  ...config.resolver.sourceExts,
+  'mjs',
 ];
 
-// 3. Force Metro to resolve the entry point from the workspace root
+// Prevent Metro from pulling mismatched deps from parent/root node_modules.
+config.resolver.nodeModulesPaths = [
+  path.resolve(projectRoot, 'node_modules'),
+];
+config.resolver.disableHierarchicalLookup = true;
+
 config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules,
   'jimp-compact': path.resolve(projectRoot, 'mocks/jimp-compact.js'),
-  'expo-router': path.resolve(workspaceRoot, 'node_modules/expo-router'),
 };
+
+// Exclude test files from bundling to prevent import errors
+config.resolver.blockList = [
+  ...(config.resolver.blockList || []),
+  new RegExp(`${projectRoot.replace(/\\/g, '\\\\')}\\\\__tests__\\\\.*`),
+];
 
 module.exports = withRorkMetro(config);

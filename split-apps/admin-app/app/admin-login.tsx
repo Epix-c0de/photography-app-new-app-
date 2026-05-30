@@ -52,7 +52,7 @@ export default function AdminLoginScreen() {
           return;
         }
         await loginAsAdmin(email, password.trim());
-        router.replace('/(admin)/dashboard');
+        router.replace('/dashboard');
       } else if (mode === 'otp-request') {
         // Send OTP
         await loginWithOtp(email);
@@ -65,7 +65,7 @@ export default function AdminLoginScreen() {
           return;
         }
         await verifyOtp(email, otp.trim());
-        router.replace('/(admin)/dashboard');
+        router.replace('/dashboard');
       }
     } catch (error: any) {
       const message = typeof error?.message === 'string' ? error.message : 'An error occurred.';
@@ -143,7 +143,7 @@ export default function AdminLoginScreen() {
                 if (data?.error) throw new Error(data.error);
 
                 await loginAsAdmin(normalizedEmail, password.trim());
-                router.replace('/(admin)/dashboard');
+                router.replace('/dashboard');
               } catch (e: any) {
                 if (e?.message?.includes('Failed to send a request to the Edge Function')) {
                   Alert.alert(

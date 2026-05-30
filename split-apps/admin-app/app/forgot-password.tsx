@@ -133,7 +133,7 @@ export default function ForgotPasswordScreen() {
       if (error) throw error;
 
       Alert.alert('Success', 'Your password has been reset.', [
-        { text: 'Login', onPress: () => router.replace('/login') }
+        { text: 'Login', onPress: () => router.replace('/admin-login') }
       ]);
     } catch (err: any) {
       Alert.alert('Error', err.message);

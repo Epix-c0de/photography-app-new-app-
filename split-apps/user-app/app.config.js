@@ -14,13 +14,13 @@ const SUPABASE_ANON_KEY =
 /** @type {import('expo/config').ExpoConfig} */
 module.exports = {
   expo: {
-    name: 'Epix Visuals User',
-    slug: 'epix-visuals-user',
+    name: 'Epix Visuals Studios.co',
+    slug: 'epix-visuals-studios-co',
     owner: process.env.EAS_OWNER || undefined,
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/images/adaptive-icon.png',
-    scheme: 'epix-visuals-user',
+    scheme: 'epix-visuals',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
     splash: {
@@ -28,9 +28,15 @@ module.exports = {
       resizeMode: 'contain',
       backgroundColor: '#141313ff',
     },
+    updates: {
+      url: 'https://u.expo.dev/3ebabefa-64dc-4b36-b71c-94c1753e94d7',
+      runtimeVersion: {
+        policy: 'appVersion'
+      }
+    },
     ios: {
       supportsTablet: false,
-      bundleIdentifier: 'app.rork.epix-visuals-user',
+      bundleIdentifier: 'app.rork.epix-visuals-studios-co',
       infoPlist: {
         NSBonjourServices: ['_http._tcp', '_https._tcp'],
         NSLocalNetworkUsageDescription:
@@ -40,25 +46,23 @@ module.exports = {
       },
     },
     android: {
+      softwareKeyboardLayoutMode: 'pan',
       adaptiveIcon: {
         foregroundImage: './assets/images/adaptive-icon.png',
         backgroundColor: '#ffffff',
       },
       permissions: [
-        'SEND_SMS',
-        'READ_SMS',
-        'RECEIVE_SMS',
-        'READ_PHONE_STATE',
         'INTERNET',
         'ACCESS_NETWORK_STATE',
       ],
-      package: 'app.rork.epix_visuals_user',
+      package: 'app.rork.epix_visuals_studios_co',
+      enableProguardInReleaseBuilds: false,
       intentFilters: [
         {
           action: 'android.intent.action.VIEW',
           data: [
             {
-              scheme: 'epix-visuals-user',
+              scheme: 'epix-visuals',
               host: 'auth',
               pathPrefix: '/callback',
             },
@@ -68,12 +72,50 @@ module.exports = {
             'android.intent.category.DEFAULT',
           ],
         },
+        {
+          action: 'android.intent.action.VIEW',
+          data: [
+            {
+              scheme: 'exp',
+              host: '192.168.1.195',
+              pathPrefix: '/--/auth/callback',
+            },
+          ],
+          category: [
+            'android.intent.category.BROWSABLE',
+            'android.intent.category.DEFAULT',
+          ],
+        },
       ],
+    },
+    androidNavigationBar: {
+      visible: "immersive",
+      backgroundColor: "#00000000",
     },
     web: {
       favicon: './assets/images/adaptive-icon.png',
     },
-    plugins: ['expo-router', 'expo-font', 'expo-web-browser', 'expo-local-authentication'],
+    plugins: [
+      'expo-router',
+      'expo-font',
+      'expo-web-browser',
+      [
+        'expo-build-properties',
+        {
+          android: {
+            minSdkVersion: 24,
+            targetSdkVersion: 34,
+            compileSdkVersion: 36,
+            buildToolsVersion: '34.0.0',
+            kotlinVersion: '2.1.20',
+            ndkVersion: '26.1.10909125',
+          },
+          ios: {
+            newArchEnabled: true,
+          },
+        },
+      ],
+    ],
     experiments: {
       typedRoutes: true,
     },

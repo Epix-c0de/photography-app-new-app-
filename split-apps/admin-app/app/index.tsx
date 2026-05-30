@@ -61,7 +61,7 @@ export default function SplashScreen() {
       if (!isLoggedIn) {
         router.replace('/admin-login');
       } else if (profile?.role === 'admin' || profile?.role === 'super_admin') {
-        router.replace('/(admin)/dashboard');
+        router.replace('/dashboard');
       } else {
         router.replace('/admin-login');
       }

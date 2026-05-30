@@ -50,7 +50,7 @@ describeOrSkip('RLS upload policies', () => {
     }
     clientUserId = clientData.user.id;
 
-    await serviceClient.from('user_profiles').upsert([
+    await (serviceClient.from('user_profiles') as any).upsert([
       { id: adminUserId, role: 'admin', email: adminEmail, profile_complete: true },
       { id: clientUserId, role: 'client', email: clientEmail, profile_complete: true },
     ]);
@@ -142,8 +142,8 @@ describeOrSkip('RLS upload policies', () => {
 
   it('allows admin inserts and blocks client inserts for BTS and announcements', async () => {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const { error: btsInsertError } = await adminClient
-      .from('bts_posts')
+    const { error: btsInsertError } = await (adminClient
+      .from('bts_posts') as any)
       .insert({
         title: 'Test BTS',
         media_url: 'https://example.com/bts.jpg',
@@ -153,8 +153,8 @@ describeOrSkip('RLS upload policies', () => {
       });
     expect(btsInsertError).toBeNull();
 
-    const { error: annInsertError } = await adminClient
-      .from('announcements')
+    const { error: annInsertError } = await (adminClient
+      .from('announcements') as any)
       .insert({
         title: 'Test Announcement',
         media_url: 'https://example.com/ann.jpg',
@@ -164,8 +164,8 @@ describeOrSkip('RLS upload policies', () => {
       });
     expect(annInsertError).toBeNull();
 
-    const { error: btsClientError } = await clientClient
-      .from('bts_posts')
+    const { error: btsClientError } = await (clientClient
+      .from('bts_posts') as any)
       .insert({
         title: 'Client BTS',
         media_url: 'https://example.com/client-bts.jpg',
@@ -175,8 +175,8 @@ describeOrSkip('RLS upload policies', () => {
       });
     expect(btsClientError).not.toBeNull();
 
-    const { error: annClientError } = await clientClient
-      .from('announcements')
+    const { error: annClientError } = await (clientClient
+      .from('announcements') as any)
       .insert({
         title: 'Client Announcement',
         media_url: 'https://example.com/client-ann.jpg',

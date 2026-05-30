@@ -136,7 +136,7 @@ ${diagnostics.error ? `Error: ${diagnostics.error}` : ''}
 
 // Quick connectivity check utility
 export async function quickConnectivityCheck() {
-  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://ujunohfpcmjywsblsoel.supabase.co';
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://gghqurnamjdxoriuuopf.supabase.co';
   
   try {
     const response = await fetch(`${supabaseUrl}/auth/v1/settings`, {

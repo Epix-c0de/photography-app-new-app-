@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
 import { AuthProvider } from '@/contexts/AuthContext';
 import { BrandingProvider } from '@/contexts/BrandingContext';
 import Colors from '@/constants/colors';
@@ -72,7 +73,7 @@ function RootLayoutNav() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
   }, []);
@@ -88,3 +89,5 @@ export default function RootLayout() {
     </QueryClientProvider>
   );
 }
+
+export default RootLayout;

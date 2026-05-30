@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Animated, Dimensions, FlatList, Modal, ActivityIndicator } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, usePathname } from 'expo-router';
@@ -10,9 +11,12 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
+import { demoAnnouncements, demoBtsPosts, demoGalleries, demoUnreadNotificationCount } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 import PaymentModal from '@/components/PaymentModal';
+
+import { Skeleton } from 'moti/skeleton';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 64;
@@ -220,7 +224,7 @@ function AnnouncementCard({ item, index, onPress }: { item: AnnouncementRow; ind
             <Image 
               source={{ uri: item.image_url || item.media_url || '' }} 
               style={styles.announcementImage} 
-              contentFit="contain" 
+              contentFit="cover" 
             />
           )}
         </Pressable>
@@ -300,7 +304,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useLocalSearchParams();
-  const { user, profile } = useAuth();
+  const { user, profile, isDemoMode } = useAuth();
 
   const handleNotificationPress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -382,7 +386,6 @@ export default function HomeScreen() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [paymentGallery, setPaymentGallery] = useState<GalleryRow | null>(null);
-  const [clockMs, setClockMs] = useState(() => Date.now());
 
   const readLocalUnlockedGalleryIds = useCallback(async (): Promise<string[]> => {
     try {
@@ -394,7 +397,7 @@ export default function HomeScreen() {
     } catch {
       return [];
     }
-  }, []);
+  }, [isDemoMode]);
 
   const handlePaymentSuccess = useCallback(() => {
     if (paymentGallery) {
@@ -423,15 +426,14 @@ export default function HomeScreen() {
     });
   }, []);
 
-  useEffect(() => {
-    const timer = setInterval(() => setClockMs(Date.now()), 30000);
-    return () => clearInterval(timer);
-  }, []);
-
   const fetchBts = useCallback(async () => {
     setBtsLoading(true);
     setBtsError(null);
     try {
+      if (isDemoMode) {
+        setBtsPosts(demoBtsPosts);
+        return;
+      }
       const nowIso = new Date().toISOString();
       console.log('[BTS Feed] Fetching BTS posts... Time now:', nowIso);
       
@@ -442,13 +444,12 @@ export default function HomeScreen() {
       
       console.log('[BTS Feed] Total BTS posts in DB:', count, countError ? 'Error: ' + countError.message : '');
       
-      // Query: is_active=true AND (no expiry OR not expired) AND (no schedule OR scheduled for now)
-      // Note: Combine all OR conditions into a single .or() call
       const { data, error } = await supabase
         .from('bts_posts')
         .select('*')
         .eq('is_active', true)
-        .or(`expires_at.is.null,expires_at.gt.${nowIso},scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
+        .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+        .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
         .order('created_at', { ascending: false })
         .limit(20);
 
@@ -471,9 +472,13 @@ export default function HomeScreen() {
     } finally {
       setBtsLoading(false);
     }
-  }, []);
+  }, [isDemoMode]);
 
   const fetchClientId = useCallback(async () => {
+    if (isDemoMode) {
+      setClientId('demo-client');
+      return 'demo-client';
+    }
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) {
       setClientId(null);
@@ -495,9 +500,13 @@ export default function HomeScreen() {
     const id = data?.id ?? null;
     setClientId(id);
     return id;
-  }, []);
+  }, [isDemoMode]);
 
   const fetchUnreadCount = useCallback(async () => {
+    if (isDemoMode) {
+      setUnreadCount(demoUnreadNotificationCount);
+      return;
+    }
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) {
       setUnreadCount(0);
@@ -511,11 +520,17 @@ export default function HomeScreen() {
       .or('read.eq.false,is_read.eq.false');
 
     setUnreadCount(count ?? 0);
-  }, []);
+  }, [isDemoMode]);
 
   const fetchGalleries = useCallback(async () => {
     setGalleriesLoading(true);
     setGalleriesError(null);
+
+    if (isDemoMode) {
+      setGalleries(demoGalleries);
+      setGalleriesLoading(false);
+      return;
+    }
 
     const activeClientId = clientId ?? (await fetchClientId());
     if (!activeClientId) {
@@ -563,16 +578,16 @@ export default function HomeScreen() {
     if (limitedIds.length > 0) {
       const { data: thumbRows, error: thumbError } = await supabase
         .from('gallery_photos')
-        .select('gallery_id, thumbnail_url, created_at')
+        .select('gallery_id, photo_url, created_at')
         .in('gallery_id', limitedIds)
-        .not('thumbnail_url', 'is', null)
+        .not('photo_url', 'is', null)
         .order('created_at', { ascending: false });
       if (thumbError) {
         console.error('[Home] Error loading gallery thumbnails:', thumbError);
       } else {
         (thumbRows || []).forEach((row: any) => {
-          if (!galleryThumbnailMap.has(row.gallery_id) && row.thumbnail_url) {
-            galleryThumbnailMap.set(row.gallery_id, row.thumbnail_url);
+          if (!galleryThumbnailMap.has(row.gallery_id) && row.photo_url) {
+            galleryThumbnailMap.set(row.gallery_id, row.photo_url);
           }
         });
       }
@@ -626,7 +641,7 @@ export default function HomeScreen() {
 
     setGalleries(withSignedCovers);
     setGalleriesLoading(false);
-  }, [clientId, fetchClientId, readLocalUnlockedGalleryIds, user?.id]);
+  }, [clientId, fetchClientId, isDemoMode, readLocalUnlockedGalleryIds, user?.id]);
 
   useEffect(() => {
     if (!pathname.includes('/home')) return;
@@ -636,6 +651,11 @@ export default function HomeScreen() {
   const fetchAnnouncements = useCallback(async () => {
     setAnnouncementsLoading(true);
     setAnnouncementsError(false);
+    if (isDemoMode) {
+      setAnnouncements(demoAnnouncements);
+      setAnnouncementsLoading(false);
+      return;
+    }
     const nowIso = new Date().toISOString();
 
     const { data, error } = await supabase
@@ -655,22 +675,17 @@ export default function HomeScreen() {
 
     setAnnouncements(data);
     setAnnouncementsLoading(false);
-  }, []);
+  }, [isDemoMode]);
 
   const orderedBtsPosts = useMemo(() => {
-    const visiblePosts = btsPosts.filter((post) => {
-      const notExpired = !post.expires_at || new Date(post.expires_at).getTime() > clockMs;
-      const scheduleReached = !post.scheduled_for || new Date(post.scheduled_for).getTime() <= clockMs;
-      return notExpired && scheduleReached;
-    });
     const unviewed: BTSPost[] = [];
     const viewed: BTSPost[] = [];
-    for (const post of visiblePosts) {
+    for (const post of btsPosts) {
       if (viewedIds.has(post.id)) viewed.push(post);
       else unviewed.push(post);
     }
     return [...unviewed, ...viewed];
-  }, [btsPosts, viewedIds, clockMs]);
+  }, [btsPosts, viewedIds]);
 
   const pendingPaymentGalleries = useMemo(
     () => galleries.filter((gallery) => gallery.is_locked && !gallery.is_paid && (gallery.price ?? 0) > 0),
@@ -688,33 +703,35 @@ export default function HomeScreen() {
     });
   }, [fetchAnnouncements, fetchBts, fetchClientId, fetchGalleries, fetchUnreadCount, loadViewed]);
 
+  // Use refs to store callbacks so realtime subscription doesn't re-run when they change
+  const fetchBtsRef = useRef(fetchBts);
+  const fetchAnnouncementsRef = useRef(fetchAnnouncements);
+  const fetchGalleriesRef = useRef(fetchGalleries);
+  const fetchUnreadCountRef = useRef(fetchUnreadCount);
+
+  // Update refs when callbacks change
+  useEffect(() => { fetchBtsRef.current = fetchBts; }, [fetchBts]);
+  useEffect(() => { fetchAnnouncementsRef.current = fetchAnnouncements; }, [fetchAnnouncements]);
+  useEffect(() => { fetchGalleriesRef.current = fetchGalleries; }, [fetchGalleries]);
+  useEffect(() => { fetchUnreadCountRef.current = fetchUnreadCount; }, [fetchUnreadCount]);
+
+  // Subscribe to realtime updates only once on mount
   useEffect(() => {
+    if (isDemoMode) return;
+    // Use unique channel name to avoid conflicts with any existing channels
+    const channelName = `user_app_home_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const channel = supabase
-      .channel('bts_posts_home')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'bts_posts' },
-        () => fetchBts()
-      )
+      .channel(channelName)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bts_posts' }, () => fetchBtsRef.current())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => fetchUnreadCountRef.current())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'galleries' }, () => fetchGalleriesRef.current())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => fetchAnnouncementsRef.current())
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchBts]);
-
-  useEffect(() => {
-    const channel = supabase
-      .channel('home_live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => fetchUnreadCount())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'galleries' }, () => fetchGalleries())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => fetchAnnouncements())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchAnnouncements, fetchGalleries, fetchUnreadCount]);
+  }, []); // Empty dependency array - only run once on mount
 
   useEffect(() => {
     if (!previewPost) return;
@@ -730,13 +747,11 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <Animated.ScrollView
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
-        scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: 120 }}
-      >
-        <Animated.View style={[styles.header, { paddingTop: insets.top + 12, opacity: headerOpacity }]}>
+      {/* Sticky Header with Greeting */}
+      <Animated.View style={[styles.stickyHeader, { paddingTop: insets.top + 12 }]}>
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.95)' }]} />
+        <BlurView intensity={200} tint="dark" style={StyleSheet.absoluteFillObject} />
+        <View style={styles.stickyHeaderContent}>
           <View style={styles.headerContent}>
             <Pressable onPress={() => router.push('/(tabs)/profile')}>
               {profile?.avatar_url || (user?.user_metadata as any)?.avatar_url ? (
@@ -756,10 +771,10 @@ export default function HomeScreen() {
                 </View>
               )}
             </Pressable>
-            <Animated.View style={{ opacity: greetingFadeAnim, flex: 1 }}>
+            <View style={{ flex: 1 }}>
               <Text style={styles.greeting} numberOfLines={2}>{greeting}</Text>
               {subGreeting ? <Text style={styles.greetingSub} numberOfLines={1}>{subGreeting}</Text> : null}
-            </Animated.View>
+            </View>
           </View>
           <Pressable style={styles.notifButton} onPress={handleNotificationPress}>
             <Bell size={22} color={Colors.white} />
@@ -769,8 +784,17 @@ export default function HomeScreen() {
               </View>
             )}
           </Pressable>
-        </Animated.View>
+        </View>
+      </Animated.View>
 
+      <Animated.ScrollView
+        showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingTop: 80 + insets.top, paddingBottom: Math.max(insets.bottom + 120, 160) }}
+      >
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, styles.sectionTitleNoPad]}>Behind the Scenes</Text>
@@ -780,8 +804,15 @@ export default function HomeScreen() {
           </View>
 
           {btsLoading ? (
-            <View style={styles.btsLoading}>
-              <ActivityIndicator color={Colors.gold} />
+            <View style={styles.btsList}>
+              {[1, 2, 3, 4].map((i) => (
+                <View key={i} style={[styles.btsCard, { marginRight: 16 }]}>
+                  <Skeleton colorMode="dark" radius="round" height={BTS_CARD_SIZE} width={BTS_CARD_SIZE} />
+                  <View style={{ marginTop: 8, alignSelf: 'center' }}>
+                    <Skeleton colorMode="dark" width={60} height={12} />
+                  </View>
+                </View>
+              ))}
             </View>
           ) : btsError ? (
             <View style={styles.emptyAnnouncements}>
@@ -814,9 +845,8 @@ export default function HomeScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.btsList}
-              snapToInterval={BTS_SNAP}
-              decelerationRate="fast"
-              nestedScrollEnabled
+              directionalLockEnabled
+              removeClippedSubviews={false}
               onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: btsScrollX } } }], { useNativeDriver: true })}
               scrollEventThrottle={16}
             />
@@ -891,8 +921,17 @@ export default function HomeScreen() {
             </Pressable>
           </View>
           {announcementsLoading ? (
-            <View style={styles.btsLoading}>
-              <ActivityIndicator color={Colors.gold} />
+            <View style={styles.announcementsContainer}>
+              <View style={[styles.announcementCard, { backgroundColor: '#1C1C1E', overflow: 'hidden' }]}>
+                <Skeleton colorMode="dark" width={CARD_WIDTH} height={180} />
+                <View style={{ padding: 12 }}>
+                  <Skeleton colorMode="dark" width="80%" height={16} />
+                  <View style={{ height: 8 }} />
+                  <Skeleton colorMode="dark" width="100%" height={12} />
+                  <View style={{ height: 6 }} />
+                  <Skeleton colorMode="dark" width="60%" height={12} />
+                </View>
+              </View>
             </View>
           ) : announcementsError ? (
             <View style={styles.emptyAnnouncements}>
@@ -915,7 +954,7 @@ export default function HomeScreen() {
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.announcementsContainer}
-              snapToInterval={CARD_WIDTH + 16}
+              snapToInterval={width - 32}
               snapToAlignment="start"
               decelerationRate="fast"
               pagingEnabled={false}
@@ -937,8 +976,19 @@ export default function HomeScreen() {
             </Pressable>
           </View>
           {galleriesLoading ? (
-            <View style={styles.btsLoading}>
-              <ActivityIndicator color={Colors.gold} />
+            <View style={styles.recentGalleriesList}>
+              {[1, 2].map((i) => (
+                <View key={i} style={[styles.galleryThumbContainer, { marginRight: 16 }]}>
+                  <View style={[styles.galleryThumbWrapper, { backgroundColor: '#1C1C1E', overflow: 'hidden' }]}>
+                    <Skeleton colorMode="dark" width={160} height={200} />
+                    <View style={[styles.galleryThumbInfo, { zIndex: 10 }]}>
+                      <Skeleton colorMode="dark" width="70%" height={16} />
+                      <View style={{ height: 6 }} />
+                      <Skeleton colorMode="dark" width="40%" height={12} />
+                    </View>
+                  </View>
+                </View>
+              ))}
             </View>
           ) : galleriesError ? (
             <View style={styles.emptyAnnouncements}>
@@ -1103,6 +1153,32 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700' as const,
     color: Colors.white,
+  },
+  // Sticky Header Styles
+  stickyHeader: {
+    position: 'absolute' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    overflow: 'hidden' as const,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  stickyHeaderContent: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  // Navigation blur gradient
+  navBlurGradient: {
+    position: 'absolute' as const,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 99,
   },
   section: {
     marginBottom: 24,
@@ -1293,43 +1369,52 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   announcementCard: {
-    width: CARD_WIDTH,
+    width: width - 48,
+    height: 380,
     backgroundColor: Colors.card,
-    borderRadius: 12,
+    borderRadius: 24,
     overflow: 'hidden' as const,
     marginBottom: 16,
+    marginRight: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(212,175,55,0.2)',
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   announcementMediaContainer: {
-    width: '100%',
-    minHeight: 200,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: Colors.background,
   },
   announcementVideoContainer: {
-    width: '100%',
-    aspectRatio: 16/9,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: Colors.cardDark,
   },
   announcementVideo: {
-    width: '100%',
-    height: '100%',
+    ...StyleSheet.absoluteFillObject,
   },
   announcementPlayButton: {
     position: 'absolute' as const,
     top: '50%',
     left: '50%',
-    transform: [{ translateX: -24 }, { translateY: -24 }],
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    transform: [{ translateX: -32 }, { translateY: -32 }],
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
   announcementImage: {
-    width: '100%',
-    minHeight: 200,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: Colors.background,
   },
   announcementOverlay: {
@@ -1337,46 +1422,61 @@ const styles = StyleSheet.create({
   },
   announcementTag: {
     position: 'absolute' as const,
-    top: 12,
-    left: 12,
-    backgroundColor: Colors.gold,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+    top: 16,
+    left: 16,
+    backgroundColor: 'rgba(212,175,55,0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backdropFilter: 'blur(10px)',
   },
   announcementTagText: {
-    fontSize: 10,
-    fontWeight: '700' as const,
+    fontSize: 11,
+    fontWeight: '800' as const,
     color: Colors.background,
     textTransform: 'uppercase' as const,
+    letterSpacing: 0.5,
   },
   announcementContent: {
     position: 'absolute' as const,
-    bottom: 14,
-    left: 14,
-    right: 14,
+    bottom: 24,
+    left: 20,
+    right: 20,
   },
   announcementTitle: {
-    fontSize: 18,
-    fontWeight: '700' as const,
+    fontSize: 22,
+    fontWeight: '800' as const,
     color: Colors.white,
-    marginBottom: 4,
+    marginBottom: 6,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   announcementDesc: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    lineHeight: 18,
-    marginBottom: 8,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+    lineHeight: 20,
+    marginBottom: 12,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   announcementCta: {
     flexDirection: 'row' as const,
     alignItems: 'center',
-    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    gap: 6,
   },
   announcementCtaText: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.gold,
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.white,
   },
   galleriesContainer: {
     paddingHorizontal: 20,
@@ -1576,6 +1676,10 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center' as const,
     marginBottom: 12,
+  },
+  recentGalleriesList: {
+    flexDirection: 'row' as const,
+    paddingHorizontal: 20,
   },
   retryText: {
     fontSize: 14,

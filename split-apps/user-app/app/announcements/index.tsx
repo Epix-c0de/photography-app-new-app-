@@ -21,6 +21,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
+import { demoAnnouncements } from '@/lib/demo';
 import type { Database } from '@/types/supabase';
 import { Image } from 'expo-image';
 import FeedPostCard, { FeedPost } from '@/components/FeedPostCard';
@@ -45,7 +46,7 @@ interface AnnouncementComment {
 export default function AnnouncementsFeedScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isDemoMode } = useAuth();
 
   const [announcements, setAnnouncements] = useState<AnnouncementWithSocial[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,6 +83,19 @@ export default function AnnouncementsFeedScreen() {
       if (showRefresh) setRefreshing(true);
       else setLoading(true);
 
+      if (isDemoMode) {
+        setAnnouncements(
+          demoAnnouncements.map((ann, index) => ({
+            ...ann,
+            isLiked: index === 0,
+            likesCount: 3 + index,
+            commentsCount: 1 + index,
+            isBookmarked: false,
+          }))
+        );
+        return;
+      }
+
       const { data, error } = await supabase
         .from('announcements')
         .select('*')
@@ -94,11 +108,11 @@ export default function AnnouncementsFeedScreen() {
         (data || []).map(async (ann) => {
           const [likeRow, bookmarkRow, likesCount, commentsCount] = await Promise.allSettled([
             supabase
-              .from('announcement_likes')
+              .from('announcement_reactions')
               .select('id')
               .eq('announcement_id', ann.id)
               .eq('user_id', user?.id ?? '')
-              .maybeSingle(),
+              .limit(1),
             supabase
               .from('announcement_bookmarks')
               .select('id')
@@ -106,7 +120,7 @@ export default function AnnouncementsFeedScreen() {
               .eq('user_id', user?.id ?? '')
               .maybeSingle(),
             supabase
-              .from('announcement_likes')
+              .from('announcement_reactions')
               .select('*', { count: 'exact', head: true })
               .eq('announcement_id', ann.id),
             supabase
@@ -117,7 +131,10 @@ export default function AnnouncementsFeedScreen() {
 
           return {
             ...ann,
-            isLiked: likeRow.status === 'fulfilled' && !!likeRow.value.data,
+            isLiked:
+              likeRow.status === 'fulfilled' &&
+              Array.isArray(likeRow.value.data) &&
+              likeRow.value.data.length > 0,
             likesCount:
               likesCount.status === 'fulfilled'
                 ? (likesCount.value.count ?? 0)
@@ -140,7 +157,7 @@ export default function AnnouncementsFeedScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [isDemoMode, user?.id]);
 
   useEffect(() => {
     fetchAnnouncements();
@@ -169,18 +186,22 @@ export default function AnnouncementsFeedScreen() {
     );
 
     try {
+      if (isDemoMode) {
+        return;
+      }
       if (ann.isLiked) {
         await supabase
-          .from('announcement_likes')
+          .from('announcement_reactions')
           .delete()
           .eq('announcement_id', ann.id)
           .eq('user_id', user.id);
       } else {
         await supabase
-          .from('announcement_likes')
-          .insert({ announcement_id: ann.id, user_id: user.id });
+          .from('announcement_reactions')
+          .insert({ announcement_id: ann.id, user_id: user.id, reaction_emoji: '👍' });
       }
-    } catch {
+    } catch (error) {
+      console.error('[Announcements] Like toggle failed:', error);
       // Revert on failure
       setAnnouncements((prev) =>
         prev.map((a) =>
@@ -210,6 +231,9 @@ export default function AnnouncementsFeedScreen() {
     );
 
     try {
+      if (isDemoMode) {
+        return;
+      }
       if (ann.isBookmarked) {
         await supabase
           .from('announcement_bookmarks')
@@ -244,6 +268,19 @@ export default function AnnouncementsFeedScreen() {
   const fetchComments = async (postId: string) => {
     setLoadingComments(true);
     try {
+      if (isDemoMode) {
+        setComments([
+          {
+            id: `demo-comment-${postId}`,
+            user_name: 'Demo Client',
+            user_avatar: undefined,
+            comment: 'Demo mode comment preview.',
+            created_at: new Date().toISOString(),
+          },
+        ]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('announcement_comments')
         .select(`*, user_profiles:client_id (name, avatar_url)`)
@@ -292,7 +329,9 @@ export default function AnnouncementsFeedScreen() {
       );
 
       setCommentText('');
-      fetchComments(commentSheetPost.id);
+      if (!isDemoMode) {
+        fetchComments(commentSheetPost.id);
+      }
       setCommentSheetPost(null);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {

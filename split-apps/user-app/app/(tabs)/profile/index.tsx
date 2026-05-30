@@ -2,13 +2,15 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Animated, Alert, ActivityIndicator, Share, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Settings, ChevronRight, CreditCard, FileText, Download, Heart, Shield, Bell, HelpCircle, LogOut, Award, Camera, Gift, CheckCircle, AlertCircle, Share2, User, Star, Clock } from 'lucide-react-native';
+import { ChevronRight, CreditCard, FileText, Download, Heart, Shield, Bell, HelpCircle, LogOut, Award, Camera, Gift, CheckCircle, AlertCircle, Share2, User, Star, Clock } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
+import { demoBookings, demoGalleries, demoPayments } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 import ProfileEditModal from '@/components/ProfileEditModal';
@@ -31,22 +33,24 @@ function MenuRow({ item }: { item: MenuItem }) {
 
   return (
     <Pressable
-      onPressIn={() => Animated.timing(scaleAnim, { toValue: 0.98, duration: 100, useNativeDriver: true }).start()}
-      onPressOut={() => Animated.timing(scaleAnim, { toValue: 1, duration: 150, useNativeDriver: true }).start()}
+      onPressIn={() => Animated.timing(scaleAnim, { toValue: 0.97, duration: 100, useNativeDriver: true }).start()}
+      onPressOut={() => Animated.timing(scaleAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start()}
       onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); item.action?.(); }}
     >
-      <Animated.View style={[styles.menuRow, { transform: [{ scale: scaleAnim }] }]}>
-        <View style={styles.menuIcon}>{item.icon}</View>
-        <View style={styles.menuContent}>
-          <Text style={styles.menuLabel}>{item.label}</Text>
-          {item.subtitle && <Text style={styles.menuSubtitle}>{item.subtitle}</Text>}
+      <Animated.View style={[styles.premiumMenuRow, { transform: [{ scale: scaleAnim }] }]}>
+        <View style={styles.premiumMenuIcon}>{item.icon}</View>
+        <View style={styles.premiumMenuContent}>
+          <Text style={styles.premiumMenuLabel}>{item.label}</Text>
+          {item.subtitle && <Text style={styles.premiumMenuSubtitle}>{item.subtitle}</Text>}
         </View>
         {item.badge ? (
-          <View style={styles.menuBadge}>
-            <Text style={styles.menuBadgeText}>{item.badge}</Text>
+          <View style={styles.premiumMenuBadge}>
+            <Text style={styles.premiumMenuBadgeText}>{item.badge}</Text>
           </View>
         ) : (
-          <ChevronRight size={16} color={Colors.textMuted} />
+          <View style={styles.premiumChevronContainer}>
+            <ChevronRight size={18} color={Colors.gold} />
+          </View>
         )}
       </Animated.View>
     </Pressable>
@@ -84,8 +88,8 @@ function InvoiceCard({ payment }: { payment: PaymentRow }) {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, profile, logout } = useAuth();
-  const { shareAppLink } = useBranding();
+  const { user, profile, logout, isDemoMode } = useAuth();
+  const { referralLink } = useBranding();
   const [showInvoices, setShowInvoices] = useState<boolean>(false);
 
   const [payments, setPayments] = useState<PaymentRow[]>([]);
@@ -108,6 +112,14 @@ export default function ProfileScreen() {
 
       try {
         setLoading(true);
+        if (isDemoMode) {
+          setPayments(demoPayments);
+          setGalleries(demoGalleries);
+          setTotalPhotos(demoGalleries.length * 8);
+          setNextBooking(demoBookings[0] ?? null);
+          setSessionCount(demoBookings.length);
+          return;
+        }
         // Get client ID
         const { data: clientData } = await supabase
           .from('clients')
@@ -180,7 +192,7 @@ export default function ProfileScreen() {
     }
 
     loadData();
-  }, [user]);
+  }, [isDemoMode, user]);
 
   const unlockedGalleries = galleries.filter(g => !g.is_locked);
   const totalSpent = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
@@ -213,6 +225,11 @@ export default function ProfileScreen() {
     switch (option) {
       case 'remove':
         if (!user) return;
+        if (isDemoMode) {
+          setAvatarUrl(null);
+          Alert.alert('Success', 'Demo profile picture removed locally.');
+          return;
+        }
         try {
           setLoading(true);
           const { error } = await supabase
@@ -263,6 +280,13 @@ export default function ProfileScreen() {
   const uploadAvatar = async (asset: ImagePicker.ImagePickerAsset) => {
     try {
       setLoading(true);
+
+      if (isDemoMode) {
+        setAvatarUrl(asset.uri);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Success', 'Demo profile picture updated locally.');
+        return;
+      }
 
       // Attempt to ensure bucket exists via Edge Function
       try {
@@ -348,7 +372,7 @@ export default function ProfileScreen() {
     // Guard against concurrent share calls which cause 'earlier share not completed' error
     if (isSharingRef.current) return;
     isSharingRef.current = true;
-    const url = shareAppLink;
+    const url = referralLink;
     const message = `Check out our studio! View our portfolio and app here: ${url}`;
     try {
       await Share.share({
@@ -396,7 +420,7 @@ export default function ProfileScreen() {
       icon: <Shield size={20} color={Colors.gold} />,
       label: 'Admin Dashboard',
       subtitle: 'Manage your studio',
-      action: () => router.push('/(admin)/dashboard' as any),
+      action: () => router.push('/(admin)/dashboard'),
     }] : []),
     {
       icon: <Share2 size={20} color={Colors.gold} />,
@@ -416,51 +440,58 @@ export default function ProfileScreen() {
   const settingsItems: MenuItem[] = [
     { icon: <Bell size={20} color={Colors.textSecondary} />, label: 'Notifications', subtitle: 'Manage push preferences', action: () => router.push('/profile/settings/notifications') },
     { icon: <Shield size={20} color={Colors.textSecondary} />, label: 'Privacy & Security', subtitle: 'Password, data controls', action: () => router.push('/profile/settings/privacy-security') },
-    { icon: <Settings size={20} color={Colors.textSecondary} />, label: 'App Settings', subtitle: 'Storage, data, display', action: () => router.push('/profile/settings/app-settings') },
     { icon: <HelpCircle size={20} color={Colors.textSecondary} />, label: 'Help & Support', subtitle: 'Chat with us', action: () => router.push('/chat') },
   ];
 
   return (
     <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-        <View style={[styles.profileHeader, { paddingTop: insets.top + 16 }]}>
-          <View style={styles.avatarContainer}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 120, 160) }}>
+        <BlurView intensity={80} tint="dark" style={[styles.premiumProfileHeader, { paddingTop: insets.top + 20 }]}>
+          <View style={styles.premiumAvatarContainer}>
             {resolvedAvatarUrl ? (
-              <Image
-                source={{ uri: resolvedAvatarUrl }}
-                style={styles.avatar}
-              />
+              <View style={styles.avatarRing}>
+                <Image
+                  source={{ uri: resolvedAvatarUrl }}
+                  style={styles.premiumAvatar}
+                />
+              </View>
             ) : (
-              <LinearGradient colors={[Colors.gold, '#D4AF37']} style={styles.avatar} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-                <Text style={styles.avatarInitials}>
-                  {(displayName.split(' ')[0][0] || displayName[0] || 'U').toUpperCase()}
-                </Text>
-              </LinearGradient>
+              <View style={styles.avatarRing}>
+                <LinearGradient colors={[Colors.gold, '#D4AF37', '#B8860B']} style={styles.premiumAvatar} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+                  <Text style={styles.premiumAvatarInitials}>
+                    {(displayName.split(' ')[0][0] || displayName[0] || 'U').toUpperCase()}
+                  </Text>
+                </LinearGradient>
+              </View>
             )}
-            <Pressable style={styles.editAvatarButton} onPress={handleAvatarUpdate}>
+            <Pressable style={styles.premiumEditAvatarButton} onPress={handleAvatarUpdate}>
               <Camera size={14} color={Colors.white} />
             </Pressable>
           </View>
-          <Text style={styles.userName}>{displayName}</Text>
-          <Text style={styles.userEmail}>{displayEmail}</Text>
+          <Text style={styles.premiumUserName}>{displayName}</Text>
+          <Text style={styles.premiumUserEmail}>{displayEmail}</Text>
 
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{sessionCount}</Text>
-              <Text style={styles.statLabel}>Sessions</Text>
+          <View style={styles.premiumStatsRow}>
+            <View style={styles.premiumStatItem}>
+              <LinearGradient colors={['rgba(212,175,55,0.2)', 'rgba(212,175,55,0.05)']} style={styles.premiumStatBadge}>
+                <Text style={styles.premiumStatValue}>{sessionCount}</Text>
+              </LinearGradient>
+              <Text style={styles.premiumStatLabel}>Sessions</Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{totalPhotos}</Text>
-              <Text style={styles.statLabel}>Photos</Text>
+            <View style={styles.premiumStatItem}>
+              <LinearGradient colors={['rgba(212,175,55,0.2)', 'rgba(212,175,55,0.05)']} style={styles.premiumStatBadge}>
+                <Text style={styles.premiumStatValue}>{totalPhotos}</Text>
+              </LinearGradient>
+              <Text style={styles.premiumStatLabel}>Photos</Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{unlockedGalleries.length}</Text>
-              <Text style={styles.statLabel}>Galleries</Text>
+            <View style={styles.premiumStatItem}>
+              <LinearGradient colors={['rgba(212,175,55,0.2)', 'rgba(212,175,55,0.05)']} style={styles.premiumStatBadge}>
+                <Text style={styles.premiumStatValue}>{unlockedGalleries.length}</Text>
+              </LinearGradient>
+              <Text style={styles.premiumStatLabel}>Galleries</Text>
             </View>
           </View>
-        </View>
+        </BlurView>
 
         {user?.loyaltyTier && (
           <View style={styles.loyaltyCard}>
@@ -519,23 +550,33 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        <View style={styles.menuContainer}>
-          {accountItems.map((item, index) => (
-            <MenuRow key={index} item={item} />
-          ))}
+        <View style={styles.premiumMenuSection}>
+          <Text style={styles.premiumMenuSectionTitle}>ACCOUNT</Text>
+          <BlurView intensity={40} tint="dark" style={styles.premiumMenuBlur}>
+            {accountItems.map((item, index) => (
+              <View key={index}>
+                <MenuRow item={item} />
+                {index < accountItems.length - 1 && <View style={styles.premiumMenuDivider} />}
+              </View>
+            ))}
+          </BlurView>
         </View>
 
-        <View style={styles.menuContainer}>
-          {settingsItems.map((item, index) => (
-            <MenuRow key={index} item={item} />
-          ))}
+        <View style={styles.premiumMenuSection}>
+          <Text style={styles.premiumMenuSectionTitle}>SETTINGS</Text>
+          <BlurView intensity={40} tint="dark" style={styles.premiumMenuBlur}>
+            {settingsItems.map((item, index) => (
+              <View key={index}>
+                <MenuRow item={item} />
+                {index < settingsItems.length - 1 && <View style={styles.premiumMenuDivider} />}
+              </View>
+            ))}
+          </BlurView>
         </View>
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>ACTIVITY</Text>
-          </View>
-          <View style={styles.activityCard}>
+        <View style={styles.premiumSection}>
+          <Text style={styles.premiumSectionTitle}>ACTIVITY</Text>
+          <BlurView intensity={40} tint="dark" style={styles.premiumActivityBlur}>
             <View style={styles.activityItem}>
               <View style={[styles.activityIconBox, { backgroundColor: 'rgba(212,175,55,0.1)' }]}>
                 <Star size={18} color={Colors.gold} fill={Colors.gold} />
@@ -580,12 +621,53 @@ export default function ProfileScreen() {
                 </Text>
               </View>
             </View>
-          </View>
+          </BlurView>
         </View>
 
-        <Pressable style={styles.logoutButton} onPress={handleLogout}>
-          <LogOut size={20} color={Colors.error} />
-          <Text style={styles.logoutText}>Sign Out</Text>
+        <View style={styles.premiumSection}>
+          <Text style={styles.premiumSectionTitle}>ACHIEVEMENTS</Text>
+          <BlurView intensity={40} tint="dark" style={styles.premiumAchievementsBlur}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.achievementsScroll}>
+              <View style={[styles.achievementBadge, styles.achievementUnlocked]}>
+                <View style={styles.achievementIcon}>
+                  <Camera size={24} color={Colors.gold} />
+                </View>
+                <Text style={styles.achievementTitle}>First Shoot</Text>
+                <Text style={styles.achievementDesc}>Booked your first session</Text>
+              </View>
+              
+              <View style={[styles.achievementBadge, sessionCount >= 3 && styles.achievementUnlocked]}>
+                <View style={styles.achievementIcon}>
+                  <Star size={24} color={sessionCount >= 3 ? Colors.gold : Colors.textMuted} />
+                </View>
+                <Text style={[styles.achievementTitle, sessionCount < 3 && styles.achievementLocked]}>Regular</Text>
+                <Text style={[styles.achievementDesc, sessionCount < 3 && styles.achievementLocked]}>3+ sessions booked</Text>
+              </View>
+              
+              <View style={[styles.achievementBadge, unlockedGalleries.length >= 5 && styles.achievementUnlocked]}>
+                <View style={styles.achievementIcon}>
+                  <Heart size={24} color={unlockedGalleries.length >= 5 ? Colors.gold : Colors.textMuted} />
+                </View>
+                <Text style={[styles.achievementTitle, unlockedGalleries.length < 5 && styles.achievementLocked]}>Collector</Text>
+                <Text style={[styles.achievementDesc, unlockedGalleries.length < 5 && styles.achievementLocked]}>5+ galleries unlocked</Text>
+              </View>
+              
+              <View style={[styles.achievementBadge, totalSpent > 50000 && styles.achievementUnlocked]}>
+                <View style={styles.achievementIcon}>
+                  <Award size={24} color={totalSpent > 50000 ? Colors.gold : Colors.textMuted} />
+                </View>
+                <Text style={[styles.achievementTitle, totalSpent <= 50000 && styles.achievementLocked]}>VIP</Text>
+                <Text style={[styles.achievementDesc, totalSpent <= 50000 && styles.achievementLocked]}>Spent KES 50K+</Text>
+              </View>
+            </ScrollView>
+          </BlurView>
+        </View>
+
+        <Pressable style={styles.premiumLogoutButton} onPress={handleLogout}>
+          <LinearGradient colors={['rgba(239,68,68,0.15)', 'rgba(239,68,68,0.05)']} style={styles.premiumLogoutGradient}>
+            <LogOut size={20} color={Colors.error} />
+            <Text style={styles.premiumLogoutText}>Sign Out</Text>
+          </LinearGradient>
         </Pressable>
       </ScrollView>
 
@@ -606,9 +688,8 @@ const styles = StyleSheet.create({
   },
   profileHeader: {
     alignItems: 'center',
+    paddingHorizontal: 40,
     paddingBottom: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
   avatarContainer: {
     position: 'relative',
@@ -656,8 +737,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
-    paddingHorizontal: 40,
+    paddingHorizontal: 20,
     justifyContent: 'space-between',
+    marginTop: 16,
   },
   statItem: {
     alignItems: 'center',
@@ -933,5 +1015,289 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 10,
     fontSize: 14,
+  },
+  // Achievements styles
+  achievementsContainer: {
+    marginHorizontal: 20,
+  },
+  achievementsScroll: {
+    paddingRight: 20,
+    gap: 12,
+  },
+  achievementBadge: {
+    width: 120,
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    opacity: 0.6,
+  },
+  achievementUnlocked: {
+    opacity: 1,
+    borderColor: Colors.gold,
+    backgroundColor: 'rgba(212,175,55,0.05)',
+  },
+  achievementIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  achievementTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.white,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  achievementDesc: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
+  achievementLocked: {
+    color: Colors.textMuted,
+  },
+  // Premium styles
+  premiumProfileHeader: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+    backgroundColor: 'rgba(20,19,19,0.7)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(212,175,55,0.15)',
+  },
+  premiumAvatarContainer: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  avatarRing: {
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    padding: 4,
+    backgroundColor: 'rgba(212,175,55,0.3)',
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  premiumAvatar: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    borderWidth: 2,
+    borderColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premiumAvatarInitials: {
+    fontSize: 40,
+    fontWeight: '800',
+    color: Colors.white,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  premiumEditAvatarButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: Colors.gold,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: Colors.background,
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  premiumUserName: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: Colors.white,
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
+  premiumUserEmail: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginBottom: 24,
+    fontWeight: '500',
+  },
+  premiumStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 20,
+    marginTop: 8,
+  },
+  premiumStatItem: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  premiumStatBadge: {
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.25)',
+  },
+  premiumStatValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: Colors.gold,
+  },
+  premiumStatLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  // Premium menu styles
+  premiumMenuSection: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+  },
+  premiumMenuSectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.gold,
+    marginBottom: 10,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    opacity: 0.9,
+  },
+  premiumMenuBlur: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(28,28,30,0.4)',
+  },
+  premiumMenuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  premiumMenuIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.15)',
+  },
+  premiumMenuContent: {
+    flex: 1,
+  },
+  premiumMenuLabel: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: Colors.white,
+    marginBottom: 3,
+  },
+  premiumMenuSubtitle: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    fontWeight: '500',
+  },
+  premiumMenuBadge: {
+    backgroundColor: 'rgba(212,175,55,0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.3)',
+  },
+  premiumMenuBadgeText: {
+    fontSize: 12,
+    color: Colors.gold,
+    fontWeight: '800',
+  },
+  premiumChevronContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  premiumMenuDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginLeft: 76,
+  },
+  // Premium section styles
+  premiumSection: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  premiumSectionTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.gold,
+    marginBottom: 10,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    opacity: 0.9,
+  },
+  premiumActivityBlur: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(28,28,30,0.4)',
+    padding: 20,
+  },
+  premiumAchievementsBlur: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(28,28,30,0.4)',
+    paddingVertical: 16,
+    paddingLeft: 16,
+  },
+  // Premium logout button
+  premiumLogoutButton: {
+    marginTop: 32,
+    marginHorizontal: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+  },
+  premiumLogoutGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 10,
+  },
+  premiumLogoutText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Colors.error,
   },
 });

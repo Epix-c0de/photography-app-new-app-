@@ -8,6 +8,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { ChevronLeft, Search, Play } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
+import { demoBtsPosts } from '@/lib/demo';
+import { useAuth } from '@/contexts/AuthContext';
 import type { Database } from '@/types/supabase';
 
 type BTSPost = Database['public']['Tables']['bts_posts']['Row'];
@@ -18,6 +20,7 @@ type Filter = (typeof FILTERS)[number];
 export default function BTSAllScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isDemoMode } = useAuth();
   const [filter, setFilter] = useState<Filter>('All');
   const [sort, setSort] = useState<'newest' | 'oldest'>('newest');
   const [search, setSearch] = useState('');
@@ -28,13 +31,23 @@ export default function BTSAllScreen() {
   const fetchPosts = useCallback(
     async (overrideSearch?: string) => {
       setLoading(true);
+      if (isDemoMode) {
+        const searchValue = (overrideSearch ?? search).trim().toLowerCase();
+        const filtered = demoBtsPosts
+          .filter((post) => filter === 'All' || post.category === filter)
+          .filter((post) => searchValue.length === 0 || String(post.title ?? '').toLowerCase().includes(searchValue));
+        setPosts(filtered);
+        setLoading(false);
+        return;
+      }
+
       const searchValue = (overrideSearch ?? search).trim();
       const nowIso = new Date().toISOString();
       let query = supabase
         .from('bts_posts')
         .select('*')
         .eq('is_active', true)
-        .or(`expires_at.is.null,expires_at.gt.${nowIso}`);
+        .gt('expires_at', nowIso);
 
       if (filter !== 'All') query = query.eq('category', filter);
       if (searchValue.length > 0) query = query.ilike('title', `%${searchValue}%`);
@@ -51,7 +64,7 @@ export default function BTSAllScreen() {
       setPosts(data);
       setLoading(false);
     },
-    [filter, search, sort]
+    [filter, isDemoMode, search, sort]
   );
 
   useEffect(() => {
@@ -67,6 +80,7 @@ export default function BTSAllScreen() {
   }, [fetchPosts, search]);
 
   useEffect(() => {
+    if (isDemoMode) return;
     const channel = supabase
       .channel('bts_posts_all')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bts_posts' }, () => fetchPosts())
@@ -75,12 +89,7 @@ export default function BTSAllScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchPosts]);
-
-  useEffect(() => {
-    const timer = setInterval(() => fetchPosts(), 30000);
-    return () => clearInterval(timer);
-  }, [fetchPosts]);
+  }, [fetchPosts, isDemoMode]);
 
   return (
     <View style={styles.container}>
@@ -146,9 +155,11 @@ export default function BTSAllScreen() {
               <Image source={{ uri: item.media_url }} style={styles.cardImage} contentFit="cover" />
               <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.cardOverlay} />
               <View style={styles.cardMeta}>
-                <Text style={styles.cardCategory} numberOfLines={1}>
-                  {item.category ?? 'BTS'}
-                </Text>
+                <View style={styles.cardRibbon}>
+                  <Text style={styles.cardCategory} numberOfLines={1}>
+                    {item.category ?? 'BTS'}
+                  </Text>
+                </View>
                 <Text style={styles.cardTitle} numberOfLines={1}>
                   {item.title ?? 'Behind the Scenes'}
                 </Text>
@@ -292,7 +303,7 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     margin: 6,
-    height: 220,
+    aspectRatio: 9/16,
     borderRadius: 18,
     overflow: 'hidden' as const,
     backgroundColor: Colors.card,
@@ -311,18 +322,29 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     bottom: 12,
+    alignItems: 'flex-start' as const,
+  },
+  cardRibbon: {
+    backgroundColor: Colors.gold,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginBottom: 6,
   },
   cardCategory: {
     fontSize: 10,
-    fontWeight: '700' as const,
-    color: Colors.gold,
+    fontWeight: '800' as const,
+    color: Colors.background,
     textTransform: 'uppercase' as const,
-    marginBottom: 4,
+    letterSpacing: 0.5,
   },
   cardTitle: {
-    fontSize: 13,
-    fontWeight: '600' as const,
+    fontSize: 14,
+    fontWeight: '700' as const,
     color: Colors.white,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   videoBadge: {
     position: 'absolute' as const,

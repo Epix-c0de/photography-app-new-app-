@@ -1,28 +1,14 @@
-import { Link, Stack, usePathname, useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { Link, Stack } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import Colors from '@/constants/colors';
 
 export default function NotFoundScreen() {
-  const router = useRouter();
-  const pathname = usePathname();
-
-  useEffect(() => {
-    // Force redirect on web when getting trapped in literal /(tabs)/ routes
-    if (pathname === '/(tabs)/home' || pathname === '/%28tabs%29/home' || pathname === '/(tabs)') {
-      router.replace('/home' as any);
-    } else if (pathname.includes('/(tabs)/') || pathname.includes('/%28tabs%29/')) {
-      const cleanPath = pathname.replace(/\/\(tabs\)\/|\/%28tabs%29\//, '/');
-      router.replace(cleanPath as any);
-    }
-  }, [pathname, router]);
-
   return (
     <>
       <Stack.Screen options={{ title: 'Not Found', headerStyle: { backgroundColor: Colors.background }, headerTintColor: Colors.white }} />
       <View style={styles.container}>
         <Text style={styles.title}>This screen doesn&apos;t exist.</Text>
-        <Link href="/home" style={styles.link}>
+        <Link href="/" style={styles.link}>
           <Text style={styles.linkText}>Go back home</Text>
         </Link>
       </View>

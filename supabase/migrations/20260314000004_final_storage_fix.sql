@@ -75,8 +75,5 @@ TO authenticated
 USING (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text)
 WITH CHECK (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text);
 
--- 5. Ensure user_profiles has the correct role for the current user
--- This is a self-fix for the admin running this migration
-UPDATE public.user_profiles 
-SET role = 'admin' 
-WHERE id = auth.uid();
+-- STEP 5: (Skipped in migration - run manually in dashboard if needed)
+-- UPDATE public.user_profiles SET role = 'admin' WHERE id = auth.uid();

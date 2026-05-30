@@ -1,11 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert, Linking as NativeLinking } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert, Linking as NativeLinking, ImageBackground } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Mail, Lock, Eye, EyeOff, ArrowRight } from 'lucide-react-native';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Fingerprint } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ExpoLinking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import * as LocalAuthentication from 'expo-local-authentication';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -24,10 +26,59 @@ export default function LoginScreen() {
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const buttonScale = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [hasBiometrics, setHasBiometrics] = useState<boolean>(false);
+  const [savedEmail, setSavedEmail] = useState<string | null>(null);
 
-  useState(() => {
+  useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-  });
+    
+    // Check if biometrics are available and we have a saved email
+    (async () => {
+      const compatible = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = await LocalAuthentication.isEnrolledAsync();
+      setHasBiometrics(compatible && enrolled);
+      
+      const email = await AsyncStorage.getItem('saved_login_email');
+      const token = await AsyncStorage.getItem('saved_login_token');
+      if (email && token && compatible && enrolled) {
+        setSavedEmail(email);
+        setEmail(email);
+      }
+    })();
+  }, []);
+
+  const handleBiometricLogin = async () => {
+    if (!hasBiometrics) return;
+    
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Authenticate to sign in',
+        fallbackLabel: 'Use password',
+      });
+      
+      if (result.success) {
+        setIsSubmitting(true);
+        // We'd ideally use the saved token here with Supabase, 
+        // but for now we'll check if session is still valid or trigger a magic link
+        const token = await AsyncStorage.getItem('saved_login_token');
+        if (token) {
+           const { data, error } = await supabase.auth.getUser(token);
+           if (!error && data?.user) {
+             router.replace('/(tabs)/home');
+             return;
+           }
+        }
+        
+        // If no token or invalid, fallback to normal auth prompt or error
+        Alert.alert('Session Expired', 'Please sign in with your password once to re-enable FaceID/TouchID.');
+        setIsSubmitting(false);
+      }
+    } catch (e) {
+      console.error(e);
+      setIsSubmitting(false);
+    }
+  };
 
   const handleResendEmail = useCallback(async (emailToResend: string) => {
     try {
@@ -53,6 +104,16 @@ export default function LoginScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       await login(email, password);
+      
+      // Save credentials for biometrics
+      if (hasBiometrics) {
+        await AsyncStorage.setItem('saved_login_email', email);
+        const session = await supabase.auth.getSession();
+        if (session.data.session?.access_token) {
+          await AsyncStorage.setItem('saved_login_token', session.data.session.access_token);
+        }
+      }
+      
       router.replace('/(tabs)/home');
     } catch (error: any) {
       console.error('[Login] Error:', error);
@@ -90,7 +151,6 @@ export default function LoginScreen() {
         return;
       }
 
-      // 1. Native-only redirect URI for Play Store app
       const redirectUrl = ExpoLinking.createURL('auth/callback');
 
       console.log('[Google Sign-In] redirectUrl:', redirectUrl);
@@ -116,12 +176,6 @@ export default function LoginScreen() {
       }
 
       console.log('[Google Sign-In] Opening browser for:', data.url);
-
-      if (Platform.OS === 'android') {
-        await NativeLinking.openURL(data.url);
-        setIsSubmitting(false);
-        return;
-      }
 
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
@@ -191,12 +245,16 @@ export default function LoginScreen() {
   }, [buttonScale]);
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+    <ImageBackground
+      source={{ uri: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?q=80&w=1000&auto=format&fit=crop' }}
+      style={styles.container}
+      blurRadius={Platform.OS === 'ios' ? 8 : 4}
+    >
       <LinearGradient
-        colors={['#0A0A0A', '#0F0F0F', '#0A0A0A']}
+        colors={['rgba(10,10,12,0.4)', 'rgba(10,10,12,0.95)', Colors.background]}
         style={StyleSheet.absoluteFillObject}
       />
+      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -274,6 +332,13 @@ export default function LoginScreen() {
                 </Animated.View>
               </Pressable>
 
+              {hasBiometrics && savedEmail && (
+                <Pressable onPress={handleBiometricLogin} style={styles.biometricButton}>
+                  <Fingerprint size={24} color={Colors.gold} />
+                  <Text style={styles.biometricText}>Sign in with Biometrics</Text>
+                </Pressable>
+              )}
+
               <Pressable onPress={() => router.push('/signup')} style={{ marginTop: 20, alignItems: 'center' }}>
                   <Text style={{ color: Colors.textMuted }}>
                       {"Don't have an account? "}<Text style={{ color: Colors.gold, fontWeight: '600' }}>Sign Up</Text>
@@ -305,7 +370,7 @@ export default function LoginScreen() {
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </View>
+    </ImageBackground>
   );
 }
 
@@ -415,6 +480,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700' as const,
     color: Colors.background,
+  },
+  biometricButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginTop: -10,
+    marginBottom: 20,
+  },
+  biometricText: {
+    color: Colors.gold,
+    fontSize: 15,
+    fontWeight: '600' as const,
   },
   dividerRow: {
     flexDirection: 'row' as const,
