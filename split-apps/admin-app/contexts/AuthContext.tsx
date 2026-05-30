@@ -18,6 +18,9 @@ interface UserProfile {
   client_type: string | null;
   profile_complete: boolean;
   created_at: string;
+  subscription_status?: string | null;
+  subscription_expires_at?: string | null;
+  is_lifetime?: boolean | null;
 }
 
 interface AuthState {
@@ -69,6 +72,7 @@ interface AuthContextType extends AuthState {
   updateAdminSecurity: (updates: Partial<AdminSecurityState>) => void;
   verifyAdminGuard: (action: AdminGuardAction) => Promise<boolean>;
   isLoggedIn: boolean;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -609,6 +613,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           router.replace('/security-setup' as any);
         } else if (requiresAuthOnLaunch) {
           router.replace('/auth-required' as any);
+        } else if (
+          // Subscription gate: block expired admins (not super_admin, not lifetime)
+          (profile.role === 'admin') &&
+          !profile.is_lifetime &&
+          (profile.subscription_status === 'inactive' ||
+           profile.subscription_status === 'expired' ||
+           (profile.subscription_status === 'active' &&
+            profile.subscription_expires_at != null &&
+            new Date(profile.subscription_expires_at) < new Date()))
+        ) {
+          router.replace('/subscription-expired' as any);
         }
         if (profile.role === 'client') {
           try {
@@ -750,6 +765,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updateAdminSecurity,
     verifyAdminGuard,
     isLoggedIn: state.isAuthenticated,
+    refreshUser: async () => {
+      if (!state.user?.id) return;
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', state.user.id)
+        .single();
+      if (profile) {
+        setState(prev => ({ ...prev, profile }));
+      }
+    },
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -32,6 +32,14 @@ function RootLayoutNav() {
       <Stack.Screen name="(admin)" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="auth" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen
+        name="subscription-expired"
+        options={{
+          headerShown: false,
+          gestureEnabled: false,
+          animation: 'slide_from_bottom',
+        }}
+      />
+      <Stack.Screen
         name="notifications"
         options={{
           headerShown: false,
