@@ -40,6 +40,14 @@ function RootLayoutNav() {
         }}
       />
       <Stack.Screen
+        name="web-login-approval"
+        options={{
+          headerShown: false,
+          presentation: 'modal',
+          animation: 'slide_from_bottom',
+        }}
+      />
+      <Stack.Screen
         name="notifications"
         options={{
           headerShown: false,

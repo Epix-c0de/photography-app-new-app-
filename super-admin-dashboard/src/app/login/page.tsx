@@ -13,19 +13,14 @@ export default function SuperAdminLogin() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
+    setError(''); setLoading(true);
 
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password });
       if (authError) throw authError;
 
-      // Only super_admin can access this dashboard
       const { data: profile } = await supabase
-        .from('user_profiles')
-        .select('role')
-        .eq('id', data.user.id)
-        .single() as any;
+        .from('user_profiles').select('role').eq('id', data.user.id).single() as any;
 
       if (profile?.role !== 'super_admin') {
         await supabase.auth.signOut();
@@ -41,51 +36,64 @@ export default function SuperAdminLogin() {
   };
 
   return (
-    <main className="min-h-screen bg-background flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="text-4xl mb-3">👑</div>
-          <h1 className="text-2xl font-black text-gold">Super Admin</h1>
-          <p className="text-gray-400 text-sm mt-1">Epix Visuals Platform Control</p>
-        </div>
+    <main className="min-h-screen flex items-center justify-center px-4" style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(212,175,55,0.08) 0%, #080810 60%)' }}>
+      {/* Background grid */}
+      <div className="fixed inset-0 pointer-events-none" style={{
+        backgroundImage: 'linear-gradient(rgba(212,175,55,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(212,175,55,0.03) 1px, transparent 1px)',
+        backgroundSize: '60px 60px',
+      }} />
 
-        <form onSubmit={handleLogin} className="bg-card border border-white/5 rounded-2xl p-6 space-y-4">
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-red-400 text-sm">
-              {error}
+      <div className="w-full max-w-sm relative">
+        {/* Glow */}
+        <div className="absolute inset-0 rounded-3xl pointer-events-none" style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(212,175,55,0.12) 0%, transparent 70%)', filter: 'blur(20px)' }} />
+
+        <div className="relative" style={{
+          background: 'linear-gradient(135deg, rgba(212,175,55,0.06) 0%, rgba(13,13,25,0.95) 100%)',
+          border: '1px solid rgba(212,175,55,0.15)',
+          borderRadius: 24,
+          padding: 36,
+          backdropFilter: 'blur(20px)',
+        }}>
+          {/* Logo */}
+          <div className="text-center mb-8">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black mx-auto mb-4"
+              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810', boxShadow: '0 8px 32px rgba(212,175,55,0.3)' }}>
+              👑
             </div>
-          )}
-
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-background border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-gold/50"
-              required
-            />
+            <h1 className="text-2xl font-black gold-text">Super Admin</h1>
+            <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.35)' }}>Epix Visuals Platform Control</p>
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-background border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-gold/50"
-              required
-            />
-          </div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            {error && (
+              <div className="rounded-xl p-3 text-sm" style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.2)', color: '#FF3B30' }}>
+                {error}
+              </div>
+            )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-gold text-black font-bold py-3 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50"
-          >
-            {loading ? 'Signing in...' : 'Sign in'}
-          </button>
-        </form>
+            <div>
+              <label className="block text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Email</label>
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                className="input-premium" placeholder="epixshots002@gmail.com" required />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Password</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                className="input-premium" placeholder="••••••••••" required />
+            </div>
+
+            <button type="submit" disabled={loading}
+              className="btn-gold w-full py-3.5 text-sm mt-2"
+              style={{ fontSize: 14 }}>
+              {loading ? 'Signing in...' : 'Access Platform →'}
+            </button>
+          </form>
+
+          <p className="text-center text-xs mt-6" style={{ color: 'rgba(255,255,255,0.2)' }}>
+            Restricted access · Super admin only
+          </p>
+        </div>
       </div>
     </main>
   );
