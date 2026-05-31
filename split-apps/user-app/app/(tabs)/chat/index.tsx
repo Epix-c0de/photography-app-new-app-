@@ -175,12 +175,13 @@ export default function ChatScreen() {
 
         const threads = await Promise.all((profiles || []).map(async (admin: any) => {
           const cr = (clientRows || []).find((c: any) => c.owner_admin_id === admin.id);
+          const clientId = cr?.id ?? '';
           const { data: lm } = await supabase.from('messages').select('content, created_at')
-            .eq('client_id', cr?.id).eq('owner_admin_id', admin.id)
+            .eq('client_id', clientId).eq('owner_admin_id', admin.id)
             .order('created_at', { ascending: false }).limit(1).maybeSingle();
           const { count: unread } = await supabase.from('messages')
             .select('*', { count: 'exact', head: true })
-            .eq('client_id', cr?.id).eq('owner_admin_id', admin.id)
+            .eq('client_id', clientId).eq('owner_admin_id', admin.id)
             .eq('sender_role', 'admin').eq('is_read', false);
           return {
             adminId: admin.id, adminName: admin.name || 'Photographer',
