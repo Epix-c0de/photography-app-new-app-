@@ -344,7 +344,10 @@ export const ClientService = {
 
       const { data, error } = await supabase
         .from('bts_posts')
-        .select('*')
+        .select(`
+          *,
+          user_profiles:created_by (id, name, avatar_url)
+        `)
         .eq('is_active', true)
         .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
         .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
@@ -599,7 +602,10 @@ export const ClientService = {
       }
       const { data, error } = await supabase
         .from('portfolio_items')
-        .select('*')
+        .select(`
+          *,
+          user_profiles:admin_id (id, name, avatar_url)
+        `)
         .eq('is_active', true)
         .order('created_at', { ascending: false });
         
@@ -628,7 +634,10 @@ export const ClientService = {
       }
       const { data, error } = await supabase
         .from('portfolio_items')
-        .select('*')
+        .select(`
+          *,
+          user_profiles:admin_id (id, name, avatar_url)
+        `)
         .eq('is_active', true)
         .eq('is_top_rated', true)
         .order('created_at', { ascending: false });

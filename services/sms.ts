@@ -4,7 +4,8 @@ import NetInfo from '@react-native-community/netinfo';
 import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 import type { Database } from '../types/supabase';
-import { LocalSmsGateway } from '@lenzart/local-sms-gateway';
+// DISABLED: Root app not used, moved to split-apps
+// import { LocalSmsGateway } from '@lenzart/local-sms-gateway';
 
 export type SMSLog = Database['public']['Tables']['sms_logs']['Row'];
 export type SMSLogWithClient = SMSLog & { clients: { name: string } | null };
@@ -71,14 +72,15 @@ export const SMSService = {
    * Check if SMS is available on the device
    */
   isAvailable: async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const status = await LocalSmsGateway.getStatus();
-        return status.sendSmsPermission === 'granted';
-      } catch {
-        return await SMS.isAvailableAsync();
-      }
-    }
+    // DISABLED: Root app not used, moved to split-apps
+    // if (Platform.OS === 'android') {
+    //   try {
+    //     const status = await LocalSmsGateway.getStatus();
+    //     return status.sendSmsPermission === 'granted';
+    //   } catch {
+    //     return await SMS.isAvailableAsync();
+    //   }
+    // }
     return await SMS.isAvailableAsync();
   },
 
@@ -91,52 +93,8 @@ export const SMSService = {
       const msg = message.trim();
       if (!pn || !msg) throw new Error('Missing phone number or message');
 
-      if (Platform.OS === 'android') {
-        const sendResult = await LocalSmsGateway.sendSms({ phoneNumber: pn, message: msg, subscriptionId: subscriptionId ?? null });
-        if (sendResult.status === 'sent') {
-          await SMSService.logs.record({
-            phone_number: pn,
-            message: msg,
-            client_id: clientId ?? null,
-            status: 'sent',
-            sent_at: sendResult.sentAt,
-            error_message: null,
-          });
-          return 'sent';
-        }
-
-        const errorCode = sendResult.status === 'failed' ? sendResult.errorCode : sendResult.errorCode;
-        const errorMessage = sendResult.status === 'failed' ? sendResult.errorMessage : sendResult.errorMessage;
-
-        if (errorCode === 'NO_SERVICE' || errorCode === 'RADIO_OFF') {
-          await SMSService.queue.enqueue({
-            phone_number: pn,
-            message: msg,
-            client_id: clientId ?? null,
-            last_error: `${errorCode}: ${errorMessage}`,
-          });
-          await SMSService.logs.record({
-            phone_number: pn,
-            message: msg,
-            client_id: clientId ?? null,
-            status: 'queued',
-            sent_at: null,
-            error_message: `${errorCode}: ${errorMessage}`,
-          });
-          return 'queued';
-        }
-
-        await SMSService.logs.record({
-          phone_number: pn,
-          message: msg,
-          client_id: clientId ?? null,
-          status: 'failed',
-          sent_at: null,
-          error_message: `${errorCode}: ${errorMessage}`,
-        });
-        return 'failed';
-      }
-
+      // DISABLED: Root app not used, moved to split-apps - LocalSmsGateway calls removed
+      // Use expo-sms fallback only
       const isAvailable = await SMS.isAvailableAsync();
       if (!isAvailable) throw new Error('SMS is not available on this device');
       const { result } = await SMS.sendSMSAsync([pn], msg);
@@ -385,35 +343,13 @@ export const SMSService = {
           continue;
         }
 
-        if (item.send_status === 'pending' && Platform.OS === 'android') {
-          const now = Date.now();
-          const waitMs = Math.max(0, MIN_SEND_INTERVAL_MS - (now - lastSendAt));
-          if (waitMs > 0) {
-            updated.push(item);
-            continue;
-          }
-
-          try {
-            const sendResult = await LocalSmsGateway.sendSms({ phoneNumber: item.phone_number, message: item.message, subscriptionId: null });
-            lastSendAt = Date.now();
-
-            if (sendResult.status === 'sent') {
-              item.send_status = 'sent';
-              item.sent_at = sendResult.sentAt;
-              item.last_error = null;
-              item.needs_record = true;
-            } else {
-              item.attempt_count += 1;
-              item.last_error = `${sendResult.errorCode}: ${sendResult.errorMessage}`;
-              const delayMs = Math.min(5 * 60 * 1000, 10_000 * item.attempt_count);
-              item.next_attempt_at = new Date(Date.now() + delayMs).toISOString();
-            }
-          } catch (e: any) {
-            item.attempt_count += 1;
-            item.last_error = e?.message ?? 'Failed to send';
-            const delayMs = Math.min(5 * 60 * 1000, 10_000 * item.attempt_count);
-            item.next_attempt_at = new Date(Date.now() + delayMs).toISOString();
-          }
+        // DISABLED: Root app not used, LocalSmsGateway removed
+        // Skip send attempts in root app
+        if (item.send_status === 'pending') {
+          item.attempt_count += 1;
+          item.last_error = 'Root app disabled';
+          const delayMs = Math.min(5 * 60 * 1000, 10_000 * item.attempt_count);
+          item.next_attempt_at = new Date(Date.now() + delayMs).toISOString();
         }
 
         if (item.needs_record && canRecord) {

@@ -36,6 +36,7 @@ import { useBranding, DEFAULTS } from '@/contexts/BrandingContext';
 import { useRouter } from 'expo-router';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
+import PhotographerCodeDisplay from '@/components/PhotographerCodeDisplay';
 
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -163,6 +164,7 @@ export default function AdminSettingsScreen() {
   const [shareAppLink, setShareAppLink] = useState('https://studio.epix.co/share/');
   const [accessCodeDeliveryLink, setAccessCodeDeliveryLink] = useState('https://studio.epix.co/unlock?code=');
   const [pendingManualPayments, setPendingManualPayments] = useState(0);
+  const [photographerCode, setPhotographerCode] = useState<string>('');
 
   const handleSaveLinks = useCallback(async () => {
     try {
@@ -189,6 +191,19 @@ export default function AdminSettingsScreen() {
   useEffect(() => {
     const fetchSettings = async () => {
       if (!user) return;
+      
+      // Fetch photographer code from user_profiles
+      const { data: profileData } = await supabase
+        .from('user_profiles')
+        .select('photographer_code')
+        .eq('id', user.id)
+        .maybeSingle();
+      
+      if (profileData?.photographer_code) {
+        setPhotographerCode(profileData.photographer_code);
+      }
+      
+      // Fetch admin settings
       const { data } = await supabase
         .from('admin_settings')
         .select('*')
@@ -203,7 +218,7 @@ export default function AdminSettingsScreen() {
       // Fetch pending manual payments count
       try {
         const { count } = await supabase
-          .from('manual_payments')
+          .from('manual_payment_verifications')
           .select('*', { count: 'exact', head: true })
           .eq('admin_id', user.id)
           .eq('status', 'pending');
@@ -441,6 +456,16 @@ export default function AdminSettingsScreen() {
 
         {activeTab === 'general' ? (
           <>
+            {/* Photographer Code Section */}
+            {photographerCode && (
+              <SettingsSection title="CLIENT ASSIGNMENT CODE">
+                <PhotographerCodeDisplay
+                  photographerCode={photographerCode}
+                  onCodeRegenerated={(newCode) => setPhotographerCode(newCode)}
+                />
+              </SettingsSection>
+            )}
+
             <SettingsSection title="BUSINESS MANAGEMENT">
               <SettingsRow
                 icon={<Smartphone size={18} color="#6C9AED" />}

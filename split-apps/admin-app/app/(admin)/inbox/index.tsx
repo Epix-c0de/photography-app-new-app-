@@ -269,7 +269,7 @@ function ChatView({ thread }: { thread: AdminChatThread }) {
         </View>
         <Pressable 
           style={styles.chatHeaderAction} 
-          onPress={() => router.push(`/upload?userId=${thread.clientId}`)}
+          onPress={() => router.push(`/(admin)/upload?userId=${thread.clientId}` as any)}
         >
           <Camera size={18} color={Colors.gold} />
         </Pressable>

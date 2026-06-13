@@ -10,6 +10,8 @@ import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { demoMessages, demoProfile } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
+import { useAssignmentStatus } from '@/hooks/useAssignmentStatus';
+import UnassignedEmptyState from '@/components/UnassignedEmptyState';
 
 interface ChatMessage {
   id: string;
@@ -145,10 +147,9 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { brandName, logoUrl, activeAdminId } = useBranding();
   const { isDemoMode } = useAuth();
+  const { isAssigned, loading: assignmentLoading } = useAssignmentStatus();
 
   // ── Multi-photographer thread list ──────────────────────────────────────────
-  // If the client is linked to 2+ photographers, show a thread list first.
-  // Tapping a thread sets selectedThreadAdminId and renders the normal chat.
   const [threadCheckDone, setThreadCheckDone] = useState(false);
   const [multiAdmin, setMultiAdmin] = useState(false);
   const [selectedThreadAdminId, setSelectedThreadAdminId] = useState<string | null>(null);
@@ -158,6 +159,13 @@ export default function ChatScreen() {
   }>>([]);
 
   useEffect(() => {
+    // Skip thread check entirely for unassigned users
+    if (!isDemoMode && !assignmentLoading && !isAssigned) {
+      setThreadCheckDone(true);
+      return;
+    }
+    // Wait for assignment to finish loading before doing thread check
+    if (assignmentLoading) return;
     if (isDemoMode) { setThreadCheckDone(true); return; }
     (async () => {
       try {
@@ -198,9 +206,23 @@ export default function ChatScreen() {
       } catch {}
       setThreadCheckDone(true);
     })();
-  }, [isDemoMode]);
+  }, [isDemoMode, isAssigned, assignmentLoading]);
 
-  // Show thread list when multi-admin and no thread selected yet
+  // ── Show spinner while assignment status is still loading ──
+  if (!isDemoMode && assignmentLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={Colors.gold} />
+      </View>
+    );
+  }
+
+  // ── Show unassigned card — invite the photographer to the platform ──
+  if (!isDemoMode && !isAssigned) {
+    return <UnassignedEmptyState featureName="chat with your photographer" />;
+  }
+
+  // Loading thread check
   if (!threadCheckDone) {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' }}>
@@ -260,8 +282,28 @@ export default function ChatScreen() {
   }
   // ── End thread list ──────────────────────────────────────────────────────────
 
+  // Render the actual chat — ChatBody has all its own hooks (no violation)
+  return (
+    <ChatBody
+      initialMessage={initialMessage || ''}
+      isDemoMode={isDemoMode}
+      activeAdminId={selectedThreadAdminId ?? activeAdminId}
+      brandName={brandName}
+    />
+  );
+}
+
+// ─── ChatBody: all chat hooks live here, rendered only when user is assigned ───
+function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName }: {
+  initialMessage: string;
+  isDemoMode: boolean;
+  activeAdminId: string | null;
+  brandName: string;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState<string>(initialMessage || '');
+  const insets = useSafeAreaInsets();
+  const { logoUrl } = useBranding();
 
   // clientRowId = the ID from the "clients" table (not auth user id)
   const [clientRowId, setClientRowId] = useState<string | null>(null);

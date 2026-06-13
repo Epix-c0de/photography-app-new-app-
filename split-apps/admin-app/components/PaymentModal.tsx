@@ -124,7 +124,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
 
         try {
           // Trigger STK Push via Edge Function
-          const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
+          const { data, error } = await supabase.functions.invoke('stk_push', {
             body: {
               phone_number: phoneNumber,
               amount: gallery.price,
@@ -211,7 +211,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
 
     try {
       // 1. Trigger STK Push via Edge Function
-      const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
+      const { data, error } = await supabase.functions.invoke('stk_push', {
         body: {
           phone_number: phoneNumber,
           amount: gallery.price,

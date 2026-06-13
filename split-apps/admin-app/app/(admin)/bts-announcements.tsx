@@ -131,7 +131,7 @@ export default function AdminBtsAnnouncementsScreen() {
   const [btsExpiryDays, setBtsExpiryDays] = useState('7');
   const [btsScheduledFor, setBtsScheduledFor] = useState('');
   const [btsMusicFile, setBtsMusicFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
-  const [btsVisibility, setBtsVisibility] = useState<'global' | 'admin_only'>('global');
+  const [btsVisibility, setBtsVisibility] = useState<'global' | 'assigned_only' | 'private'>('assigned_only');
 
   // Announcement Form State
   const [annPicked, setAnnPicked] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -144,6 +144,7 @@ export default function AdminBtsAnnouncementsScreen() {
   const [annExpiryDays, setAnnExpiryDays] = useState('30');
   const [annScheduledFor, setAnnScheduledFor] = useState('');
   const [annTargetAudience, setAnnTargetAudience] = useState<string[]>([]);
+  const [annVisibility, setAnnVisibility] = useState<'global' | 'assigned_only' | 'private'>('assigned_only');
 
   // Portfolio Form State
   const [portfolioPicked, setPortfolioPicked] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -578,6 +579,7 @@ export default function AdminBtsAnnouncementsScreen() {
           expires_at: expiresAtIso,
           scheduled_for: scheduledForIso,
           target_audience: annTargetAudience,
+          visibility: annVisibility,
           is_active: true,
           created_by: user?.id,
           media_aspect_ratio: annPicked.width / annPicked.height,
@@ -624,7 +626,7 @@ export default function AdminBtsAnnouncementsScreen() {
       Alert.alert('Error', error.message || 'Failed to post announcement');
       setPosting(false);
     }
-  }, [annPicked, annTitle, annDescription, annContentHtml, annCategory, annTag, annExpiryDays, annScheduledFor, annTargetAudience, annMediaType, user]);
+  }, [annPicked, annTitle, annDescription, annContentHtml, annCategory, annTag, annExpiryDays, annScheduledFor, annTargetAudience, annVisibility, annMediaType, user]);
 
   const generateVideoThumbnail = useCallback(async (videoUri: string): Promise<string | null> => {
     try {
@@ -1041,25 +1043,38 @@ export default function AdminBtsAnnouncementsScreen() {
 
             {/* Visibility toggle */}
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Audience</Text>
-              <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Text style={styles.inputLabel}>Visibility</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
                 <Pressable
                   style={[styles.categoryButton, btsVisibility === 'global' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
                   onPress={() => setBtsVisibility('global')}
                 >
                   <Text style={[styles.categoryButtonText, btsVisibility === 'global' && styles.categoryButtonTextActive]}>
-                    🌍 All Clients
+                    🌍 Global
                   </Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.categoryButton, btsVisibility === 'admin_only' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
-                  onPress={() => setBtsVisibility('admin_only')}
+                  style={[styles.categoryButton, btsVisibility === 'assigned_only' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
+                  onPress={() => setBtsVisibility('assigned_only')}
                 >
-                  <Text style={[styles.categoryButtonText, btsVisibility === 'admin_only' && styles.categoryButtonTextActive]}>
-                    🔒 My Clients Only
+                  <Text style={[styles.categoryButtonText, btsVisibility === 'assigned_only' && styles.categoryButtonTextActive]}>
+                    🔒 My Clients
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.categoryButton, btsVisibility === 'private' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
+                  onPress={() => setBtsVisibility('private')}
+                >
+                  <Text style={[styles.categoryButtonText, btsVisibility === 'private' && styles.categoryButtonTextActive]}>
+                    🔐 Private
                   </Text>
                 </Pressable>
               </View>
+              <Text style={styles.inputHint}>
+                {btsVisibility === 'global' ? 'Visible to all users' : 
+                 btsVisibility === 'assigned_only' ? 'Only your assigned clients can see this' :
+                 'Only you can see this'}
+              </Text>
             </View>
 
             {/* Expiry */}
@@ -1218,6 +1233,42 @@ export default function AdminBtsAnnouncementsScreen() {
                   </Pressable>
                 ))}
               </ScrollView>
+            </View>
+
+            {/* Visibility */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Visibility</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Pressable
+                  style={[styles.categoryButton, annVisibility === 'global' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
+                  onPress={() => setAnnVisibility('global')}
+                >
+                  <Text style={[styles.categoryButtonText, annVisibility === 'global' && styles.categoryButtonTextActive]}>
+                    🌍 Global
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.categoryButton, annVisibility === 'assigned_only' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
+                  onPress={() => setAnnVisibility('assigned_only')}
+                >
+                  <Text style={[styles.categoryButtonText, annVisibility === 'assigned_only' && styles.categoryButtonTextActive]}>
+                    🔒 My Clients
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.categoryButton, annVisibility === 'private' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
+                  onPress={() => setAnnVisibility('private')}
+                >
+                  <Text style={[styles.categoryButtonText, annVisibility === 'private' && styles.categoryButtonTextActive]}>
+                    🔐 Private
+                  </Text>
+                </Pressable>
+              </View>
+              <Text style={styles.inputHint}>
+                {annVisibility === 'global' ? 'Visible to all users' : 
+                 annVisibility === 'assigned_only' ? 'Only your assigned clients can see this' :
+                 'Only you can see this'}
+              </Text>
             </View>
 
             {/* Expiry */}
@@ -1673,6 +1724,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
     marginBottom: 8,
+  },
+  inputHint: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 4,
   },
   input: {
     backgroundColor: Colors.card,

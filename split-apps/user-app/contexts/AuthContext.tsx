@@ -255,6 +255,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [state.profile?.biometric_enabled]);
 
+  const claimPendingInvite = useCallback(async (userId: string) => {
+    try {
+      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+      const token = await AsyncStorage.getItem('pending_invite_token');
+      if (!token) return;
+      const { data, error } = await supabase.rpc('claim_invite_token', { p_token: token });
+      if (!error && data?.success) {
+        await AsyncStorage.removeItem('pending_invite_token');
+        console.log('[Invite] Token claimed for user', userId, '→ admin', data.admin_id);
+      } else {
+        console.warn('[Invite] Failed to claim token:', error?.message || data?.error);
+      }
+    } catch (e) {
+      console.warn('[Invite] Error claiming token:', e);
+    }
+  }, []);
+
   // Login function
   const login = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -510,6 +527,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           try {
             await ClientService.clients.ensureLinkedRecordsForCurrentUser();
           } catch {}
+          // Claim any pending invite token from deep link
+          await claimPendingInvite(session.user.id);
         }
       } else if (isAdminByAuth) {
         const resolvedProfile: UserProfile = {
@@ -653,6 +672,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               try {
                 await ClientService.clients.ensureLinkedRecordsForCurrentUser();
               } catch {}
+              // Claim any pending invite token from deep link
+              await claimPendingInvite(session.user.id);
             }
           }
         }

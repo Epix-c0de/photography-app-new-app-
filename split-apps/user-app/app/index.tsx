@@ -3,17 +3,20 @@ import { View, Text, StyleSheet, Animated, StatusBar, Pressable } from 'react-na
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 
 export default function SplashScreen() {
   const router = useRouter();
-  const { isLoggedIn, hasSeenOnboarding, isLoading, profile } = useAuth();
+  const { isLoggedIn, hasSeenOnboarding, isLoading, profile, user } = useAuth();
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const logoScale = useRef(new Animated.Value(0.8)).current;
   const subtitleOpacity = useRef(new Animated.Value(0)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const [tapCount, setTapCount] = useState<number>(0);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [autoAssignAttempted, setAutoAssignAttempted] = useState(false);
 
   useEffect(() => {
     Animated.sequence([
@@ -54,23 +57,62 @@ export default function SplashScreen() {
   }, [logoOpacity, logoScale, subtitleOpacity, shimmerAnim]);
 
   useEffect(() => {
+    // Don't wait for assignment status — we always route to home for logged-in clients
+    // Individual screens show the "no photographer" empty state when unassigned
     if (isLoading) return;
 
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       console.log('[Splash] Routing...', { isLoggedIn, hasSeenOnboarding, role: profile?.role });
+      
       if (!hasSeenOnboarding) {
         router.replace('/onboarding');
-      } else if (!isLoggedIn) {
-        router.replace('/login');
-      } else if (profile?.role === 'admin' || profile?.role === 'super_admin') {
-        router.replace('/(admin)/dashboard');
-      } else {
-        router.replace('/(tabs)/home');
+        return;
       }
-    }, 2200);
+      
+      if (!isLoggedIn) {
+        router.replace('/login');
+        return;
+      }
+      
+      // Admin users go directly to admin dashboard
+      if (profile?.role === 'admin' || profile?.role === 'super_admin') {
+        router.replace('/(admin)/dashboard' as any);
+        return;
+      }
+      
+      // Client users: attempt auto-assignment + phone-link in the background (non-blocking)
+      if (!autoAssignAttempted) {
+        setAutoAssignAttempted(true);
+        // Get the user's phone from profile or auth metadata
+        const phone = (user?.phone || (profile as any)?.phone) as string | undefined;
+        if (phone) {
+          // Link any pre-created client records that match this phone number
+          (supabase.rpc as any)('claim_client_by_phone', { p_phone: phone })
+            .then(({ data, error }: any) => {
+              if (!error && data?.linked_count > 0) {
+                console.log('[Splash] Linked to', data.linked_count, 'photographer(s) by phone');
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              }
+            })
+            .catch((err: any) => console.warn('[Splash] Phone link error:', err));
+
+          // Also attempt legacy auto-assign
+          (supabase.rpc as any)('auto_assign_on_login', { p_mobile_number: phone })
+            .then(({ data, error }: any) => {
+              if (!error && data?.auto_assigned) {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              }
+            })
+            .catch((err: any) => console.warn('[Splash] Auto-assign error:', err));
+        }
+      }
+      
+      // Always go to home — unassigned state is handled per-screen
+      router.replace('/(tabs)/home');
+    }, 1800); // Reduced from 2200ms to feel faster
 
     return () => clearTimeout(timer);
-  }, [isLoading, isLoggedIn, hasSeenOnboarding, profile, router]);
+  }, [isLoading, isLoggedIn, hasSeenOnboarding, profile, router, autoAssignAttempted, user]);
 
   const handleLogoTap = () => {
     const newCount = tapCount + 1;
@@ -78,7 +120,7 @@ export default function SplashScreen() {
     if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
     if (newCount >= 3) {
       setTapCount(0);
-      router.replace('/admin-login');
+      router.replace('/admin-login' as any);
       return;
     }
     tapTimerRef.current = setTimeout(() => setTapCount(0), 800);

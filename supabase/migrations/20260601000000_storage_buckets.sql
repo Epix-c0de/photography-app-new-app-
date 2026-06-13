@@ -194,6 +194,9 @@ USING (bucket_id = 'brand-assets');
 -- thumbnails policies (same as client-photos)
 -- ============================================
 
+DROP POLICY IF EXISTS "Admins can upload thumbnails" ON storage.objects;
+DROP POLICY IF EXISTS "Clients can read their own thumbnails" ON storage.objects;
+
 CREATE POLICY "Admins can upload thumbnails"
 ON storage.objects FOR INSERT
 TO authenticated

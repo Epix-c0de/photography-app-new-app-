@@ -28,18 +28,21 @@ CREATE INDEX IF NOT EXISTS idx_web_login_requests_status
 ALTER TABLE web_login_requests ENABLE ROW LEVEL SECURITY;
 
 -- Admins can see their own pending requests (for the mobile app approval screen)
+DROP POLICY IF EXISTS "Admins can view own login requests" ON web_login_requests;
 CREATE POLICY "Admins can view own login requests"
   ON web_login_requests FOR SELECT
   TO authenticated
   USING (admin_id = auth.uid());
 
 -- Admins can update (approve/reject) their own requests
+DROP POLICY IF EXISTS "Admins can update own login requests" ON web_login_requests;
 CREATE POLICY "Admins can update own login requests"
   ON web_login_requests FOR UPDATE
   TO authenticated
   USING (admin_id = auth.uid());
 
 -- Service role manages everything
+DROP POLICY IF EXISTS "Service role manages login requests" ON web_login_requests;
 CREATE POLICY "Service role manages login requests"
   ON web_login_requests FOR ALL
   TO service_role

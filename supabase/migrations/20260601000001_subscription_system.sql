@@ -54,12 +54,14 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at
 ALTER TABLE admin_subscriptions ENABLE ROW LEVEL SECURITY;
 
 -- Admins can only see their own subscription records
+DROP POLICY IF EXISTS "Admins can view own subscriptions" ON admin_subscriptions;
 CREATE POLICY "Admins can view own subscriptions"
   ON admin_subscriptions FOR SELECT
   TO authenticated
   USING (admin_id = auth.uid());
 
 -- Only service role (Edge Functions) can insert/update subscriptions
+DROP POLICY IF EXISTS "Service role can manage subscriptions" ON admin_subscriptions;
 CREATE POLICY "Service role can manage subscriptions"
   ON admin_subscriptions FOR ALL
   TO service_role
@@ -69,11 +71,13 @@ CREATE POLICY "Service role can manage subscriptions"
 -- 5. RLS policies for admin_audit_log
 ALTER TABLE admin_audit_log ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Admins can view own audit log" ON admin_audit_log;
 CREATE POLICY "Admins can view own audit log"
   ON admin_audit_log FOR SELECT
   TO authenticated
   USING (admin_id = auth.uid());
 
+DROP POLICY IF EXISTS "Service role can manage audit log" ON admin_audit_log;
 CREATE POLICY "Service role can manage audit log"
   ON admin_audit_log FOR ALL
   TO service_role
@@ -81,6 +85,7 @@ CREATE POLICY "Service role can manage audit log"
   WITH CHECK (true);
 
 -- Allow admins to insert their own audit entries
+DROP POLICY IF EXISTS "Admins can insert own audit entries" ON admin_audit_log;
 CREATE POLICY "Admins can insert own audit entries"
   ON admin_audit_log FOR INSERT
   TO authenticated

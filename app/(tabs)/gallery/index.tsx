@@ -18,7 +18,8 @@ import { ClientService, type Photo as ClientPhoto, type PortfolioItem } from '@/
 import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
 import PaymentModal from '@/components/PaymentModal';
-import { LocalSmsGateway } from '@lenzart/local-sms-gateway';
+// DISABLED: Root app not used, moved to split-apps
+// import { LocalSmsGateway } from '@lenzart/local-sms-gateway';
 import { useRouter, usePathname, useLocalSearchParams } from 'expo-router';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
@@ -206,7 +207,7 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
                 {displayText}
               </Text>
             )}
-          </View>
+          </View>                                                                                                     
         )}                                                                                                                                                                                                                                                                                                                                                                                                                     
         <RNAnimated.View style={[styles.heartOverlay, { transform: [{ scale: heartScale }], opacity: heartScale }]}>
           <Heart size={40} color={Colors.gold} fill={Colors.gold} />
@@ -565,15 +566,19 @@ export default function GalleryScreen() {
         : await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.READ_SMS);
       if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
 
-      const found = await LocalSmsGateway.findLatestAccessCode({
-        regex: '(?:use\\s*code|access\\s*code\\s*(?:is)?)[^A-Z0-9-]*([A-Z0-9-]{4,64})',
-        maxMessages: 40,
-      });
+      // DISABLED: Root app not used, moved to split-apps
+      // const found = await LocalSmsGateway.findLatestAccessCode({
+      //   regex: '(?:use\\s*code|access\\s*code\\s*(?:is)?)[^A-Z0-9-]*([A-Z0-9-]{4,64})',
+      //   maxMessages: 40,
+      // });
 
-      const code = found?.code?.trim();
-      if (!code) return;
-      setAccessCode(code.toUpperCase());
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      // const code = found?.code?.trim();
+      // if (!code) return;
+      // setAccessCode(code.toUpperCase());
+      // Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      
+      // SMS autofill disabled in root app
+      return;
     } catch {
     }
   }, [accessCode]);

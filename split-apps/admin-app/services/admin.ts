@@ -290,39 +290,25 @@ export const AdminService = {
    */
   clients: {
     list: async (): Promise<any[]> => {
-      // Always fetch from database for clients, never use mock
-      // if (USE_MOCK) return [];
-
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // 1. Fetch all user profiles with role 'client'
-      const { data: profiles, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('role', 'client')
-        .order('name', { ascending: true });
-      
-      if (profileError) {
-        console.error('AdminService.clients.list (profiles):', profileError);
-        throw profileError;
-      }
-
-      // 2. Fetch all CRM client data
+      // Primary source: clients table filtered by this admin
       const { data: clients, error: clientError } = await supabase
         .from('clients')
-        .select('*');
-      
+        .select('*')
+        .eq('owner_admin_id', user.id)
+        .order('name', { ascending: true });
+
       if (clientError) {
         console.error('AdminService.clients.list (clients):', clientError);
         throw clientError;
       }
 
-      // 3. Merge profiles and CRM data
-      const clientMap = new Map((clients || []).map((c: any) => [c.user_id, c]));
+      if (!clients || clients.length === 0) return [];
 
-      // 4. Count galleries per CRM client ID
-      const clientIds = (clients || []).map((c: any) => c.id).filter(Boolean);
+      // Count galleries per client
+      const clientIds = clients.map((c: any) => c.id).filter(Boolean);
       let galleryCounts = new Map<string, number>();
       if (clientIds.length > 0) {
         const { data: galleriesData } = await supabase
@@ -334,20 +320,32 @@ export const AdminService = {
         });
       }
 
-      const transformed = (profiles || []).map((p: any) => {
-        const crmData = clientMap.get(p.id);
-        return {
-          id: crmData?.id || `temp-${p.id}`, // Use existing client ID or temp
-          user_id: p.id,
-          name: p.name || 'Anonymous User',
-          phone: p.phone || '',
-          email: p.email || '',
-          avatar_url: p.avatar_url || null,
-          loyalty_level: crmData?.loyalty_level || 'Bronze',
-          total_spent: crmData?.total_paid || 0,
-          total_galleries: galleryCounts.get(crmData?.id) || 0,
-        };
-      });
+      // Optionally enrich with user_profiles avatar if linked
+      const userIds = clients.map((c: any) => c.user_id).filter(Boolean);
+      let avatarMap = new Map<string, string>();
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, avatar_url')
+          .in('id', userIds);
+        (profiles || []).forEach((p: any) => {
+          if (p.avatar_url) avatarMap.set(p.id, p.avatar_url);
+        });
+      }
+
+      const transformed = clients.map((c: any) => ({
+        id: c.id,
+        user_id: c.user_id || null,
+        name: c.name || 'Unknown Client',
+        phone: c.phone || '',
+        email: c.email || '',
+        avatar_url: (c.user_id && avatarMap.get(c.user_id)) || c.avatar_url || null,
+        loyalty_level: c.loyalty_level || 'Bronze',
+        total_spent: c.total_paid || 0,
+        total_galleries: galleryCounts.get(c.id) || 0,
+        notes: c.notes || '',
+        last_shoot_date: c.last_shoot_date || null,
+      }));
 
       adminDataCache.clients = transformed;
       return transformed;
@@ -1766,8 +1764,9 @@ export const AdminService = {
       const { data, error } = await supabase
         .from('bookings')
         .select(`
-          *,
-          packages(name, price, shoot_type),
+          id, date, time, location, notes, status, shoot_type, service_type,
+          package_id,
+          packages!left(name, price, shoot_type),
           user_profiles!bookings_user_id_fkey(name, phone, avatar_url)
         `)
         .order('created_at', { ascending: false });

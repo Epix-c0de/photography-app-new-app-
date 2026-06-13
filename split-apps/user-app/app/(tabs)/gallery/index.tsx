@@ -25,6 +25,8 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from 'react-native-reanimated';
 
 import { FlashList } from '@shopify/flash-list';
+import { useAssignmentStatus } from '@/hooks/useAssignmentStatus';
+import UnassignedEmptyState from '@/components/UnassignedEmptyState';
 
 const { width } = Dimensions.get('window');
 const COL_GAP = 8;
@@ -203,6 +205,8 @@ function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; 
     onPress(item);
   }, [onPress, item]);
 
+  const adminProfile = (item as any).user_profiles as { id: string; name: string; avatar_url: string | null } | null;
+
   return (
     <RNAnimated.View style={[styles.photoCard, { opacity: cardFade, marginBottom: 12 }]}>
       <Pressable onPress={handlePress}>
@@ -210,6 +214,27 @@ function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; 
         <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.galleryTileOverlay} />
         <View style={{ position: 'absolute', bottom: 10, left: 10, right: 10 }}>
           <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }} numberOfLines={2}>{item.title}</Text>
+          {/* Admin attribution */}
+          {adminProfile && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+              {adminProfile.avatar_url ? (
+                <Image
+                  source={{ uri: adminProfile.avatar_url }}
+                  style={{ width: 16, height: 16, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(212,175,55,0.5)' }}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: 'rgba(212,175,55,0.25)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 8, color: '#D4AF37', fontWeight: '700' }}>
+                    {(adminProfile.name || '?').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontWeight: '600' }} numberOfLines={1}>
+                {adminProfile.name || 'Photographer'}
+              </Text>
+            </View>
+          )}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 14 }}>
             <Pressable hitSlop={12} onPress={() => onLike(item.id, true)}>
               <Heart size={16} color={Colors.white} />
@@ -315,6 +340,7 @@ export default function GalleryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, isDemoMode } = useAuth();
+  const { isAssigned, loading: assignmentLoading } = useAssignmentStatus();
   const { brandName, blockScreenshots, setActiveAdminId, accessCodeLink, shareAppLink, galleryShareLink } = useBranding();
   const pathname = usePathname();
   const searchParams = useLocalSearchParams();
@@ -472,12 +498,46 @@ export default function GalleryScreen() {
     } catch (syncError) {
       console.warn('Temporary upload sync failed:', syncError);
     }
+
+    // Use the server-side function that finds the gallery AND links the client
+    // row to this user if it was pre-created by phone (no user_id yet).
+    const { data: rpcResult, error: rpcError } = await (supabase.rpc as any)(
+      'unlock_gallery_and_link',
+      { p_access_code: normalizedCode }
+    );
+
+    if (rpcError || !rpcResult?.success) {
+      // Fallback: direct gallery lookup (works if user already has a client row)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('galleries')
+        .select('*')
+        .eq('access_code', normalizedCode)
+        .limit(1)
+        .maybeSingle();
+
+      if (fallbackError || !fallbackData) {
+        Alert.alert('Invalid Code', 'We could not find a gallery for that access code.');
+        return;
+      }
+
+      await saveLocalUnlockedGalleryId(fallbackData.id);
+      setAccessCode('');
+      setGalleries((prev) => {
+        if (prev.some((g) => g.id === fallbackData.id)) return prev;
+        return [fallbackData, ...prev];
+      });
+      const isPendingFallback = fallbackData.is_locked && !fallbackData.is_paid && (fallbackData.price ?? 0) > 0;
+      setSelectedGallery(isPendingFallback ? null : fallbackData);
+      setTimeout(() => { fetchGalleries({ silent: true }); }, 500);
+      return;
+    }
+
+    // RPC succeeded — fetch the full gallery row so we have all fields
     const { data, error } = await supabase
       .from('galleries')
       .select('*')
-      .eq('access_code', normalizedCode)
-      .limit(1)
-      .maybeSingle();
+      .eq('id', rpcResult.gallery_id)
+      .single();
 
     if (error || !data) {
       Alert.alert('Invalid Code', 'We could not find a gallery for that access code.');
@@ -619,12 +679,14 @@ export default function GalleryScreen() {
 
     if (isDemoMode) {
       setGalleries(demoGalleries);
-      // Do NOT auto-select a gallery — user should see the gallery list first
-      if (!options?.silent) {
-        setGalleriesLoading(false);
-      } else {
-        setGalleriesLoading(false);
-      }
+      setGalleriesLoading(false);
+      return;
+    }
+
+    // Don't query until we have a user — avoids client_id=eq.undefined 400 errors
+    if (!user?.id) {
+      setGalleries([]);
+      setGalleriesLoading(false);
       return;
     }
 
@@ -641,11 +703,13 @@ export default function GalleryScreen() {
       .select('*')
       .eq('client_id', activeClientId);
 
-    // Fetch galleries from unlocked_galleries
-    const { data: unlockedGalleries, error: unlockedError } = await supabase
-      .from('unlocked_galleries')
-      .select('gallery_id, galleries(*)')
-      .eq('user_id', user?.id);
+    // Fetch galleries from unlocked_galleries — only when user?.id is available
+    const { data: unlockedGalleries, error: unlockedError } = user?.id
+      ? await supabase
+          .from('unlocked_galleries')
+          .select('gallery_id, galleries(*)')
+          .eq('user_id', user.id)
+      : { data: [], error: null };
 
     const localUnlockedIds = await readLocalUnlockedGalleryIds();
     let locallyUnlockedGalleries: GalleryRow[] = [];
@@ -750,8 +814,10 @@ export default function GalleryScreen() {
 
   useEffect(() => {
     if (!pathname.includes('/gallery')) return;
+    // Don't fire until we have a resolved user state
+    if (!isDemoMode && !user?.id) return;
     fetchGalleries({ silent: true });
-  }, [pathname, fetchGalleries]);
+  }, [pathname, fetchGalleries, isDemoMode, user?.id]);
 
   // Sync selectedGallery when galleries update
   useEffect(() => {
@@ -1003,18 +1069,49 @@ export default function GalleryScreen() {
   }, []);
 
   const handleDownloadPhotoItem = useCallback(async (photo: PhotoRow) => {
-    const sourceUrl = photo.url || photo.thumbnailUrl;
+    // Resolve the correct download URL via RPC:
+    //   - If photographer allows original downloads → original file
+    //   - Otherwise → optimized 5MB version (max 1920px, high quality)
+    let resolvedUrl: string | null = null;
+
+    if (photo.id && !isDemoMode) {
+      try {
+        const { data, error } = await supabase.rpc('get_photo_download_url' as any, {
+          p_photo_id: photo.id,
+        }) as any;
+        if (!error && data?.success && data?.url) {
+          resolvedUrl = data.url;
+        }
+      } catch (rpcErr) {
+        console.warn('[Download] RPC failed, falling back to stored URL:', rpcErr);
+      }
+    }
+
+    // Fall back to stored URL if RPC failed or in demo mode
+    const sourceUrl = resolvedUrl || photo.url || photo.thumbnailUrl;
     if (!sourceUrl) {
       Alert.alert('Unavailable', 'This photo is not available for download yet.');
       return;
     }
+
+    // Generate signed URL if it's a storage path (not a full https URL)
+    let downloadUrl = sourceUrl;
+    if (sourceUrl && !sourceUrl.startsWith('http')) {
+      const { data: signedData } = await supabase.storage
+        .from('client-photos')
+        .createSignedUrl(sourceUrl, 3600);
+      if (signedData?.signedUrl) {
+        downloadUrl = signedData.signedUrl;
+      }
+    }
+
     const folderPath = `${FileSystem.documentDirectory}photos/${selectedGallery?.id || 'gallery'}/`;
     const fileName = `${(selectedGallery?.name || 'photo').replace(/[^a-z0-9-_]/gi, '_')}-${photo.id}.jpg`;
     const destination = `${folderPath}${fileName}`;
 
     if (Platform.OS === 'web') {
       try {
-        await downloadOnWeb(sourceUrl, fileName);
+        await downloadOnWeb(downloadUrl, fileName);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Downloaded', 'Photo downloaded to your device.');
         return;
@@ -1027,14 +1124,14 @@ export default function GalleryScreen() {
 
     try {
       await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
-      await FileSystem.downloadAsync(sourceUrl, destination);
+      await FileSystem.downloadAsync(downloadUrl, destination);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Downloaded', 'Photo saved to app storage.');
     } catch (error) {
       console.error('Failed to download photo:', error);
       Alert.alert('Download Failed', 'Could not save this photo right now.');
     }
-  }, [downloadOnWeb, selectedGallery?.id, selectedGallery?.name]);
+  }, [downloadOnWeb, isDemoMode, selectedGallery?.id, selectedGallery?.name]);
 
   const handleSharePhotoItem = useCallback(async () => {
     if (!selectedGallery) return;
@@ -1050,8 +1147,10 @@ export default function GalleryScreen() {
   }, [brandName, openAdvancedShare, resolveGalleryLink, selectedGallery]);
 
   useEffect(() => {
+    // Skip all data fetches for unassigned non-demo users — they see the empty state
+    if (!isDemoMode && !isAssigned) return;
     fetchClientId().then(() => fetchGalleries());
-  }, [fetchClientId, fetchGalleries]);
+  }, [fetchClientId, fetchGalleries, isDemoMode, isAssigned]);
 
   // Fix 12: Refresh signed URLs when app returns to foreground (they expire after 1 hour)
   useEffect(() => {
@@ -1258,6 +1357,21 @@ export default function GalleryScreen() {
       setSelectedPhotoIds(new Set());
     }
   }, [selectedPhotoIds, photos, selectedGallery, downloadOnWeb]);
+
+  // Show unassigned empty state for non-demo users without a photographer.
+  // Show it immediately when loading (before any data fetch) so the screen
+  // never runs expensive queries for unassigned users.
+  if (!isDemoMode && (assignmentLoading || !isAssigned)) {
+    // While loading, show a minimal spinner so there's no flash
+    if (assignmentLoading) {
+      return (
+        <View style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color={Colors.gold} />
+        </View>
+      );
+    }
+    return <UnassignedEmptyState featureName="your galleries" />;
+  }
 
   return (
     <View style={styles.container}>
@@ -1522,6 +1636,11 @@ export default function GalleryScreen() {
                         </View>
                       </View>
                       <Text style={[styles.galleryTileName, isHero && { fontSize: 26 }]} numberOfLines={1}>{gallery.name}</Text>
+                      {gallery.photographer_name && (
+                        <Text style={styles.photographerTag} numberOfLines={1}>
+                          📸 By {gallery.photographer_name}
+                        </Text>
+                      )}
                       <View style={styles.galleryTileMeta}>
                         <Text style={styles.galleryTileCount}>{(gallery.photo_count ?? 0) > 0 ? `${gallery.photo_count} photos` : 'Ready to view'}</Text>
                         <View style={styles.galleryTileActions}>
@@ -2182,6 +2301,12 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
     color: Colors.white,
     marginBottom: 6,
+  },
+  photographerTag: {
+    fontSize: 12,
+    color: Colors.gold,
+    marginBottom: 6,
+    fontWeight: '500' as const,
   },
   galleryTileMeta: {
     flexDirection: 'row' as const,

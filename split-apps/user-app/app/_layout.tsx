@@ -5,12 +5,14 @@ import React, { useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 
 import { AuthProvider } from '@/contexts/AuthContext';
 import { BrandingProvider } from '@/contexts/BrandingContext';
 import { UpdateProvider } from '@/components/UpdateProvider';
+import SecurityGuard from '@/components/SecurityGuard';
 import Colors from '@/constants/colors';
 
 SplashScreen.preventAutoHideAsync();
@@ -107,24 +109,60 @@ function RootLayout() {
       }
     });
 
-    // Handle initial URL (for OAuth callbacks when app is launched)
-    Linking.getInitialURL().then((url) => {
+    // Handle initial URL (for OAuth callbacks and invite links when app is launched)
+    Linking.getInitialURL().then(async (url) => {
       if (url) {
         console.log('[Deep Link] Initial URL:', url);
         if (url.includes('auth/callback')) {
           console.log('[Deep Link] Initial OAuth callback detected');
         }
+        // Handle invite links: epixvisuals://join?ref=ADMIN_ID&invite=TOKEN
+        if (url.includes('join') && url.includes('invite=')) {
+          const parsed = new URL(url.replace('epixvisuals://', 'https://epixvisuals.app/'));
+          const inviteToken = parsed.searchParams.get('invite');
+          if (inviteToken) {
+            console.log('[Deep Link] Invite token detected:', inviteToken);
+            // Store the token — will be claimed after user logs in
+            try {
+              const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+              await AsyncStorage.setItem('pending_invite_token', inviteToken);
+            } catch (e) {
+              console.warn('[Deep Link] Failed to store invite token:', e);
+            }
+          }
+        }
       }
     });
     
-    // Handle deep linking for OAuth callbacks
-    const linkingSubscription = Linking.addEventListener('url', (event) => {
+    // Handle deep linking for OAuth callbacks and invites (when app is already running)
+    const linkingSubscription = Linking.addEventListener('url', async (event) => {
       console.log('[Deep Link] URL received:', event.url);
       
-      // Handle OAuth callback
       if (event.url.includes('auth/callback')) {
         console.log('[Deep Link] OAuth callback detected');
-        // The router will automatically handle the navigation to /auth/callback
+      }
+      // Handle invite links while app is running
+      if (event.url.includes('join') && event.url.includes('invite=')) {
+        const parsed = new URL(event.url.replace('epixvisuals://', 'https://epixvisuals.app/'));
+        const inviteToken = parsed.searchParams.get('invite');
+        if (inviteToken) {
+          console.log('[Deep Link] Invite token (live):', inviteToken);
+          try {
+            const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+            await AsyncStorage.setItem('pending_invite_token', inviteToken);
+            // If user is already signed in, claim it immediately
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              const { data, error } = await supabase.rpc('claim_invite_token', { p_token: inviteToken });
+              if (!error && data?.success) {
+                await AsyncStorage.removeItem('pending_invite_token');
+                console.log('[Invite] Token claimed successfully:', data);
+              }
+            }
+          } catch (e) {
+            console.warn('[Deep Link] Failed to process invite token:', e);
+          }
+        }
       }
     });
 
@@ -146,7 +184,9 @@ function RootLayout() {
           <AuthProvider>
             <BrandingProvider>
               <UpdateProvider>
-                <RootLayoutNav />
+                <SecurityGuard userId={session?.user?.id || null}>
+                  <RootLayoutNav />
+                </SecurityGuard>
               </UpdateProvider>
             </BrandingProvider>
           </AuthProvider>

@@ -58,7 +58,7 @@ export default function AdminTabLayout() {
 
     const messageSubscription = supabase
       .channel('admin_messages_unread')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `sender_role=eq.client,owner_admin_id=eq.${user.id}` },
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `sender_role=eq.client AND owner_admin_id=eq.${user.id}` },
         () => setUnreadCount(prev => prev + 1)
       )
       .subscribe();
@@ -114,6 +114,7 @@ export default function AdminTabLayout() {
         },
       }}
     >
+      {/* Main Navigation - 5 Essential Tabs */}
       <Tabs.Screen
         name="dashboard"
         options={{
@@ -124,11 +125,27 @@ export default function AdminTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="upload"
+        options={{
+          title: 'Content',
+          tabBarIcon: ({ color, focused }) => (
+            <TabIcon Icon={Upload} color={color} focused={focused} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="clients"
         options={{
           title: 'Clients',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon Icon={Users} color={color} focused={focused} />
+            <View style={styles.iconWrap}>
+              <TabIcon Icon={Users} color={color} focused={focused} />
+              {unreadCount > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+                </View>
+              )}
+            </View>
           ),
         }}
       />
@@ -142,50 +159,6 @@ export default function AdminTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="inbox"
-        options={{
-          title: 'Inbox',
-          tabBarIcon: ({ color, focused }) => (
-            <View style={styles.iconWrap}>
-              <TabIcon Icon={MessageSquare} color={color} focused={focused} />
-              {unreadCount > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
-                </View>
-              )}
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="bts-announcements"
-        options={{
-          title: 'Create',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon Icon={Camera} color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="upload"
-        options={{
-          title: 'Upload',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon Icon={Upload} color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="admin-management"
-        options={{
-          title: 'Admins',
-          href: user?.email === 'epixshots002@gmail.com' ? '/(admin)/admin-management' : null,
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon Icon={Crown} color={color} focused={focused} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="settings"
         options={{
           title: 'Settings',
@@ -194,8 +167,17 @@ export default function AdminTabLayout() {
           ),
         }}
       />
-      {/* post-details hidden from nav — accessible via navigation from Create tab */}
+      
+      {/* Hidden from tab bar - accessible via navigation */}
+      <Tabs.Screen name="inbox" options={{ href: null }} />
+      <Tabs.Screen name="bts-announcements" options={{ href: null }} />
       <Tabs.Screen name="post-details" options={{ href: null }} />
+      <Tabs.Screen
+        name="admin-management"
+        options={{
+          href: user?.email === 'epixshots002@gmail.com' ? '/(admin)/admin-management' : null,
+        }}
+      />
     </Tabs>
   );
 }

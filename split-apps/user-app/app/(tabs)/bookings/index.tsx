@@ -12,6 +12,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { demoBookings, demoPackages } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
+import { useAssignmentStatus } from '@/hooks/useAssignmentStatus';
+import UnassignedEmptyState from '@/components/UnassignedEmptyState';
 
 type DBPackage = Database['public']['Tables']['packages']['Row'];
 type Package = Omit<DBPackage, 'features'> & {
@@ -21,6 +23,8 @@ type Package = Omit<DBPackage, 'features'> & {
   duration?: string | null;
   cover_image_url?: string | null;
   features: string[];
+  // Admin profile joined
+  admin_profile?: { id: string; name: string | null; avatar_url: string | null } | null;
 };
 type BookingRow = Database['public']['Tables']['bookings']['Row'];
 
@@ -143,6 +147,8 @@ function PackageCard({ pkg, index, isSelected, onSelect }: { pkg: Package; index
     ]).start();
   }, [fadeAnim, slideAnim, index]);
 
+  const admin = pkg.admin_profile;
+
   return (
     <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
       <Pressable
@@ -177,6 +183,27 @@ function PackageCard({ pkg, index, isSelected, onSelect }: { pkg: Package; index
           )}
           
           <View style={styles.packageContent}>
+            {/* Admin attribution */}
+            {admin && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(212,175,55,0.12)' }}>
+                {admin.avatar_url ? (
+                  <Image
+                    source={{ uri: admin.avatar_url }}
+                    style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: 'rgba(212,175,55,0.4)' }}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(212,175,55,0.18)', alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 10, color: Colors.gold, fontWeight: '700' }}>
+                      {(admin.name || '?').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+                <Text style={{ fontSize: 11, color: Colors.textMuted, fontWeight: '600' }} numberOfLines={1}>
+                  {admin.name || 'Photographer'}
+                </Text>
+              </View>
+            )}
             <Text style={styles.packageName}>{pkg.name}</Text>
             <View style={styles.priceRow}>
               <Text style={styles.currency}>KES</Text>
@@ -261,6 +288,7 @@ export default function BookingsScreen() {
   const searchParams = useLocalSearchParams<{ section?: string }>();
   const router = useRouter();
   const { user, isDemoMode } = useAuth();
+  const { isAssigned, loading: assignmentLoading } = useAssignmentStatus();
   const [activeSection, setActiveSection] = useState<'bookings' | 'packages' | 'book'>('bookings');
   
   useEffect(() => {
@@ -277,6 +305,12 @@ export default function BookingsScreen() {
   const [packages, setPackages] = useState<Package[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Multi-admin dropdown state
+  const [linkedAdmins, setLinkedAdmins] = useState<Array<{ id: string; name: string | null; avatar_url: string | null }>>([]);
+  const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);
+  const [showAdminDropdown, setShowAdminDropdown] = useState(false);
+  const hasMultipleAdmins = linkedAdmins.length > 1;
   
   // Scroll refs for packages
   const packagesScrollRef = useRef<ScrollView>(null);
@@ -298,21 +332,61 @@ export default function BookingsScreen() {
           setBookings(demoBookings as Booking[]);
           return;
         }
-        
-        const { data: packagesData } = await supabase
+
+        // 1. Get all admins this user is linked to
+        let myAdminIds: string[] = [];
+        if (user) {
+          const { data: myClients } = await supabase
+            .from('clients')
+            .select('owner_admin_id')
+            .eq('user_id', user.id);
+          myAdminIds = Array.from(
+            new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))
+          ) as string[];
+        }
+
+        // 2. Fetch admin profiles for the dropdown
+        if (myAdminIds.length > 0) {
+          const { data: adminProfiles } = await supabase
+            .from('user_profiles')
+            .select('id, name, avatar_url')
+            .in('id', myAdminIds);
+          const admins = adminProfiles || [];
+          setLinkedAdmins(admins);
+
+          // Auto-select: if only one admin, select it; otherwise keep null (show dropdown)
+          if (admins.length === 1) {
+            setSelectedAdminId(admins[0].id);
+          }
+        }
+
+        // 3. Fetch packages — filter to user's linked admins (or all active if unlinked)
+        const pkgQuery = supabase
           .from('packages')
-          .select('*')
+          .select(`
+            *,
+            user_profiles:owner_admin_id (id, name, avatar_url)
+          `)
+          .eq('is_active', true)
           .order('price');
-        
+
+        // Only filter by admin if the user has linked admins
+        const finalQuery = myAdminIds.length > 0
+          ? pkgQuery.in('owner_admin_id', myAdminIds)
+          : pkgQuery;
+
+        const { data: packagesData } = await finalQuery;
+
         if (packagesData) {
-          const normalized = packagesData.map((p: DBPackage & Record<string, unknown>) => ({
-            ...(p as DBPackage),
-            is_popular: (p as Record<string, unknown>)['is_popular'] === true,
-            description: (p as Record<string, unknown>)['description'] as string | null | undefined ?? null,
-            detailed_description: (p as Record<string, unknown>)['detailed_description'] as string | null | undefined ?? null,
-            duration: (p as Record<string, unknown>)['duration'] as string | null | undefined ?? null,
-            cover_image_url: (p as Record<string, unknown>)['cover_image_url'] as string | null | undefined ?? null,
+          const normalized = packagesData.map((p: any) => ({
+            ...p,
+            is_popular: p.is_popular === true,
+            description: p.description ?? null,
+            detailed_description: p.detailed_description ?? null,
+            duration: p.duration ?? null,
+            cover_image_url: p.cover_image_url ?? null,
             features: Array.isArray(p.features) ? (p.features as string[]) : [],
+            admin_profile: p.user_profiles ?? null,
           }));
           setPackages(normalized);
         }
@@ -404,12 +478,16 @@ export default function BookingsScreen() {
       }
 
       // Trigger STK Push via Edge Function
-      const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
+      // Pass the admin's owner_admin_id so payment routes to the correct photographer
+      const adminId = pkg?.owner_admin_id ?? selectedAdminId;
+
+      const { data, error } = await supabase.functions.invoke('stk_push', {
         body: {
           phone_number: paymentPhone,
           amount: depositAmount,
           reference: `Booking-${selectedPackage}-${selectedDate}`,
           description: `Deposit for ${pkg?.name} package`,
+          owner_admin_id: adminId ?? null,
         },
       });
 
@@ -430,6 +508,7 @@ export default function BookingsScreen() {
           location: bookingLocation || 'TBD',
           payment_phone: paymentPhone,
           deposit_amount: depositAmount,
+          owner_admin_id: adminId ?? null,
         })
         .select()
         .single();
@@ -526,6 +605,21 @@ export default function BookingsScreen() {
     );
   }
 
+  // Show unassigned state fast — while assignment is loading, show spinner.
+  // Once confirmed unassigned, show the card immediately (no data fetches run).
+  if (!isDemoMode) {
+    if (assignmentLoading) {
+      return (
+        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+          <ActivityIndicator size="large" color={Colors.gold} />
+        </View>
+      );
+    }
+    if (!isAssigned) {
+      return <UnassignedEmptyState featureName="bookings and packages" />;
+    }
+  }
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
@@ -606,15 +700,89 @@ export default function BookingsScreen() {
         {activeSection === 'packages' && (
           <View style={styles.packagesList}>
             <Text style={styles.packagesNote}>You won&apos;t be charged yet. Free reschedule policy.</Text>
-            {packages.map((pkg, index) => (
-              <PackageCard
-                key={pkg.id}
-                pkg={pkg}
-                index={index}
-                isSelected={selectedPackage === pkg.id}
-                onSelect={() => setSelectedPackage(pkg.id)}
-              />
-            ))}
+
+            {/* Admin dropdown — only shown when user has multiple photographers */}
+            {hasMultipleAdmins && (
+              <View style={{ marginBottom: 16 }}>
+                <Text style={{ fontSize: 12, color: Colors.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
+                  Filter by Photographer
+                </Text>
+                <Pressable
+                  onPress={() => setShowAdminDropdown(prev => !prev)}
+                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: showAdminDropdown ? Colors.gold : 'rgba(255,255,255,0.08)', gap: 10 }}
+                >
+                  {/* Selected admin avatar */}
+                  {(() => {
+                    const admin = selectedAdminId ? linkedAdmins.find(a => a.id === selectedAdminId) : null;
+                    return admin?.avatar_url ? (
+                      <Image source={{ uri: admin.avatar_url }} style={{ width: 28, height: 28, borderRadius: 14 }} contentFit="cover" />
+                    ) : (
+                      <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(212,175,55,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontSize: 12, color: Colors.gold, fontWeight: '700' }}>
+                          {admin ? (admin.name || '?').charAt(0).toUpperCase() : '◈'}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+                  <Text style={{ flex: 1, color: Colors.white, fontSize: 14, fontWeight: '600' }}>
+                    {selectedAdminId
+                      ? (linkedAdmins.find(a => a.id === selectedAdminId)?.name || 'Photographer')
+                      : 'All Photographers'}
+                  </Text>
+                  <ChevronRight size={16} color={Colors.textMuted} style={{ transform: [{ rotate: showAdminDropdown ? '90deg' : '0deg' }] }} />
+                </Pressable>
+
+                {showAdminDropdown && (
+                  <View style={{ marginTop: 4, backgroundColor: Colors.card, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                    {/* "All" option */}
+                    <Pressable
+                      onPress={() => { setSelectedAdminId(null); setShowAdminDropdown(false); setSelectedPackage(null); }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', backgroundColor: !selectedAdminId ? 'rgba(212,175,55,0.08)' : 'transparent' }}
+                    >
+                      <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(212,175,55,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                        <Text style={{ fontSize: 14, color: Colors.gold }}>◈</Text>
+                      </View>
+                      <Text style={{ color: !selectedAdminId ? Colors.gold : Colors.white, fontWeight: '600', fontSize: 14 }}>All Photographers</Text>
+                      {!selectedAdminId && <Check size={14} color={Colors.gold} style={{ marginLeft: 'auto' }} />}
+                    </Pressable>
+                    {linkedAdmins.map((admin, i) => (
+                      <Pressable
+                        key={admin.id}
+                        onPress={() => { setSelectedAdminId(admin.id); setShowAdminDropdown(false); setSelectedPackage(null); }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: i < linkedAdmins.length - 1 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.05)', backgroundColor: selectedAdminId === admin.id ? 'rgba(212,175,55,0.08)' : 'transparent' }}
+                      >
+                        {admin.avatar_url ? (
+                          <Image source={{ uri: admin.avatar_url }} style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(212,175,55,0.3)' }} contentFit="cover" />
+                        ) : (
+                          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(212,175,55,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ fontSize: 12, color: Colors.gold, fontWeight: '700' }}>
+                              {(admin.name || '?').charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        <Text style={{ flex: 1, color: selectedAdminId === admin.id ? Colors.gold : Colors.white, fontWeight: '600', fontSize: 14 }}>
+                          {admin.name || 'Photographer'}
+                        </Text>
+                        {selectedAdminId === admin.id && <Check size={14} color={Colors.gold} />}
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Package list — filtered by selected admin if dropdown is active */}
+            {packages
+              .filter(pkg => !selectedAdminId || pkg.owner_admin_id === selectedAdminId)
+              .map((pkg, index) => (
+                <PackageCard
+                  key={pkg.id}
+                  pkg={pkg}
+                  index={index}
+                  isSelected={selectedPackage === pkg.id}
+                  onSelect={() => setSelectedPackage(pkg.id)}
+                />
+              ))}
           </View>
         )}
 
@@ -641,15 +809,70 @@ export default function BookingsScreen() {
             {bookingStep === 1 && (
               <View style={styles.stepContent}>
                 <Text style={styles.stepTitle}>Select a Package</Text>
-                {packages.map((pkg, index) => (
-                  <PackageCard
-                    key={pkg.id}
-                    pkg={pkg}
-                    index={index}
-                    isSelected={selectedPackage === pkg.id}
-                    onSelect={() => setSelectedPackage(pkg.id)}
-                  />
-                ))}
+
+                {/* Admin dropdown — only shown when user has multiple photographers */}
+                {hasMultipleAdmins && (
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={{ fontSize: 12, color: Colors.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>
+                      Photographer
+                    </Text>
+                    <Pressable
+                      onPress={() => setShowAdminDropdown(prev => !prev)}
+                      style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: showAdminDropdown ? Colors.gold : 'rgba(255,255,255,0.08)', gap: 10 }}
+                    >
+                      {(() => {
+                        const admin = selectedAdminId ? linkedAdmins.find(a => a.id === selectedAdminId) : null;
+                        return admin?.avatar_url ? (
+                          <Image source={{ uri: admin.avatar_url }} style={{ width: 24, height: 24, borderRadius: 12 }} contentFit="cover" />
+                        ) : (
+                          <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(212,175,55,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ fontSize: 10, color: Colors.gold, fontWeight: '700' }}>
+                              {admin ? (admin.name || '?').charAt(0).toUpperCase() : '◈'}
+                            </Text>
+                          </View>
+                        );
+                      })()}
+                      <Text style={{ flex: 1, color: Colors.white, fontSize: 14, fontWeight: '600' }}>
+                        {selectedAdminId ? (linkedAdmins.find(a => a.id === selectedAdminId)?.name || 'Photographer') : 'All Photographers'}
+                      </Text>
+                      <ChevronRight size={16} color={Colors.textMuted} style={{ transform: [{ rotate: showAdminDropdown ? '90deg' : '0deg' }] }} />
+                    </Pressable>
+                    {showAdminDropdown && (
+                      <View style={{ marginTop: 4, backgroundColor: Colors.card, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                        <Pressable onPress={() => { setSelectedAdminId(null); setShowAdminDropdown(false); setSelectedPackage(null); }}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', backgroundColor: !selectedAdminId ? 'rgba(212,175,55,0.08)' : 'transparent' }}>
+                          <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(212,175,55,0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ fontSize: 12, color: Colors.gold }}>◈</Text>
+                          </View>
+                          <Text style={{ color: !selectedAdminId ? Colors.gold : Colors.white, fontWeight: '600', fontSize: 14 }}>All</Text>
+                          {!selectedAdminId && <Check size={14} color={Colors.gold} style={{ marginLeft: 'auto' }} />}
+                        </Pressable>
+                        {linkedAdmins.map((admin, i) => (
+                          <Pressable key={admin.id} onPress={() => { setSelectedAdminId(admin.id); setShowAdminDropdown(false); setSelectedPackage(null); }}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderBottomWidth: i < linkedAdmins.length - 1 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.05)', backgroundColor: selectedAdminId === admin.id ? 'rgba(212,175,55,0.08)' : 'transparent' }}>
+                            {admin.avatar_url
+                              ? <Image source={{ uri: admin.avatar_url }} style={{ width: 24, height: 24, borderRadius: 12 }} contentFit="cover" />
+                              : <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(212,175,55,0.15)', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 10, color: Colors.gold, fontWeight: '700' }}>{(admin.name || '?').charAt(0).toUpperCase()}</Text></View>}
+                            <Text style={{ flex: 1, color: selectedAdminId === admin.id ? Colors.gold : Colors.white, fontWeight: '600', fontSize: 14 }}>{admin.name || 'Photographer'}</Text>
+                            {selectedAdminId === admin.id && <Check size={14} color={Colors.gold} />}
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {packages
+                  .filter(pkg => !selectedAdminId || pkg.owner_admin_id === selectedAdminId)
+                  .map((pkg, index) => (
+                    <PackageCard
+                      key={pkg.id}
+                      pkg={pkg}
+                      index={index}
+                      isSelected={selectedPackage === pkg.id}
+                      onSelect={() => setSelectedPackage(pkg.id)}
+                    />
+                  ))}
                 <Pressable
                   style={[styles.wizardButton, !selectedPackage && styles.wizardButtonDisabled]}
                   onPress={() => setBookingStep(2)}

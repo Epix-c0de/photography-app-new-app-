@@ -7,7 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '@/constants/colors';
 import { SMSService, SMSTemplate, SMSLog, SMSLogWithClient } from '@/services/sms';
 import { AdminService, Client } from '@/services/admin';
-import { LocalSmsGateway, type LocalSmsGatewayStatus } from '@lenzart/local-sms-gateway';
+// DISABLED: Root app not used, moved to split-apps
+// import { LocalSmsGateway, type LocalSmsGatewayStatus } from '@lenzart/local-sms-gateway';
 
 type Tab = 'compose' | 'templates' | 'logs' | 'analytics';
 
@@ -22,7 +23,9 @@ export default function SmsManagementScreen() {
   const [logs, setLogs] = useState<SMSLogWithClient[]>([]);
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState<number>(0);
-  const [gatewayStatus, setGatewayStatus] = useState<LocalSmsGatewayStatus | null>(null);
+  // DISABLED: Root app not used
+  // const [gatewayStatus, setGatewayStatus] = useState<LocalSmsGatewayStatus | null>(null);
+  const [gatewayStatus, setGatewayStatus] = useState<any | null>(null);
   const [sentToday, setSentToday] = useState<number>(0);
   const [failedToday, setFailedToday] = useState<number>(0);
   const [queueRemaining, setQueueRemaining] = useState<number>(0);
@@ -77,13 +80,14 @@ export default function SmsManagementScreen() {
   }, []);
 
   const refreshGatewayStatus = useCallback(async () => {
-    if (Platform.OS !== 'android') return;
-    try {
-      const status = await LocalSmsGateway.getStatus();
-      setGatewayStatus(status);
-    } catch {
-      setGatewayStatus(null);
-    }
+    // DISABLED: Root app not used
+    // if (Platform.OS !== 'android') return;
+    // try {
+    //   const status = await LocalSmsGateway.getStatus();
+    //   setGatewayStatus(status);
+    // } catch {
+    //   setGatewayStatus(null);
+    // }
   }, []);
 
   const requestSmsPermissions = useCallback(async () => {

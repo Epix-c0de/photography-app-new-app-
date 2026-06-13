@@ -82,7 +82,7 @@ export default function BTSAllScreen() {
   useEffect(() => {
     if (isDemoMode) return;
     const channel = supabase
-      .channel('bts_posts_all')
+      .channel(`bts_posts_all_${Date.now()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bts_posts' }, () => fetchPosts())
       .subscribe();
 

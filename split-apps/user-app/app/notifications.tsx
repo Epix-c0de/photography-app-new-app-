@@ -443,7 +443,7 @@ export default function NotificationsScreen() {
 
     // Set up real-time subscription
     const channel = supabase
-      .channel('user_notifications')
+      .channel(`user_notifications_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',

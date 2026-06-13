@@ -1,66 +1,125 @@
-# Engagement Features & Admin Redesign Implementation Plan
+# Feature Implementation Plan
 
-This plan outlines the steps to implement dynamic profile activity, referral program modifications, interactive portfolio features, a premium admin dashboard redesign, and simplified M-PESA configuration.
+## Overview
+This document outlines the 5 major features being implemented for the photography platform.
 
-## User Review Required
+## Features
 
-> [!IMPORTANT]
-> - New database tables (`portfolio_likes`, `simple_payment_settings`) and columns will be added to support these features.
-> - The M-PESA payment pipeline will be updated to prioritize simple settings if configured.
+### ✅ 1. Upload Screen Enhancement
+**Status**: Partially Complete (existing functionality)
+- Admin can create new clients on upload screen (ALREADY EXISTS)
+- Need to add: Share invite link via WhatsApp after upload
 
-## Proposed Changes
+### ✅ 2. Gallery Privacy (Admin Isolation)
+**Status**: Database migration created
+- Each admin has separate client records
+- Clients are scoped to owner_admin_id (ALREADY EXISTS via RLS)
+- No shared clients across admins
 
----
+### ✅ 3. Photographer Tagging in Client App
+**Status**: Database migration created
+- Added `photographer_name` and `photographer_id` to galleries table
+- Trigger auto-populates photographer info on gallery creation
+- Need to: Display photographer name on gallery tiles in user app
 
-### [Component] Database & Schema
-#### [NEW] Migration: `20240428_engagement_features.sql`
-- Add `likes_count` and `shares_count` to `portfolio_items`.
-- Create `portfolio_likes` table for user-specific tracking.
-- Create `simple_payment_settings` for quick M-PESA setup.
+### 🔄 4. Payment Settings Consolidation
+**Status**: To be implemented
+- Merge Paybill, Till, and Manual Payment into ONE screen
+- Simplify payment configuration UI
 
----
+### 🔄 5. Manual Payment Flow
+**Status**: Database tables created, UI to be implemented
+**Flow**:
+1. Client initiates manual payment in PaymentModal
+2. Client enters M-Pesa transaction code
+3. Code saved to `manual_payment_verifications` table (status: pending)
+4. Admin sees pending payment in admin panel
+5. Admin verifies code manually → Gallery unlocks
+6. Admin can also reject with reason
 
-### [Component] User Experience (Discovery & Loyalty)
-#### [MODIFY] [profile/index.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(tabs)/profile/index.tsx)
-- Fetch `Member Since` from `user_profiles.created_at`.
-- Fetch `Next Shoot` from `bookings` table for the current user.
-- Remove discount text from Referral card.
-- Use dynamic app share link from `admin_settings`.
+## Database Schema
 
-#### [MODIFY] [gallery/index.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(tabs)/gallery/index.tsx)
-- Enhance [PortfolioCard](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/%28tabs%29/gallery/index.tsx#176-192) with Heart (Like) and Share2 icons.
-- Add Like/Share logic to [PhotoCard](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/%28tabs%29/gallery/index.tsx#30-175) used in Top Rated section.
+### New Tables
 
-#### [MODIFY] [home/index.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(tabs)/home/index.tsx)
-- Ensure Golden Ring effect on BTS posts is visually premium and pulsating.
+#### `manual_payment_verifications`
+```sql
+- id (UUID)
+- gallery_id (FK to galleries)
+- client_id (FK to clients)
+- admin_id (FK to user_profiles)
+- mpesa_code (TEXT) - M-Pesa transaction code from client
+- amount (DECIMAL)
+- status (pending | verified | rejected)
+- verified_at (TIMESTAMPTZ)
+- verified_by (UUID)
+- rejection_reason (TEXT)
+- created_at, updated_at
+```
 
----
+### Modified Tables
 
-### [Component] Admin Command Center
-#### [MODIFY] [dashboard/index.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(admin)/dashboard/index.tsx)
-- Redesign with a premium, detailed layout.
-- Add granular engagement analytics (Portfolio likes/shares).
-- High-fidelity visual accents (Glassmorphism, curated gradients).
+#### `galleries`
+```sql
++ photographer_name (TEXT) - Auto-populated from user_profiles.name
++ photographer_id (UUID) - References user_profiles(id)
+```
 
-#### [NEW] [simple-mpesa.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(admin)/settings/simple-mpesa.tsx)
-- Unified screen for quick M-PESA number & business name configuration.
+## Implementation Status
 
-#### [MODIFY] [upload.tsx](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/app/(admin)/upload.tsx)
-- Add "Next Shoot" date picker to sync with client profile activity.
+### Completed
+- ✅ Database migration for photographer tagging
+- ✅ Database migration for manual payment verification
+- ✅ Trigger to auto-populate photographer name
+- ✅ Function to verify/reject manual payments
+- ✅ Bundler fix (disabled @lenzart imports in root app)
+- ✅ Client invite link system (already implemented)
 
----
+### In Progress
+- 🔄 Add photographer name display to gallery tiles (user app)
+- 🔄 Add WhatsApp share button after upload (admin app)
+- 🔄 Consolidate payment settings screen (admin app)
+- 🔄 Manual payment UI in PaymentModal (user app)
+- 🔄 Manual payment verification screen (admin app)
 
-### [Component] Payment Pipeline
-#### [MODIFY] [mpesa-stk-push](file:///c:/Users/karis/NEW%20APP%20TEMPLATE/supabase/functions/mpesa-stk-push/index.ts)
-- Check `simple_payment_settings` as a fallback or primary source for M-PESA credentials.
+### Next Steps
+1. Update user app gallery tiles to show photographer name
+2. Add "Share via WhatsApp" button to upload success modal
+3. Create consolidated payment settings screen
+4. Add manual payment option to PaymentModal
+5. Create admin screen to view/verify manual payments
 
-## Verification Plan
+## File Changes Required
 
-### Automated Tests
-- Verify portfolio like/share count increments via Supabase real-time updates.
-- Test STK push triggering with both Simple and Advanced M-PESA settings.
+### User App
+- `split-apps/user-app/app/(tabs)/gallery/index.tsx` - Add photographer tag to gallery tiles
+- `split-apps/user-app/components/PaymentModal.tsx` - Add manual payment option
 
-### Manual Verification
-- Confirm Profile screen shows correct "Member Since" and "Next Shoot" dates.
-- Validate Referral sharing content on a real device.
-- Review Admin Dashboard layout across different screen sizes.
+### Admin App
+- `split-apps/admin-app/app/(admin)/upload.tsx` - Add WhatsApp share after upload
+- `split-apps/admin-app/app/(admin)/settings/payments.tsx` - Consolidate payment settings
+- `split-apps/admin-app/app/(admin)/settings/manual-payments.tsx` - NEW: Manual payment verification screen
+
+### Edge Functions
+- Already complete: `generate_invite_link` and `invite_redirect` exist
+
+## Architecture Notes
+
+### Client Privacy
+- Clients are already scoped by `owner_admin_id` via RLS policies
+- Each admin sees only their own clients
+- No changes needed - this is already enforced at DB level
+
+### Invite Link System
+- Already implemented via `client_invite_links` table
+- `generate_invite_link` Edge Function creates unique tokens
+- Tokens bind clients to specific admins
+- Universal links work: `epixvisuals://join?ref=ADMIN_ID&invite=TOKEN`
+
+### Manual Payment Verification
+- Client submits M-Pesa code → creates `manual_payment_verifications` record
+- Admin panel shows pending payments
+- Admin calls `verify_manual_payment()` function
+- Function updates gallery: `is_paid = TRUE, is_locked = FALSE`
+
+## Migration Files
+1. `20260602000001_privacy_and_tagging.sql` - ✅ Ready to apply

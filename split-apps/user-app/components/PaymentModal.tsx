@@ -154,7 +154,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
           return;
         }
 
-        setPaymentState('initiating');
+        updatePaymentState('initiating');
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
         try {
@@ -179,18 +179,18 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
             throw new Error('Payment initiated but missing checkout request id.');
           }
 
-          setPaymentState('waiting');
+          updatePaymentState('waiting');
           startPolling(checkoutRequestId, gallery.id);
 
         } catch (e: any) {
           console.error('Payment initiation failed:', e);
-          setPaymentState('failed');
+          updatePaymentState('failed');
           setErrorMessage(e.message || 'Could not initiate payment.');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
       } else {
         // Manual verification - show instructions
-        setPaymentState('waiting');
+        updatePaymentState('waiting');
         setErrorMessage('');
         
         // Create a manual payment record
@@ -406,32 +406,50 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       const codeMatch = mpesaMessage.match(/\b([A-Z0-9]{10})\b/);
       const mpesaCode = codeMatch ? codeMatch[1] : null;
 
-      // Submit to mpesa_messages table
+      if (!mpesaCode) {
+        Alert.alert('Invalid Message', 'Could not extract M-Pesa transaction code. Please make sure you pasted the complete confirmation message.');
+        updatePaymentState('manual_payment');
+        return;
+      }
+
+      // Get current user to find client_id
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data: clientData } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!clientData?.id) {
+        throw new Error('Client record not found. Please contact support.');
+      }
+
+      // Submit to manual_payment_verifications table
       const { error } = await supabase
-        .from('mpesa_messages')
+        .from('manual_payment_verifications')
         .insert({
-          user_id: gallery.client_id,
+          client_id: clientData.id,
           admin_id: gallery.owner_admin_id,
           gallery_id: gallery.id,
-          mpesa_message: mpesaMessage.trim(),
           mpesa_code: mpesaCode,
-          sender_phone: phoneNumber,
-          amount: gallery.price,
+          amount: gallery.price || 0,
           status: 'pending',
         });
 
       if (error) throw error;
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackStyle.Success);
       Alert.alert(
-        'Message Sent',
-        'Your M-Pesa confirmation has been sent to the admin. Your gallery will be unlocked once verified.',
+        'Submission Received',
+        'Your M-Pesa payment code has been sent to the admin. Your gallery will be unlocked once verified.',
         [{ text: 'OK', onPress: () => onClose() }]
       );
     } catch (e: any) {
-      console.error('Failed to submit message:', e);
+      console.error('Failed to submit payment:', e);
       updatePaymentState('manual_payment');
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      Alert.alert('Error', e.message || 'Failed to send payment. Please try again.');
     }
   };
 

@@ -13,13 +13,14 @@ type ManualPayment = {
   gallery_id: string;
   client_id: string;
   admin_id: string;
+  mpesa_code: string;
   amount: number;
-  phone_number: string;
-  mpesa_number: string;
   status: 'pending' | 'verified' | 'rejected';
+  verified_at?: string;
+  verified_by?: string;
+  rejection_reason?: string;
   created_at: string;
   updated_at: string;
-  mpesa_receipt?: string;
 };
 
 export default function ManualPaymentsScreen() {
@@ -42,7 +43,7 @@ export default function ManualPaymentsScreen() {
       if (!user?.id) return;
 
       const { data, error } = await supabase
-        .from('manual_payments')
+        .from('manual_payment_verifications')
         .select('*')
         .eq('admin_id', user.id)
         .order('created_at', { ascending: false });
@@ -66,7 +67,7 @@ export default function ManualPaymentsScreen() {
   const handleVerify = async (payment: ManualPayment) => {
     Alert.alert(
       'Verify Payment',
-      `Verify payment of ${payment.amount} from ${payment.phone_number}?`,
+      `Verify payment of KES ${payment.amount.toFixed(2)} with M-Pesa code ${payment.mpesa_code}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -76,7 +77,7 @@ export default function ManualPaymentsScreen() {
             setProcessing(payment.id);
             try {
               const { error: updateError } = await supabase
-                .from('manual_payments')
+                .from('manual_payment_verifications')
                 .update({ status: 'verified', updated_at: new Date().toISOString() })
                 .eq('id', payment.id);
 
@@ -111,7 +112,7 @@ export default function ManualPaymentsScreen() {
   const handleReject = async (payment: ManualPayment) => {
     Alert.alert(
       'Reject Payment',
-      `Reject payment of ${payment.amount} from ${payment.phone_number}?`,
+      `Reject payment of KES ${payment.amount.toFixed(2)} with M-Pesa code ${payment.mpesa_code}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -121,7 +122,7 @@ export default function ManualPaymentsScreen() {
             setProcessing(payment.id);
             try {
               const { error } = await supabase
-                .from('manual_payments')
+                .from('manual_payment_verifications')
                 .update({ status: 'rejected', updated_at: new Date().toISOString() })
                 .eq('id', payment.id);
 
@@ -149,10 +150,10 @@ export default function ManualPaymentsScreen() {
           <View style={styles.amountRow}>
             <DollarSign size={20} color={item.status === 'verified' ? Colors.success : item.status === 'rejected' ? Colors.error : Colors.gold} />
             <Text style={[styles.amount, item.status === 'verified' && styles.verifiedText, item.status === 'rejected' && styles.rejectedText]}>
-              {item.amount}
+              KES {item.amount.toFixed(2)}
             </Text>
           </View>
-          <Text style={styles.clientName}>{item.phone_number}</Text>
+          <Text style={styles.clientName}>Client ID: {item.client_id}</Text>
           <Text style={styles.galleryName}>Gallery ID: {item.gallery_id}</Text>
         </View>
         <View style={[styles.statusBadge, item.status === 'verified' && styles.verifiedBadge, item.status === 'rejected' && styles.rejectedBadge]}>
@@ -165,11 +166,7 @@ export default function ManualPaymentsScreen() {
       <View style={styles.paymentDetails}>
         <View style={styles.detailRow}>
           <Smartphone size={16} color={Colors.textSecondary} />
-          <Text style={styles.detailText}>{item.phone_number}</Text>
-        </View>
-        <View style={styles.detailRow}>
-          <Smartphone size={16} color={Colors.textSecondary} />
-          <Text style={styles.detailText}>Sent to: {item.mpesa_number}</Text>
+          <Text style={styles.detailText}>M-Pesa Code: {item.mpesa_code}</Text>
         </View>
         <View style={styles.detailRow}>
           <Clock size={16} color={Colors.textSecondary} />

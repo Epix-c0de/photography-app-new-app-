@@ -10,9 +10,12 @@ const navItems = [
   { href: '/dashboard/galleries', label: 'Galleries', icon: '⬡' },
   { href: '/dashboard/clients', label: 'Clients', icon: '◎' },
   { href: '/dashboard/upload', label: 'Upload', icon: '⬆' },
+  { href: '/dashboard/inbox', label: 'Inbox', icon: '💬' },
+  { href: '/dashboard/portfolio', label: 'Portfolio', icon: '🖼' },
   { href: '/dashboard/bts', label: 'BTS & Posts', icon: '◉' },
   { href: '/dashboard/notifications', label: 'Notifications', icon: '◈' },
   { href: '/dashboard/bookings', label: 'Bookings', icon: '◷' },
+  { href: '/dashboard/support', label: 'Support', icon: '🎧' },
   { href: '/dashboard/settings', label: 'Settings', icon: '◎' },
 ];
 
@@ -23,6 +26,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [adminEmail, setAdminEmail] = useState('');
   const [daysLeft, setDaysLeft] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [inboxUnread, setInboxUnread] = useState(0);
+  const [supportUnread, setSupportUnread] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -55,6 +60,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setAdminName(profile.name || session.user.email?.split('@')[0] || 'Photographer');
       setAdminEmail(profile.email || session.user.email || '');
       setLoading(false);
+
+      // Load unread inbox count
+      const { data: clients } = await supabase.from('clients').select('id').eq('owner_admin_id', session.user.id);
+      if (clients?.length) {
+        const clientIds = clients.map((c: any) => c.id);
+        const { count } = await supabase.from('messages')
+          .select('*', { count: 'exact', head: true })
+          .in('client_id', clientIds)
+          .eq('sender_role', 'client')
+          .eq('is_read', false);
+        setInboxUnread(count || 0);
+      }
+
+      // Load unread support messages from super admin
+      const { count: supportCount } = await supabase.from('support_messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('photographer_id', session.user.id)
+        .eq('sender_role', 'super_admin')
+        .eq('is_read', false);
+      setSupportUnread(supportCount || 0);
     })();
   }, [router]);
 
@@ -114,11 +139,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = item.exact ? pathname === item.href : pathname.startsWith(item.href);
+            const badge = item.href === '/dashboard/inbox' && inboxUnread > 0 ? inboxUnread
+              : item.href === '/dashboard/support' && supportUnread > 0 ? supportUnread
+              : null;
             return (
               <Link key={item.href} href={item.href}
                 className={`nav-item ${isActive ? 'active' : ''}`}>
                 <span className="text-base w-5 text-center">{item.icon}</span>
-                <span>{item.label}</span>
+                <span className="flex-1">{item.label}</span>
+                {badge && (
+                  <span className="ml-auto w-5 h-5 rounded-full bg-yellow-500 text-black text-xs font-bold flex items-center justify-center">
+                    {badge > 9 ? '9+' : badge}
+                  </span>
+                )}
               </Link>
             );
           })}

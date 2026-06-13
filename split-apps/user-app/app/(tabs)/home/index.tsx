@@ -165,7 +165,9 @@ function BTSStoryCard({
         )}
 
         <Text style={styles.btsCategory} numberOfLines={1}>
-          {item.category ?? 'BTS'}
+          {(item as any).user_profiles?.name
+            ? (item as any).user_profiles.name.split(' ')[0]
+            : (item.category ?? 'BTS')}
         </Text>
       </Animated.View>
     </Pressable>
@@ -238,6 +240,27 @@ function AnnouncementCard({ item, index, onPress }: { item: AnnouncementRow; ind
           </View>
         )}
         <View style={styles.announcementContent}>
+          {/* Admin attribution row */}
+          {(item as any).user_profiles && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              {(item as any).user_profiles.avatar_url ? (
+                <Image
+                  source={{ uri: (item as any).user_profiles.avatar_url }}
+                  style={{ width: 20, height: 20, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(212,175,55,0.4)' }}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(212,175,55,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 9, color: Colors.gold, fontWeight: '700' }}>
+                    {((item as any).user_profiles.name || '?').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: '600' }} numberOfLines={1}>
+                {(item as any).user_profiles.name || 'Photographer'}
+              </Text>
+            </View>
+          )}
           <Text style={styles.announcementTitle}>{item.title}</Text>
           <Text style={styles.announcementDesc} numberOfLines={2}>
             {item.description ?? ''}
@@ -434,38 +457,50 @@ export default function HomeScreen() {
         setBtsPosts(demoBtsPosts);
         return;
       }
-      const nowIso = new Date().toISOString();
-      console.log('[BTS Feed] Fetching BTS posts... Time now:', nowIso);
       
-      // First, check total BTS posts count
-      const { count, error: countError } = await supabase
-        .from('bts_posts')
-        .select('*', { count: 'exact', head: true });
+      console.log('[BTS Feed] Fetching BTS posts with visibility filtering...');
       
-      console.log('[BTS Feed] Total BTS posts in DB:', count, countError ? 'Error: ' + countError.message : '');
-      
-      const { data, error } = await supabase
-        .from('bts_posts')
-        .select('*')
-        .eq('is_active', true)
-        .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-        .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      // Use the visibility filtering RPC function
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session?.user) {
+        console.log('[BTS Feed] No user session, showing only global content');
+        // If not logged in, only show active content
+        const { data, error } = await supabase
+          .from('bts_posts')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(20);
 
-      if (error) {
-        console.error('[BTS Feed] ✗ Failed to load BTS posts:', error);
-        console.error('[BTS Feed] Error message:', error.message);
-        console.error('[BTS Feed] Error code:', (error as any)?.code);
-        setBtsPosts([]);
-        setBtsError('Failed to load BTS. Error: ' + (error.message || 'Unknown error'));
-        setBtsLoading(false);
-        return;
+        if (error) {
+          console.error('[BTS Feed] ✗ Failed to load BTS posts:', error);
+          setBtsPosts([]);
+          setBtsError('Failed to load BTS. Error: ' + (error.message || 'Unknown error'));
+          setBtsLoading(false);
+          return;
+        }
+
+        console.log('[BTS Feed] ✓ Loaded', (data || []).length, 'global BTS posts');
+        setBtsPosts(data || []);
+      } else {
+        // Use RPC to get visible content for user
+        const { data, error } = await supabase.rpc('get_visible_content_for_user' as any, {
+          p_user_id: session.session.user.id,
+          p_content_type: 'bts'
+        }) as any;
+
+        if (error) {
+          console.error('[BTS Feed] ✗ Failed to load BTS posts:', error);
+          console.error('[BTS Feed] Error message:', error.message);
+          setBtsPosts([]);
+          setBtsError('Failed to load BTS. Error: ' + (error.message || 'Unknown error'));
+          setBtsLoading(false);
+          return;
+        }
+
+        console.log('[BTS Feed] ✓ Loaded', (data || []).length, 'visible BTS posts');
+        setBtsPosts((data || []) as BTSPost[]);
       }
-
-      console.log('[BTS Feed] ✓ Loaded', (data || []).length, 'BTS posts from filter');
-      console.log('[BTS Feed] Posts data:', data);
-      setBtsPosts(data || []);
     } catch (err) {
       console.error('[BTS Feed] ✗ Error fetching BTS:', err);
       setBtsError('Failed to load BTS posts: ' + ((err as any)?.message || String(err)));
@@ -532,6 +567,13 @@ export default function HomeScreen() {
       return;
     }
 
+    // Don't query until user is available — avoids client_id=eq.undefined 400 errors
+    if (!user?.id) {
+      setGalleries([]);
+      setGalleriesLoading(false);
+      return;
+    }
+
     const activeClientId = clientId ?? (await fetchClientId());
     if (!activeClientId) {
       setGalleries([]);
@@ -544,10 +586,13 @@ export default function HomeScreen() {
       .select('*')
       .eq('client_id', activeClientId);
 
-    const { data: unlockedGalleries, error: unlockedError } = await supabase
-      .from('unlocked_galleries')
-      .select('gallery_id, galleries(*)')
-      .eq('user_id', user?.id);
+    // Only fetch unlocked galleries when user?.id is available
+    const { data: unlockedGalleries, error: unlockedError } = user?.id
+      ? await supabase
+          .from('unlocked_galleries')
+          .select('gallery_id, galleries(*)')
+          .eq('user_id', user.id)
+      : { data: [], error: null };
 
     const localUnlockedIds = await readLocalUnlockedGalleryIds();
     let locallyUnlockedGalleries: GalleryRow[] = [];
@@ -656,25 +701,58 @@ export default function HomeScreen() {
       setAnnouncementsLoading(false);
       return;
     }
-    const nowIso = new Date().toISOString();
 
-    const { data, error } = await supabase
-      .from('announcements')
-      .select('*')
-      .eq('is_active', true)
-      .or(`expires_at.is.null,expires_at.gt.${nowIso},scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
-      .order('created_at', { ascending: false })
-      .limit(8);
+    console.log('[Announcements] Fetching announcements with visibility filtering...');
 
-    if (error || !data) {
+    try {
+      // Use the visibility filtering RPC function
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session?.user) {
+        console.log('[Announcements] No user session, showing only active content');
+        // If not logged in, only show active content
+        const { data, error } = await supabase
+          .from('announcements')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(8);
+
+        if (error || !data) {
+          console.error('[Announcements] ✗ Failed to load announcements:', error);
+          setAnnouncements([]);
+          setAnnouncementsError(true);
+          setAnnouncementsLoading(false);
+          return;
+        }
+
+        console.log('[Announcements] ✓ Loaded', data.length, 'global announcements');
+        setAnnouncements(data);
+        setAnnouncementsLoading(false);
+      } else {
+        // Use RPC to get visible content for user
+        const { data, error } = await supabase.rpc('get_visible_content_for_user' as any, {
+          p_user_id: session.session.user.id,
+          p_content_type: 'announcements'
+        }) as any;
+
+        if (error || !data) {
+          console.error('[Announcements] ✗ Failed to load announcements:', error);
+          setAnnouncements([]);
+          setAnnouncementsError(true);
+          setAnnouncementsLoading(false);
+          return;
+        }
+
+        console.log('[Announcements] ✓ Loaded', data.length, 'visible announcements');
+        setAnnouncements(data as AnnouncementRow[]);
+        setAnnouncementsLoading(false);
+      }
+    } catch (err) {
+      console.error('[Announcements] ✗ Error fetching announcements:', err);
       setAnnouncements([]);
       setAnnouncementsError(true);
       setAnnouncementsLoading(false);
-      return;
     }
-
-    setAnnouncements(data);
-    setAnnouncementsLoading(false);
   }, [isDemoMode]);
 
   const orderedBtsPosts = useMemo(() => {

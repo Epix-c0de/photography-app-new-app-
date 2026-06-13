@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Animated, Alert, ActivityIndicator, RefreshControl, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Animated, Alert, ActivityIndicator, RefreshControl, Modal, Share } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,6 +18,7 @@ import {
   Trash2,
   Megaphone,
   Upload,
+  Share2,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
@@ -71,7 +72,7 @@ const loyaltyColors: Record<string, string> = {
 
 type ViewMode = 'clients' | 'galleries';
 
-function ClientCard({ client, onPress, onPressShortcut }: { client: AdminClient; onPress: () => void; onPressShortcut: (type: 'upload') => void }) {
+function ClientCard({ client, onPress, onPressShortcut, onShareApp }: { client: AdminClient; onPress: () => void; onPressShortcut: (type: 'upload') => void; onShareApp: () => void }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   return (
@@ -104,6 +105,15 @@ function ClientCard({ client, onPress, onPressShortcut }: { client: AdminClient;
           </View>
         </View>
         <ChevronRight size={18} color={Colors.textMuted} />
+        {/* Share app invite */}
+        <Pressable
+          style={[styles.uploadShortcut, { backgroundColor: 'rgba(212,175,55,0.12)', marginRight: 4 }]}
+          onPress={(e) => { e.stopPropagation(); onShareApp(); }}
+          hitSlop={10}
+        >
+          <Share2 size={16} color={Colors.gold} />
+        </Pressable>
+        {/* Upload shortcut */}
         <Pressable 
           style={styles.uploadShortcut} 
           onPress={(e) => {
@@ -378,6 +388,7 @@ export default function AdminClientsScreen() {
   const [newClientPhone, setNewClientPhone] = useState('');
   const [newClientEmail, setNewClientEmail] = useState('');
   const [newClientNotes, setNewClientNotes] = useState('');
+  const [inboxUnread, setInboxUnread] = useState(0);
 
   const [selectedClient, setSelectedClient] = useState<AdminClient | null>(null);
   const [clients, setClients] = useState<AdminClient[]>(AdminService.cache.get('clients') || []);
@@ -414,27 +425,80 @@ export default function AdminClientsScreen() {
       }
 
       setRefreshing(true);
-      console.log('[AdminClients] Fetching fresh data...');
-      console.log('[AdminClients] User:', user);
-      
+      console.log('[AdminClients] Fetching fresh data for user:', user.id);
+
       const [clientsData, galleriesResult] = await Promise.all([
         AdminService.clients.list(),
         AdminService.gallery.list()
       ]);
 
-      console.log('[AdminClients] Raw data:', { 
-        clientsData: clientsData?.length || 0, 
-        galleriesResult: galleriesResult?.length || 0,
-        firstClient: clientsData?.[0],
-        firstGallery: galleriesResult?.[0]
+      console.log('[AdminClients] AdminService returned:', {
+        clients: clientsData?.length || 0,
+        galleries: galleriesResult?.length || 0,
+        userId: user.id,
       });
 
+      // Fallback: if AdminService returns empty, query directly to detect RLS/schema issues
+      let finalClients = clientsData || [];
+      if (finalClients.length === 0) {
+        console.warn('[AdminClients] AdminService returned 0 clients — running direct fallback query...');
+        const { data: directClients, error: directError } = await supabase
+          .from('clients')
+          .select('*')
+          .eq('owner_admin_id', user.id)
+          .order('name', { ascending: true });
+
+        if (directError) {
+          console.error('[AdminClients] Direct query error:', directError.message, directError.code);
+        } else {
+          console.log('[AdminClients] Direct query found:', directClients?.length || 0, 'clients');
+          if (directClients && directClients.length > 0) {
+            // Build the same shape as AdminService output
+            const clientIds = directClients.map((c: any) => c.id).filter(Boolean);
+            let galleryCounts = new Map<string, number>();
+            if (clientIds.length > 0) {
+              const { data: galData } = await supabase
+                .from('galleries')
+                .select('client_id')
+                .in('client_id', clientIds);
+              (galData || []).forEach((g: any) => {
+                galleryCounts.set(g.client_id, (galleryCounts.get(g.client_id) || 0) + 1);
+              });
+            }
+            const userIds = directClients.map((c: any) => c.user_id).filter(Boolean);
+            let avatarMap = new Map<string, string>();
+            if (userIds.length > 0) {
+              const { data: profiles } = await supabase
+                .from('user_profiles')
+                .select('id, avatar_url')
+                .in('id', userIds);
+              (profiles || []).forEach((p: any) => {
+                if (p.avatar_url) avatarMap.set(p.id, p.avatar_url);
+              });
+            }
+            finalClients = directClients.map((c: any) => ({
+              id: c.id,
+              user_id: c.user_id || null,
+              name: c.name || 'Unknown Client',
+              phone: c.phone || c.mobile_number || '',
+              email: c.email || '',
+              avatar_url: (c.user_id && avatarMap.get(c.user_id)) || c.avatar_url || null,
+              loyalty_level: c.loyalty_level || 'Bronze',
+              total_spent: c.total_paid || 0,
+              total_galleries: galleryCounts.get(c.id) || 0,
+              notes: c.notes || '',
+              last_shoot_date: c.last_shoot_date || null,
+            }));
+          }
+        }
+      }
+
       // Transform Clients
-      const transformedClients: AdminClient[] = (clientsData || []).map((c: any) => ({
+      const transformedClients: AdminClient[] = finalClients.map((c: any) => ({
         id: c.id,
         name: c.name,
         avatar: c.avatar_url || null,
-        phone: c.phone || '',
+        phone: c.phone || c.mobile_number || '',
         email: c.email || '',
         loyaltyLevel: c.loyalty_level || 'Bronze',
         totalSpent: c.total_spent || 0,
@@ -454,11 +518,11 @@ export default function AdminClientsScreen() {
         accessCode: g.access_code,
         isLocked: g.is_locked,
         isPaid: g.is_paid,
-        price: g.price_quote || 0,
+        price: g.price_quote || g.price || 0,
         status: g.status,
       }));
 
-      console.log('[AdminClients] Transformed:', { clients: transformedClients.length, galleries: transformedGalleries.length });
+      console.log('[AdminClients] Final counts:', { clients: transformedClients.length, galleries: transformedGalleries.length });
 
       setClients(transformedClients);
       setGalleries(transformedGalleries);
@@ -471,6 +535,34 @@ export default function AdminClientsScreen() {
       setRefreshing(false);
     }
   }, [user]);
+
+  const handleShareApp = useCallback(async (client: AdminClient) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // Generate invite link via Edge Function
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const response = await supabase.functions.invoke('generate_invite_link', {
+        body: {
+          client_id: client.id,
+          label: client.name,
+        },
+      });
+
+      if (response.error) throw response.error;
+      const { share_message, web_fallback, android_link, ios_link } = response.data;
+
+      // Show share sheet
+      await Share.share({
+        message: share_message,
+        title: 'Download the Epix Visuals App',
+      });
+    } catch (error: any) {
+      console.error('Share app error:', error);
+      Alert.alert('Share Failed', error?.message || 'Could not generate invite link. Please try again.');
+    }
+  }, []);
 
   const resetCreateClientForm = useCallback(() => {
     setNewClientName('');
@@ -597,6 +689,14 @@ export default function AdminClientsScreen() {
               Galleries ({galleries.length})
             </Text>
           </Pressable>
+          <Pressable
+            style={[styles.toggleBtn, styles.inboxBtn]}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/(admin)/inbox' as any); }}
+          >
+            <Text style={styles.toggleText}>
+              💬 Inbox
+            </Text>
+          </Pressable>
         </View>
       </View>
 
@@ -620,17 +720,25 @@ export default function AdminClientsScreen() {
                 onPressShortcut={(type) => {
                   if (type === 'upload') {
                     router.push({
-                      pathname: '/upload',
-                      params: { userId: client.id }
+                      pathname: '/(admin)/upload/new',
+                      params: { userId: client.id, phoneNumber: client.phone || '' }
                     } as any);
                   }
                 }}
+                onShareApp={() => handleShareApp(client)}
               />
             ))
           ) : (
             <View style={styles.emptyState}>
               <Search size={40} color={Colors.textMuted} />
-              <Text style={styles.emptyStateText}>No clients found</Text>
+              <Text style={styles.emptyStateText}>
+                {searchQuery.trim() ? 'No clients match your search' : 'No clients yet'}
+              </Text>
+              {!searchQuery.trim() && (
+                <Text style={[styles.emptyStateText, { fontSize: 13, textAlign: 'center', paddingHorizontal: 24 }]}>
+                  Add clients using the + button below, or log in to the Photographer Dashboard to create them there.
+                </Text>
+              )}
             </View>
           )
         ) : (
@@ -797,6 +905,11 @@ const styles = StyleSheet.create({
   },
   toggleBtnActive: {
     backgroundColor: Colors.goldMuted,
+  },
+  inboxBtn: {
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.25)',
   },
   toggleText: {
     fontSize: 13,

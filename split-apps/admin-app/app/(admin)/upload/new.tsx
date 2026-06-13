@@ -49,7 +49,7 @@ type Photo = {
 export default function ClientPhotoUploadScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { userId } = useLocalSearchParams<{ userId: string }>();
+  const { userId, phoneNumber: phoneParam } = useLocalSearchParams<{ userId: string; phoneNumber: string }>();
   const { user, verifyAdminGuard } = useAuth();
   const { brandName: activeBrand, appDisplayName: activeAppName, shareAppLink: appLink, accessCodeLink: accessLink } = useBranding();
 
@@ -62,7 +62,7 @@ export default function ClientPhotoUploadScreen() {
   // Client state
   const [clients, setClients] = useState<Client[]>([]);
   const [clientData, setClientData] = useState<Client | null>(null);
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState(phoneParam || '');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
   const [temporaryClientName, setTemporaryClientName] = useState('');
