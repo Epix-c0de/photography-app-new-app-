@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -68,10 +68,7 @@ export default function BTSAllScreen() {
     [filter, isDemoMode, search, sort]
   );
 
-  useEffect(() => {
-    fetchPosts();
-  }, [fetchPosts]);
-
+  // Initial fetch + search debouncing
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => fetchPosts(search), 260);

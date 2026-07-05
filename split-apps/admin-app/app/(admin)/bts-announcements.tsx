@@ -216,8 +216,7 @@ export default function AdminBtsAnnouncementsScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
-        allowsEditing: true,
-        aspect: [4, 3],
+        allowsEditing: false,
         quality: 0.8,
         videoMaxDuration: 30, // Auto-crop to 30s for BTS videos
       });
@@ -831,6 +830,7 @@ export default function AdminBtsAnnouncementsScreen() {
       const { data, error } = await supabase
         .from('bts_posts')
         .select('*')
+        .eq('admin_id', user.id)
         .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
         .order('created_at', { ascending: false });
 
@@ -839,7 +839,7 @@ export default function AdminBtsAnnouncementsScreen() {
     } catch (error) {
       console.error('Error loading BTS posts:', error);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     const timer = setInterval(() => setClockMs(Date.now()), 30000);
@@ -851,6 +851,7 @@ export default function AdminBtsAnnouncementsScreen() {
       const { data, error } = await supabase
         .from('announcements')
         .select('*')
+        .eq('admin_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -858,13 +859,14 @@ export default function AdminBtsAnnouncementsScreen() {
     } catch (error) {
       console.error('Error loading announcements:', error);
     }
-  }, []);
+  }, [user?.id]);
 
   const loadPortfolioItems = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('portfolio_items')
         .select('*')
+        .eq('admin_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -872,7 +874,7 @@ export default function AdminBtsAnnouncementsScreen() {
     } catch (error) {
       console.error('Error loading portfolio items:', error);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     (async () => {
@@ -960,12 +962,7 @@ export default function AdminBtsAnnouncementsScreen() {
             style={[styles.typeButton, contentType === 'portfolio' && styles.typeButtonActive]}
             onPress={() => setContentType('portfolio')}
           >
-            <ExpoImage
-              source={require('@/assets/icons/bts-announcements/bts.svg')}
-              style={{ width: 20, height: 20 }}
-              tintColor={contentType === 'portfolio' ? Colors.gold : Colors.textMuted}
-              contentFit="contain"
-            />
+            <ImageIcon size={20} color={contentType === 'portfolio' ? Colors.gold : Colors.textMuted} />
             <Text style={[styles.typeButtonText, contentType === 'portfolio' && styles.typeButtonTextActive]}>
               Portfolio
             </Text>
@@ -1084,9 +1081,16 @@ export default function AdminBtsAnnouncementsScreen() {
                 style={styles.input}
                 placeholder="7"
                 value={btsExpiryDays}
-                onChangeText={setBtsExpiryDays}
+                onChangeText={(t) => {
+                  const cleaned = t.replace(/[^0-9]/g, '');
+                  setBtsExpiryDays(cleaned);
+                }}
                 keyboardType="numeric"
+                maxLength={3}
               />
+              {btsExpiryDays && (Number(btsExpiryDays) < 1 || Number(btsExpiryDays) > 365) && (
+                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Must be 1-365 days</Text>
+              )}
             </View>
 
             {/* Schedule */}
@@ -1098,6 +1102,12 @@ export default function AdminBtsAnnouncementsScreen() {
                 value={btsScheduledFor}
                 onChangeText={setBtsScheduledFor}
               />
+              {btsScheduledFor && isNaN(new Date(btsScheduledFor).getTime()) && (
+                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Invalid date format. Use YYYY-MM-DD HH:MM</Text>
+              )}
+              {btsScheduledFor && !isNaN(new Date(btsScheduledFor).getTime()) && new Date(btsScheduledFor).getTime() <= Date.now() && (
+                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Schedule time must be in the future</Text>
+              )}
             </View>
 
             {/* Music */}
@@ -1278,9 +1288,16 @@ export default function AdminBtsAnnouncementsScreen() {
                 style={styles.input}
                 placeholder="30"
                 value={annExpiryDays}
-                onChangeText={setAnnExpiryDays}
+                onChangeText={(t) => {
+                  const cleaned = t.replace(/[^0-9]/g, '');
+                  setAnnExpiryDays(cleaned);
+                }}
                 keyboardType="numeric"
+                maxLength={3}
               />
+              {annExpiryDays && (Number(annExpiryDays) < 1 || Number(annExpiryDays) > 365) && (
+                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Must be 1-365 days</Text>
+              )}
             </View>
 
             {/* Schedule */}
@@ -1292,6 +1309,12 @@ export default function AdminBtsAnnouncementsScreen() {
                 value={annScheduledFor}
                 onChangeText={setAnnScheduledFor}
               />
+              {annScheduledFor && isNaN(new Date(annScheduledFor).getTime()) && (
+                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Invalid date format. Use YYYY-MM-DD HH:MM</Text>
+              )}
+              {annScheduledFor && !isNaN(new Date(annScheduledFor).getTime()) && new Date(annScheduledFor).getTime() <= Date.now() && (
+                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Schedule time must be in the future</Text>
+              )}
             </View>
 
             <Pressable
@@ -1688,9 +1711,10 @@ const styles = StyleSheet.create({
   },
   mediaPreviewImage: {
     width: '100%',
-    height: 200,
+    height: 250,
     borderRadius: 12,
     backgroundColor: Colors.card,
+    resizeMode: 'contain' as const,
   },
   removeMedia: {
     position: 'absolute',
@@ -1702,7 +1726,7 @@ const styles = StyleSheet.create({
   },
   mediaPlaceholder: {
     width: '100%',
-    height: 200,
+    height: 250,
     borderRadius: 12,
     backgroundColor: Colors.card,
     borderWidth: 2,

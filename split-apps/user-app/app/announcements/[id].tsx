@@ -5,8 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Video, ResizeMode } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
-import { ArrowLeft, MessageCircle, Share2, Clock, Send, ExternalLink, X, ShieldCheck, CornerDownRight, Heart, Sparkles, Bookmark, Play } from 'lucide-react-native';
+import { ArrowLeft, MessageCircle, Share2, Clock, Send, ExternalLink, X, ShieldCheck, CornerDownRight, Heart, Play } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -636,55 +635,6 @@ const styles = StyleSheet.create({
   center: {
     justifyContent: 'center',
     alignItems: 'center',
-  },
-
-  // Premium Floating Header
-  floatingHeader: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  floatingHeaderContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  floatingBackBtn: { padding: 4 },
-  floatingBackBtnBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(26,26,26,0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  floatingHeaderTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    letterSpacing: -0.3,
-    flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 12,
-  },
-  floatingActionBtn: { padding: 4 },
-  floatingActionBtnBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: Colors.goldMuted,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.2)',
   },
 
   // Content

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, FlatList, TextInput, Alert, RefreshControl, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, FlatList, Animated, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { Video, ResizeMode } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import { ChevronLeft, MessageCircle, Heart, Share2, MoreVertical, ArrowRight, Sparkles, Bell, TrendingUp, Play, Layers, Star, Crown, Zap, Award } from 'lucide-react-native';
+import { ChevronLeft, MessageCircle, Heart, Share2, ArrowRight, Play, Layers, Crown } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { ClientService } from '@/services/client';
@@ -317,6 +317,8 @@ export default function AnnouncementsAllScreen() {
     };
   }, [fetchAnnouncements]);
 
+  const scrollY = useRef(new Animated.Value(0)).current;
+
   if (loading && announcements.length === 0) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -324,14 +326,6 @@ export default function AnnouncementsAllScreen() {
       </View>
     );
   }
-
-  const scrollY = useRef(new Animated.Value(0)).current;
-
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
 
   return (
     <View style={styles.container}>
