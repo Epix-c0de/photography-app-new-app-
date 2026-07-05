@@ -1,34 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Pressable, RefreshControl,
-  ActivityIndicator, Share,
+  View, Text, StyleSheet, Pressable, RefreshControl,
+  ActivityIndicator, Share, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Copy, Share2, Gift, Users, Award, TrendingUp } from 'lucide-react-native';
+import { Copy, Share2, Users } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 
-type ReferralStats = {
-  total_referrals: number;
-  completed_referrals: number;
-  credits_earned: number;
-  credit_balance: number;
-  referral_code: string;
-};
-
-const TIERS = [
-  { name: 'Bronze', min: 1, max: 5, color: '#CD7F32' },
-  { name: 'Silver', min: 6, max: 15, color: '#C0C0C0' },
-  { name: 'Gold', min: 16, max: 30, color: '#D4AF37' },
-  { name: 'Platinum', min: 31, max: Infinity, color: '#E5E4E2' },
-];
-
 export default function ReferralsScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [stats, setStats] = useState<ReferralStats | null>(null);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [totalReferrals, setTotalReferrals] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -36,28 +22,20 @@ export default function ReferralsScreen() {
   const loadStats = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const { data, error } = await supabase.functions.invoke('process-referral', {
-        body: { action: 'stats' },
-      });
-      if (error) throw error;
-      setStats(data);
-    } catch (e) {
-      console.warn('Referral stats error:', e);
-      // Fallback: try to get code from user_profiles
       const { data: profile } = await supabase
         .from('user_profiles')
         .select('referral_code')
         .eq('id', user.id)
         .single();
-      if (profile?.referral_code) {
-        setStats({
-          total_referrals: 0,
-          completed_referrals: 0,
-          credits_earned: 0,
-          credit_balance: 0,
-          referral_code: profile.referral_code,
-        });
-      }
+      if (profile?.referral_code) setReferralCode(profile.referral_code);
+
+      const { count } = await supabase
+        .from('user_profiles')
+        .select('*', { count: 'exact', head: true })
+        .eq('referred_by', user.id);
+      setTotalReferrals(count || 0);
+    } catch (e) {
+      console.warn('Referral stats error:', e);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -72,24 +50,20 @@ export default function ReferralsScreen() {
   }, [loadStats]);
 
   const handleCopy = async () => {
-    if (!stats?.referral_code) return;
-    await Clipboard.setStringAsync(stats.referral_code);
+    if (!referralCode) return;
+    await Clipboard.setStringAsync(referralCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleShare = async () => {
-    if (!stats?.referral_code) return;
+    if (!referralCode) return;
     try {
       await Share.share({
-        message: `Join Epix Visuals using my referral code: ${stats.referral_code}\n\nGet professional photo gallery management for your photography business!`,
+        message: `Join Epix Visuals using my referral code: ${referralCode}\n\nGet professional photo gallery management for your photography business!`,
       });
     } catch {}
   };
-
-  const currentTier = TIERS.find((t) =>
-    stats ? stats.completed_referrals >= t.min && stats.completed_referrals <= t.max : false
-  ) || TIERS[0];
 
   if (loading) {
     return (
@@ -111,12 +85,11 @@ export default function ReferralsScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
       >
-        {/* Referral Code */}
-        {stats?.referral_code && (
+        {referralCode && (
           <View style={styles.codeCard}>
             <Text style={styles.codeLabel}>Your Referral Code</Text>
             <View style={styles.codeRow}>
-              <Text style={styles.codeText}>{stats.referral_code}</Text>
+              <Text style={styles.codeText}>{referralCode}</Text>
               <Pressable style={styles.copyBtn} onPress={handleCopy}>
                 <Copy size={16} color={copied ? '#10B981' : Colors.gold} />
               </Pressable>
@@ -129,54 +102,14 @@ export default function ReferralsScreen() {
           </View>
         )}
 
-        {/* Stats Grid */}
-        <View style={styles.statsGrid}>
+        <View style={styles.statRow}>
           <View style={styles.statCard}>
             <Users size={20} color="#3B82F6" />
-            <Text style={styles.statValue}>{stats?.total_referrals || 0}</Text>
-            <Text style={styles.statLabel}>Referrals</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Gift size={20} color="#10B981" />
-            <Text style={styles.statValue}>{stats?.completed_referrals || 0}</Text>
-            <Text style={styles.statLabel}>Completed</Text>
-          </View>
-          <View style={styles.statCard}>
-            <TrendingUp size={20} color="#F59E0B" />
-            <Text style={styles.statValue}>{stats?.credits_earned || 0}</Text>
-            <Text style={styles.statLabel}>Earned</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Award size={20} color={currentTier.color} />
-            <Text style={[styles.statValue, { color: currentTier.color }]}>{stats?.credit_balance || 0}</Text>
-            <Text style={styles.statLabel}>Balance</Text>
+            <Text style={styles.statValue}>{totalReferrals}</Text>
+            <Text style={styles.statLabel}>Total Referrals</Text>
           </View>
         </View>
 
-        {/* Current Tier */}
-        <View style={styles.tierCard}>
-          <Text style={styles.tierTitle}>Current Tier</Text>
-          <View style={[styles.tierBadge, { backgroundColor: currentTier.color + '20' }]}>
-            <Award size={20} color={currentTier.color} />
-            <Text style={[styles.tierName, { color: currentTier.color }]}>{currentTier.name}</Text>
-          </View>
-          <View style={styles.tierProgress}>
-            {TIERS.map((tier) => {
-              const isActive = tier.name === currentTier.name;
-              return (
-                <View key={tier.name} style={styles.tierItem}>
-                  <View style={[styles.tierDot, { backgroundColor: isActive ? tier.color : 'rgba(255,255,255,0.1)' }]} />
-                  <Text style={[styles.tierLabel, { color: isActive ? tier.color : 'rgba(255,255,255,0.3)' }]}>
-                    {tier.name}
-                  </Text>
-                  <Text style={styles.tierRange}>{tier.min}+ referrals</Text>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* How It Works */}
         <View style={styles.howItWorks}>
           <Text style={styles.howTitle}>How It Works</Text>
           <View style={styles.stepRow}>
@@ -232,30 +165,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold, borderRadius: 12, padding: 14, marginTop: 16,
   },
   shareBtnText: { fontSize: 15, fontWeight: '700', color: '#080810' },
-  statsGrid: {
-    flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -6, marginBottom: 20,
-  },
+  statRow: { marginBottom: 20 },
   statCard: {
-    width: '48%', margin: '1%', backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 16,
+    alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
   },
   statValue: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', marginTop: 8 },
   statLabel: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
-  tierCard: {
-    backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16, padding: 20,
-    marginBottom: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
-  },
-  tierTitle: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', marginBottom: 12 },
-  tierBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16,
-    paddingVertical: 10, borderRadius: 12, alignSelf: 'flex-start', marginBottom: 16,
-  },
-  tierName: { fontSize: 16, fontWeight: '700' },
-  tierProgress: { gap: 12 },
-  tierItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  tierDot: { width: 8, height: 8, borderRadius: 4 },
-  tierLabel: { fontSize: 13, fontWeight: '600', width: 60 },
-  tierRange: { fontSize: 12, color: 'rgba(255,255,255,0.3)' },
   howItWorks: {
     backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16, padding: 20,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
