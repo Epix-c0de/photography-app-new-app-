@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { BrandingProvider } from '@/contexts/BrandingContext';
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: '◈', exact: true },
@@ -11,12 +12,17 @@ const navItems = [
   { href: '/dashboard/clients', label: 'Clients', icon: '◎' },
   { href: '/dashboard/upload', label: 'Upload', icon: '⬆' },
   { href: '/dashboard/inbox', label: 'Inbox', icon: '💬' },
+  { href: '/dashboard/transactions', label: 'Transactions', icon: '💳' },
+  { href: '/dashboard/bookings', label: 'Bookings', icon: '◷' },
   { href: '/dashboard/portfolio', label: 'Portfolio', icon: '🖼' },
   { href: '/dashboard/bts', label: 'BTS & Posts', icon: '◉' },
-  { href: '/dashboard/notifications', label: 'Notifications', icon: '◈' },
-  { href: '/dashboard/bookings', label: 'Bookings', icon: '◷' },
+  { href: '/dashboard/calendar', label: 'Calendar', icon: '📅' },
+  { href: '/dashboard/reviews', label: 'Reviews', icon: '⭐' },
+  { href: '/dashboard/referrals', label: 'Referrals', icon: '🎁' },
+  { href: '/dashboard/social', label: 'Social', icon: '🌐' },
+  { href: '/dashboard/notifications', label: 'Notifications', icon: '🔔' },
   { href: '/dashboard/support', label: 'Support', icon: '🎧' },
-  { href: '/dashboard/settings', label: 'Settings', icon: '◎' },
+  { href: '/dashboard/settings', label: 'Settings', icon: '⚙' },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -188,7 +194,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Page content */}
         <div className="px-8 py-8 fade-in-up">
-          {children}
+          <BrandingProvider>
+            {children}
+          </BrandingProvider>
         </div>
       </main>
     </div>

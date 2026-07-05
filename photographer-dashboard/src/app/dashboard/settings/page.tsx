@@ -5,15 +5,28 @@ import { supabase } from '@/lib/supabase';
 
 const SUPER_ADMIN_WHATSAPP_KEY = 'platform_whatsapp_number';
 
+const REFILL_AMOUNTS = [100, 250, 500, 1000];
+
 export default function SettingsPage() {
   const [profile, setProfile] = useState({ name: '', email: '', phone: '' });
-  const [mpesa, setMpesa] = useState({ mpesa_number: '', business_name: '', auto_verification: false });
+  const [mpesa, setMpesa] = useState({ shortcode: '', till_number: '', business_name: '', environment: 'sandbox' as 'sandbox' | 'production' });
   const [subscription, setSubscription] = useState<any>(null);
   const [superAdminWhatsApp, setSuperAdminWhatsApp] = useState('');
   const [appLinks, setAppLinks] = useState({ android: 'https://play.google.com/store', ios: 'https://apps.apple.com' });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [smsCredits, setSmsCredits] = useState(0);
+  const [smsStats, setSmsStats] = useState({ sent: 0, spent: 0 });
+
+  // SMS Refill state
+  const [showRefillModal, setShowRefillModal] = useState(false);
+  const [refillAmount, setRefillAmount] = useState(250);
+  const [customAmount, setCustomAmount] = useState('');
+  const [refillReason, setRefillReason] = useState('');
+  const [refilling, setRefilling] = useState(false);
+  const [refillSuccess, setRefillSuccess] = useState('');
+  const [refillError, setRefillError] = useState('');
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -21,16 +34,33 @@ export default function SettingsPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [{ data: prof }, { data: mpesaData }, { data: sub }, { data: platformConfig }] = await Promise.all([
-      supabase.from('user_profiles').select('name, email, phone').eq('id', user.id).single(),
-      supabase.from('simple_payment_settings').select('*').eq('admin_id', user.id).maybeSingle(),
+    const [{ data: prof }, { data: gatewayData }, { data: sub }, { data: platformConfig }, { data: smsData }] = await Promise.all([
+      supabase.from('user_profiles').select('name, email, phone, sms_credits').eq('id', user.id).single(),
+      supabase.from('payment_gateways').select('*').eq('owner_admin_id', user.id).eq('is_active', true).maybeSingle(),
       supabase.from('user_profiles').select('subscription_status, subscription_expires_at, is_lifetime').eq('id', user.id).single(),
       supabase.from('platform_settings').select('key, value').in('key', ['platform_whatsapp_number', 'platform_admin_app_android_link', 'platform_admin_app_ios_link']),
+      supabase.from('sms_logs').select('id, cost').eq('photographer_id', user.id),
     ]) as any;
 
-    if (prof) setProfile({ name: prof.name || '', email: prof.email || '', phone: prof.phone || '' });
-    if (mpesaData) setMpesa({ mpesa_number: mpesaData.mpesa_number || '', business_name: mpesaData.business_name || '', auto_verification: mpesaData.auto_verification || false });
+    if (prof) {
+      setProfile({ name: prof.name || '', email: prof.email || '', phone: prof.phone || '' });
+      setSmsCredits(prof.sms_credits || 0);
+    }
+    if (gatewayData) {
+      setMpesa({
+        shortcode: gatewayData.shortcode || '',
+        till_number: gatewayData.till_number || '',
+        business_name: gatewayData.business_name || '',
+        environment: gatewayData.environment || 'sandbox',
+      });
+    }
     if (sub) setSubscription(sub);
+    if (smsData) {
+      setSmsStats({
+        sent: smsData.length,
+        spent: smsData.reduce((sum: number, log: any) => sum + (log.cost || 0), 0),
+      });
+    }
     const platformMap: Record<string, string> = {};
     (platformConfig || []).forEach((r: any) => { platformMap[r.key] = r.value || ''; });
     setSuperAdminWhatsApp(platformMap['platform_whatsapp_number'] || '');
@@ -54,17 +84,55 @@ export default function SettingsPage() {
     e.preventDefault(); setSaving(true); setError('');
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from('simple_payment_settings').upsert({
-        admin_id: user!.id,
-        mpesa_number: mpesa.mpesa_number,
+      await supabase.from('payment_gateways').upsert({
+        owner_admin_id: user!.id,
+        shortcode: mpesa.shortcode,
+        till_number: mpesa.till_number,
         business_name: mpesa.business_name,
-        auto_verification: mpesa.auto_verification,
-        mpesa_enabled: true,
+        environment: mpesa.environment,
+        is_active: true,
+        gateway_type: 'mpesa',
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'admin_id' });
+      }, { onConflict: 'owner_admin_id' });
       setSuccess('M-Pesa settings saved!');
     } catch (err: any) { setError(err.message); }
     setSaving(false); setTimeout(() => setSuccess(''), 3000);
+  };
+
+  const handleRefill = async () => {
+    const amount = customAmount ? parseInt(customAmount) : refillAmount;
+    if (!amount || amount < 10) {
+      setRefillError('Minimum refill is KES 10');
+      return;
+    }
+
+    setRefilling(true); setRefillError(''); setRefillSuccess('');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data, error: fnError } = await supabase.functions.invoke('admin-refill-sms', {
+        body: {
+          target_admin_id: user.id,
+          amount: amount,
+          reason: refillReason || 'Self-refill from web dashboard',
+        },
+      });
+
+      if (fnError) throw fnError;
+      if (data?.error) throw new Error(data.error);
+
+      const newBalance = data?.new_balance || smsCredits + amount;
+      setSmsCredits(newBalance);
+      setRefillSuccess(`Refilled ${amount} credits! New balance: KES ${newBalance}`);
+      setShowRefillModal(false);
+      setRefillAmount(250);
+      setCustomAmount('');
+      setRefillReason('');
+    } catch (err: any) {
+      setRefillError(err.message || 'Refill failed');
+    }
+    setRefilling(false);
   };
 
   const openWhatsApp = () => {
@@ -96,7 +164,7 @@ export default function SettingsPage() {
       <div className={`border rounded-2xl p-5 ${isActive ? 'border-green-500/20 bg-green-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-bold">{subscription?.is_lifetime ? '👑 Lifetime Account' : isActive ? '✅ Active Subscription' : '❌ Subscription Expired'}</p>
+            <p className="font-bold">{subscription?.is_lifetime ? 'Lifetime Account' : isActive ? 'Active Subscription' : 'Subscription Expired'}</p>
             {daysLeft !== null && <p className="text-sm text-gray-400 mt-0.5">{daysLeft} days remaining</p>}
             {subscription?.subscription_expires_at && !subscription?.is_lifetime && (
               <p className="text-xs text-gray-500 mt-0.5">Expires: {new Date(subscription.subscription_expires_at).toLocaleDateString('en-KE')}</p>
@@ -110,6 +178,109 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+
+      {/* SMS Credits */}
+      <div className="border border-blue-500/20 rounded-2xl p-6 space-y-4" style={{ background: 'rgba(0,122,255,0.04)' }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="text-3xl">💬</div>
+            <div>
+              <h2 className="text-lg font-bold text-blue-400">SMS Credits</h2>
+              <p className="text-sm text-gray-400">Send gallery notifications via cloud SMS</p>
+            </div>
+          </div>
+          <button onClick={() => setShowRefillModal(true)}
+            className="font-bold px-4 py-2 rounded-xl text-sm hover:opacity-90"
+            style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)', color: '#FFFFFF' }}>
+            Refill
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="text-center p-3 rounded-xl bg-white/5">
+            <p className="text-2xl font-black text-blue-400">{smsCredits}</p>
+            <p className="text-xs text-gray-400 mt-1">Credits</p>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-white/5">
+            <p className="text-2xl font-black text-green-400">{smsStats.sent}</p>
+            <p className="text-xs text-gray-400 mt-1">Sent</p>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-white/5">
+            <p className="text-2xl font-black text-yellow-400">KES {smsStats.spent.toFixed(0)}</p>
+            <p className="text-xs text-gray-400 mt-1">Spent</p>
+          </div>
+        </div>
+        <p className="text-xs text-gray-500">SMS costs 1 credit per message via Africa's Talking</p>
+      </div>
+
+      {/* Refill Success */}
+      {refillSuccess && (
+        <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3 text-green-400 text-sm">{refillSuccess}</div>
+      )}
+
+      {/* SMS Refill Modal */}
+      {showRefillModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.8)' }}>
+          <div className="w-full max-w-md rounded-2xl p-6 space-y-5" style={{ background: '#111118', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-bold">Refill SMS Credits</h3>
+              <button onClick={() => setShowRefillModal(false)} className="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+
+            <div className="text-center p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
+              <p className="text-sm text-gray-400">Current Balance</p>
+              <p className="text-3xl font-black text-blue-400">{smsCredits} credits</p>
+            </div>
+
+            <div>
+              <p className="text-sm text-gray-400 mb-3">Quick Amounts</p>
+              <div className="grid grid-cols-4 gap-2">
+                {REFILL_AMOUNTS.map((amount) => (
+                  <button key={amount}
+                    onClick={() => { setRefillAmount(amount); setCustomAmount(''); }}
+                    className={`py-3 rounded-xl font-bold text-sm transition-all ${
+                      refillAmount === amount && !customAmount
+                        ? 'text-black'
+                        : 'bg-white/5 text-white hover:bg-white/10'
+                    }`}
+                    style={refillAmount === amount && !customAmount ? { background: 'linear-gradient(135deg, #D4AF37, #F0D060)' } : {}}>
+                    {amount}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm text-gray-400 mb-2">Custom Amount</p>
+              <input type="number" value={customAmount}
+                onChange={(e) => { setCustomAmount(e.target.value); setRefillAmount(0); }}
+                placeholder="Enter amount"
+                className="w-full bg-[#0A0A0E] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-yellow-500/50" />
+            </div>
+
+            <div>
+              <p className="text-sm text-gray-400 mb-2">Reason (optional)</p>
+              <input type="text" value={refillReason}
+                onChange={(e) => setRefillReason(e.target.value)}
+                placeholder="e.g., Monthly SMS bundle"
+                className="w-full bg-[#0A0A0E] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-yellow-500/50" />
+            </div>
+
+            {refillError && <p className="text-sm text-red-400">{refillError}</p>}
+
+            <div className="flex gap-3">
+              <button onClick={() => setShowRefillModal(false)}
+                className="flex-1 py-3 rounded-xl font-bold text-sm bg-white/5 text-white hover:bg-white/10">
+                Cancel
+              </button>
+              <button onClick={handleRefill} disabled={refilling}
+                className="flex-1 py-3 rounded-xl font-bold text-sm hover:opacity-90 disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
+                {refilling ? 'Refilling...' : `Refill ${customAmount || refillAmount} Credits`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Download Admin App */}
       <div className="border border-yellow-500/20 rounded-2xl p-6 space-y-4" style={{ background: 'rgba(212,175,55,0.04)' }}>
@@ -137,15 +308,6 @@ export default function SettingsPage() {
               <p className="font-bold text-sm text-white">App Store</p>
             </div>
           </a>
-        </div>
-        <div className="rounded-xl p-4 space-y-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Setup checklist</p>
-          <ul className="space-y-1.5 text-sm text-gray-400">
-            <li className="flex gap-2"><span style={{ color: '#D4AF37' }}>→</span> Sign in with your email and password</li>
-            <li className="flex gap-2"><span style={{ color: '#D4AF37' }}>→</span> Go to Settings → configure your M-Pesa number</li>
-            <li className="flex gap-2"><span style={{ color: '#D4AF37' }}>→</span> Upload your first gallery from the Upload tab</li>
-            <li className="flex gap-2"><span style={{ color: '#D4AF37' }}>→</span> Share the access code with your client</li>
-          </ul>
         </div>
       </div>
 
@@ -179,26 +341,44 @@ export default function SettingsPage() {
       <form onSubmit={handleSaveMpesa} className="bg-[#111118] border border-white/5 rounded-2xl p-6 space-y-4">
         <div>
           <h2 className="text-lg font-bold">M-Pesa Payments</h2>
-          <p className="text-sm text-gray-500 mt-0.5">Your M-Pesa number where clients pay for their galleries</p>
+          <p className="text-sm text-gray-500 mt-0.5">Configure how clients pay for their galleries</p>
         </div>
         <div>
-          <label className="block text-sm text-gray-400 mb-1">Your M-Pesa Number</label>
-          <input value={mpesa.mpesa_number} onChange={(e) => setMpesa({ ...mpesa, mpesa_number: e.target.value })}
-            className="w-full bg-[#0A0A0E] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-yellow-500/50"
-            placeholder="0712345678" />
-          <p className="text-xs text-gray-600 mt-1">Clients will send payment to this number</p>
-        </div>
-        <div>
-          <label className="block text-sm text-gray-400 mb-1">Business Name (shown to clients)</label>
+          <label className="block text-sm text-gray-400 mb-1">Business Name</label>
           <input value={mpesa.business_name} onChange={(e) => setMpesa({ ...mpesa, business_name: e.target.value })}
             className="w-full bg-[#0A0A0E] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-yellow-500/50"
             placeholder="Kamau Photography" />
         </div>
-        <div className="flex items-center gap-3">
-          <input type="checkbox" id="auto" checked={mpesa.auto_verification}
-            onChange={(e) => setMpesa({ ...mpesa, auto_verification: e.target.checked })}
-            className="w-4 h-4 accent-yellow-500" />
-          <label htmlFor="auto" className="text-sm text-gray-300">Enable automatic STK push (requires Daraja API setup in admin app)</label>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Shortcode (Paybill)</label>
+            <input value={mpesa.shortcode} onChange={(e) => setMpesa({ ...mpesa, shortcode: e.target.value })}
+              className="w-full bg-[#0A0A0E] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-yellow-500/50"
+              placeholder="123456" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Till Number</label>
+            <input value={mpesa.till_number} onChange={(e) => setMpesa({ ...mpesa, till_number: e.target.value })}
+              className="w-full bg-[#0A0A0E] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-yellow-500/50"
+              placeholder="123456" />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-2">Environment</label>
+          <div className="flex gap-3">
+            {(['sandbox', 'production'] as const).map((env) => (
+              <button key={env} type="button"
+                onClick={() => setMpesa({ ...mpesa, environment: env })}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                  mpesa.environment === env
+                    ? 'text-black'
+                    : 'bg-white/5 text-white hover:bg-white/10'
+                }`}
+                style={mpesa.environment === env ? { background: 'linear-gradient(135deg, #D4AF37, #F0D060)' } : {}}>
+                {env === 'sandbox' ? 'Sandbox (Testing)' : 'Production (Live)'}
+              </button>
+            ))}
+          </div>
         </div>
         <button type="submit" disabled={saving}
           className="font-bold px-6 py-2.5 rounded-xl hover:opacity-90 disabled:opacity-50"
