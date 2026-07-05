@@ -147,7 +147,7 @@ function AnnouncementCard({ announcement, onPress, index }: { announcement: Anno
               colors={['rgba(212,175,55,0.1)', 'transparent']}
               style={styles.mediaGradient}
             />
-            {announcement.media_type === 'video' || announcement.media_urls![0].match(/\.(mp4|mov|avi|mkv)$/i) ? (
+            {announcement.media_type === 'video' || (announcement.media_urls?.[0] && /\.(mp4|mov|avi|mkv)$/i.test(announcement.media_urls[0])) ? (
               <View style={styles.videoContainer}>
                 <Video
                   source={{ uri: announcement.media_urls![0] }}

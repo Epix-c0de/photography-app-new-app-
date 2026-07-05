@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useState } from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
@@ -66,6 +67,13 @@ function RootLayoutNav() {
           animation: 'fade',
         }}
       />
+      <Stack.Screen
+        name="join"
+        options={{
+          headerShown: false,
+          animation: 'fade',
+        }}
+      />
       <Stack.Screen name="+not-found" />
     </Stack>
   );
@@ -101,12 +109,6 @@ function RootLayout() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       console.log('[Auth] State changed:', _event, session?.user?.email || 'No user');
       setSession(session);
-      
-      // Hide splash screen on auth state change
-      if (isLoading) {
-        setIsLoading(false);
-        SplashScreen.hideAsync();
-      }
     });
 
     // Handle initial URL (for OAuth callbacks and invite links when app is launched)
@@ -116,15 +118,26 @@ function RootLayout() {
         if (url.includes('auth/callback')) {
           console.log('[Deep Link] Initial OAuth callback detected');
         }
-        // Handle invite links: epixvisuals://join?ref=ADMIN_ID&invite=TOKEN
-        if (url.includes('join') && url.includes('invite=')) {
+        // Handle invite links: epix-visuals://join?code=ADMIN_CODE
+        if (url.includes('join')) {
+          const parsed = new URL(url.replace('epix-visuals://', 'https://epixvisuals.app/'));
+          const joinCode = parsed.searchParams.get('code');
+          if (joinCode) {
+            console.log('[Deep Link] Join code detected:', joinCode);
+            try {
+              await AsyncStorage.setItem('pending_join_code', joinCode.toUpperCase());
+            } catch (e) {
+              console.warn('[Deep Link] Failed to store join code:', e);
+            }
+          }
+        }
+        // Legacy invite link support
+        if (url.includes('invite=')) {
           const parsed = new URL(url.replace('epixvisuals://', 'https://epixvisuals.app/'));
           const inviteToken = parsed.searchParams.get('invite');
           if (inviteToken) {
             console.log('[Deep Link] Invite token detected:', inviteToken);
-            // Store the token — will be claimed after user logs in
             try {
-              const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
               await AsyncStorage.setItem('pending_invite_token', inviteToken);
             } catch (e) {
               console.warn('[Deep Link] Failed to store invite token:', e);
@@ -141,16 +154,38 @@ function RootLayout() {
       if (event.url.includes('auth/callback')) {
         console.log('[Deep Link] OAuth callback detected');
       }
-      // Handle invite links while app is running
-      if (event.url.includes('join') && event.url.includes('invite=')) {
+      // Handle join links while app is running
+      if (event.url.includes('join')) {
+        const parsed = new URL(event.url.replace('epix-visuals://', 'https://epixvisuals.app/'));
+        const joinCode = parsed.searchParams.get('code');
+        if (joinCode) {
+          console.log('[Deep Link] Join code (live):', joinCode);
+          try {
+            await AsyncStorage.setItem('pending_join_code', joinCode.toUpperCase());
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              const { data, error } = await supabase.rpc('assign_client_to_photographer', {
+                p_client_id: user.id,
+                p_photographer_code: joinCode.toUpperCase(),
+              });
+              if (!error && data?.success) {
+                await AsyncStorage.removeItem('pending_join_code');
+                console.log('[Join] Auto-linked to photographer:', data.admin_name);
+              }
+            }
+          } catch (e) {
+            console.warn('[Deep Link] Failed to process join code:', e);
+          }
+        }
+      }
+      // Legacy invite link support
+      if (event.url.includes('invite=')) {
         const parsed = new URL(event.url.replace('epixvisuals://', 'https://epixvisuals.app/'));
         const inviteToken = parsed.searchParams.get('invite');
         if (inviteToken) {
           console.log('[Deep Link] Invite token (live):', inviteToken);
           try {
-            const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
             await AsyncStorage.setItem('pending_invite_token', inviteToken);
-            // If user is already signed in, claim it immediately
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
               const { data, error } = await supabase.rpc('claim_invite_token', { p_token: inviteToken });
@@ -170,11 +205,14 @@ function RootLayout() {
       subscription.unsubscribe();
       linkingSubscription?.remove();
     };
-  }, [isLoading]);
+  }, []);
   
   if (isLoading) {
-    // You could return a loading screen here if needed
-    return null;
+    return (
+      <View style={loadingStyles.container}>
+        <ActivityIndicator size="large" color="#D4AF37" />
+      </View>
+    );
   }
   
   return (
@@ -197,3 +235,12 @@ function RootLayout() {
 }
 
 export default RootLayout;
+
+const loadingStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#080810',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+});

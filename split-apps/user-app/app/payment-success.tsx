@@ -117,7 +117,19 @@ export default function PaymentSuccessScreen() {
     router.replace('/(tabs)/home');
   }, [router]);
 
-  const amount = params.amount || '35,000';
+  const handleShare = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const amount = params.amount || '0';
+      const gallery = params.gallery || 'My Gallery';
+      await Share.share({
+        message: `I just unlocked "${gallery}" on Epix Visuals! 📸 KES ${amount} — check out the photos.`,
+        title: 'Payment Successful',
+      });
+    } catch {}
+  }, [params]);
+
+  const amount = params.amount || '';
   const gallery = params.gallery || 'Your Gallery';
 
   return (
@@ -183,7 +195,7 @@ export default function PaymentSuccessScreen() {
           </Pressable>
 
           <View style={styles.secondaryRow}>
-            <Pressable style={styles.secondaryButton}>
+            <Pressable style={styles.secondaryButton} onPress={handleShare}>
               <Share2 size={16} color={Colors.gold} />
               <Text style={styles.secondaryButtonText}>Share</Text>
             </Pressable>

@@ -47,7 +47,8 @@ export default function BTSAllScreen() {
         .from('bts_posts')
         .select('*')
         .eq('is_active', true)
-        .gt('expires_at', nowIso);
+        .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+        .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`);
 
       if (filter !== 'All') query = query.eq('category', filter);
       if (searchValue.length > 0) query = query.ilike('title', `%${searchValue}%`);

@@ -243,6 +243,12 @@ function PackageCard({ pkg, index, isSelected, onSelect }: { pkg: Package; index
   );
 }
 
+function getOrdinalSuffix(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+}
+
 function BookingCard({ booking }: { booking: Booking }) {
   const config = statusConfig[booking.status] || statusConfig.booked;
 
@@ -451,7 +457,7 @@ export default function BookingsScreen() {
 
       if (isDemoMode) {
         const now = new Date();
-        const bookingDate = `${selectedDate}th of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+        const bookingDate = `${selectedDate}${getOrdinalSuffix(selectedDate)} of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
         const demoBooking: Booking = {
           id: `demo-booking-${Date.now()}`,
           user_id: user?.id ?? 'demo-user',
@@ -495,7 +501,7 @@ export default function BookingsScreen() {
 
       // Create booking after payment initiated
       const now = new Date();
-      const bookingDate = `${selectedDate}th of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+      const bookingDate = `${selectedDate}${getOrdinalSuffix(selectedDate)} of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
       
       const { data: bookingData, error: bookingError } = await supabase
         .from('bookings')
@@ -950,7 +956,7 @@ export default function BookingsScreen() {
                   </View>
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Date</Text>
-                    <Text style={styles.summaryValue}>{selectedDate}th of this month</Text>
+                    <Text style={styles.summaryValue}>{selectedDate}{getOrdinalSuffix(selectedDate)} of this month</Text>
                   </View>
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Time</Text>
@@ -986,35 +992,6 @@ export default function BookingsScreen() {
                   <Pressable style={styles.wizardBackButton} onPress={() => setBookingStep(3)}>
                     <Text style={styles.wizardBackText}>Back</Text>
                   </Pressable>
-                  
-                  <Pressable
-                    style={[styles.bookNowButton, (!selectedPackage || !selectedDate) && styles.confirmBookingButtonDisabled]}
-                    onPress={async () => {
-                      if (!selectedPackage || !selectedDate) return;
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      try {
-                        const now = new Date();
-                        const bookingDate = `${selectedDate}th of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
-                        const { error } = await supabase.from('bookings').insert({
-                          user_id: user?.id,
-                          package_id: selectedPackage,
-                          status: 'booked',
-                          date: bookingDate,
-                          time: bookingTime || 'TBD',
-                          location: bookingLocation || 'TBD',
-                        });
-                        if (error) throw error;
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        Alert.alert('Success', 'Your session has been booked successfully!');
-                        setActiveSection('bookings');
-                      } catch (e: any) {
-                        Alert.alert('Error', 'Could not create booking. Please try again.');
-                      }
-                    }}
-                    disabled={!selectedPackage || !selectedDate}
-                  >
-                    <Text style={styles.bookNowText}>Book Now</Text>
-                  </Pressable>
 
                   <Pressable
                     style={[styles.payDepositButton, (!selectedPackage || !selectedDate) && styles.confirmBookingButtonDisabled]}
@@ -1032,7 +1009,7 @@ export default function BookingsScreen() {
                       end={{ x: 1, y: 1 }}
                     >
                       <Smartphone size={18} color={Colors.white} />
-                      <Text style={styles.confirmBookingText}>Pay Deposit</Text>
+                      <Text style={styles.confirmBookingText}>Book & Pay</Text>
                     </LinearGradient>
                   </Pressable>
                 </View>

@@ -70,6 +70,7 @@ export default function BTSViewerScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
   const [isMuted, setIsMuted] = useState(false);
 
   // Comment sheet state
@@ -119,32 +120,36 @@ export default function BTSViewerScreen() {
 
       if (error) throw error;
 
-      const withSocial = await Promise.all(
-        (data || []).map(async (p) => {
-          const [likeRow, bookmarkRow] = await Promise.allSettled([
-            supabase
-              .from('bts_likes')
-              .select('id')
-              .eq('bts_id', p.id)
-              .eq('user_id', user?.id ?? '')
-              .maybeSingle(),
-            supabase
-              .from('bts_bookmarks')
-              .select('id')
-              .eq('bts_id', p.id)
-              .eq('user_id', user?.id ?? '')
-              .maybeSingle(),
-          ]);
+      // Batch: fetch all user likes and bookmarks in 2 queries instead of N*2
+      const postIds = (data || []).map(p => p.id);
+      
+      const [allLikes, allBookmarks] = await Promise.allSettled([
+        postIds.length > 0 ? supabase
+          .from('bts_likes')
+          .select('bts_id')
+          .in('bts_id', postIds)
+          .eq('user_id', user?.id ?? '') : Promise.resolve({ data: [] }),
+        postIds.length > 0 ? supabase
+          .from('bts_bookmarks')
+          .select('bts_id')
+          .in('bts_id', postIds)
+          .eq('user_id', user?.id ?? '') : Promise.resolve({ data: [] }),
+      ]);
 
-          return {
-            ...p,
-            isLiked: likeRow.status === 'fulfilled' && !!likeRow.value.data,
-            likesCount: typeof p.likes_count === 'number' ? p.likes_count : 0,
-            commentsCount: typeof p.comments_count === 'number' ? p.comments_count : 0,
-            isBookmarked: bookmarkRow.status === 'fulfilled' && !!bookmarkRow.value.data,
-          } as BTSWithSocial;
-        })
+      const userLikeSet = new Set(
+        (allLikes.status === 'fulfilled' ? allLikes.value.data : [])?.map((r: any) => r.bts_id) || []
       );
+      const userBookmarkSet = new Set(
+        (allBookmarks.status === 'fulfilled' ? allBookmarks.value.data : [])?.map((r: any) => r.bts_id) || []
+      );
+
+      const withSocial = (data || []).map((p) => ({
+        ...p,
+        isLiked: userLikeSet.has(p.id),
+        likesCount: typeof p.likes_count === 'number' ? p.likes_count : 0,
+        commentsCount: typeof p.comments_count === 'number' ? p.comments_count : 0,
+        isBookmarked: userBookmarkSet.has(p.id),
+      })) as BTSWithSocial[];
 
       setPosts(withSocial);
 
@@ -181,8 +186,10 @@ export default function BTSViewerScreen() {
       .then(({ error }: any) => { if (error) console.error('[BTS] View tracking failed:', error); });
 
     const playMusic = async () => {
-      if (sound) {
-        await sound.unloadAsync();
+      // Cleanup previous sound using ref (avoids stale closure)
+      if (soundRef.current) {
+        try { await soundRef.current.unloadAsync(); } catch {}
+        soundRef.current = null;
         setSound(null);
       }
 
@@ -193,6 +200,7 @@ export default function BTSViewerScreen() {
             { uri: post.music_url },
             { shouldPlay: true, isLooping: true, volume: 0.2, isMuted }
           );
+          soundRef.current = newSound;
           setSound(newSound);
         } catch (e) {
           console.log('[BTS] Music error:', e);
@@ -202,22 +210,18 @@ export default function BTSViewerScreen() {
     playMusic();
 
     return () => {
-      if (sound) sound.unloadAsync();
+      if (soundRef.current) {
+        try { soundRef.current.unloadAsync(); } catch {}
+        soundRef.current = null;
+      }
     };
   }, [activePostId, isDemoMode]);
 
   useEffect(() => {
-    if (sound) {
-      sound.setIsMutedAsync(isMuted);
+    if (soundRef.current) {
+      soundRef.current.setIsMutedAsync(isMuted);
     }
-  }, [isMuted, sound]);
-
-  // Clean up sound on unmount
-  useEffect(() => {
-    return () => {
-      if (sound) sound.unloadAsync();
-    };
-  }, []);
+  }, [isMuted]);
 
   const fetchComments = async (postId: string) => {
     setLoadingComments(true);
@@ -374,6 +378,17 @@ export default function BTSViewerScreen() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={Colors.gold} />
+      </View>
+    );
+  }
+
+  if (posts.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <Text style={{ color: Colors.textMuted, fontSize: 16 }}>No posts available</Text>
+        <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
+          <Text style={{ color: Colors.gold, fontSize: 14 }}>Go Back</Text>
+        </Pressable>
       </View>
     );
   }
@@ -565,7 +580,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    height: '70%',
+    maxHeight: '70%',
+    minHeight: 300,
   },
   modalHeader: {
     flexDirection: 'row',

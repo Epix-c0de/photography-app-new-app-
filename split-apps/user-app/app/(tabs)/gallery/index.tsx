@@ -18,6 +18,7 @@ import { ClientService, type Photo as ClientPhoto, type PortfolioItem } from '@/
 import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { demoGalleries } from '@/lib/demo';
+import { downloadAndCompress } from '@/lib/network-compression';
 import PaymentModal from '@/components/PaymentModal';
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import { galleryTabPressRef } from '../_layout';
@@ -85,11 +86,11 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
     if (selectMode) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: clientData } = await supabase.from('clients').select('id').eq('user_id', user.id).maybeSingle();
-      if (!clientData) return;
-      const { data: galleryData } = await supabase.from('galleries').select('is_paid, is_locked, access_code').eq('client_id', clientData.id).maybeSingle();
+      const { data: galleryData } = await supabase
+        .from('galleries')
+        .select('is_paid, is_locked, access_code')
+        .eq('id', photo.gallery_id)
+        .maybeSingle();
       
       if (galleryData && !galleryData.is_paid && galleryData.is_locked) {
         Alert.alert('Payment Required', 'Please unlock this gallery to share photos.');
@@ -105,7 +106,7 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
     } catch (error) {
       console.error('Failed to share photo:', error);
     }
-  }, [brandName, photo.url, accessCodeLink, shareAppLink, selectMode]);
+  }, [brandName, photo.url, photo.gallery_id, accessCodeLink, shareAppLink, selectMode]);
 
   const aspectRatio = (photo.width ?? 1) / (photo.height ?? 1);
   const imageHeight = COL_WIDTH / aspectRatio;
@@ -353,10 +354,12 @@ export default function GalleryScreen() {
   const photosRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const galleriesRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSharingRef = useRef(false);
-  const [clientId, setClientId] = useState<string | null>(null);
+  const [clientIds, setClientIds] = useState<string[]>([]);
   const [galleries, setGalleries] = useState<GalleryRowWithCounts[]>([]);
   const [galleriesLoading, setGalleriesLoading] = useState(true);
   const [galleriesError, setGalleriesError] = useState<string | null>(null);
+  const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);
+  const [adminNames, setAdminNames] = useState<Record<string, string>>({});
   const [photos, setPhotos] = useState<PhotoRow[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
   const [photosError, setPhotosError] = useState<string | null>(null);
@@ -388,7 +391,7 @@ export default function GalleryScreen() {
           setSelectedPhotoIds(new Set());
         }
       }
-    }, 100);
+    }, 1000);
     return () => clearInterval(interval);
   }, [selectedGallery]);
 
@@ -643,32 +646,40 @@ export default function GalleryScreen() {
     }
   }, [activeTab]);
 
-  const fetchClientId = useCallback(async () => {
+  const fetchAllClientIds = useCallback(async () => {
     if (isDemoMode) {
-      setClientId('demo-client');
-      return 'demo-client';
+      setClientIds(['demo-client']);
+      return ['demo-client'];
     }
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      setClientId(null);
-      return null;
+      setClientIds([]);
+      return [];
     }
 
     const { data, error } = await supabase
       .from('clients')
-      .select('id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .maybeSingle();
+      .select('id, owner_admin_id, user_profiles:owner_admin_id(name)')
+      .eq('user_id', user.id);
 
     if (error) {
-      setClientId(null);
-      return null;
+      setClientIds([]);
+      return [];
     }
 
-    const id = data?.id ?? null;
-    setClientId(id);
-    return id;
+    const ids = (data || []).map((r: any) => r.id).filter(Boolean);
+    setClientIds(ids);
+
+    // Build admin name map for filter dropdown
+    const nameMap: Record<string, string> = {};
+    (data || []).forEach((r: any) => {
+      if (r.owner_admin_id && r.user_profiles) {
+        nameMap[r.owner_admin_id] = (r.user_profiles as any)?.name || 'Photographer';
+      }
+    });
+    setAdminNames(nameMap);
+
+    return ids;
   }, [isDemoMode]);
 
   const fetchGalleries = useCallback(async (options?: { silent?: boolean }) => {
@@ -690,18 +701,18 @@ export default function GalleryScreen() {
       return;
     }
 
-    const activeClientId = clientId ?? (await fetchClientId());
-    if (!activeClientId) {
+    const activeClientIds = clientIds.length > 0 ? clientIds : (await fetchAllClientIds());
+    if (activeClientIds.length === 0) {
       setGalleries([]);
       setGalleriesLoading(false);
       return;
     }
 
-    // Fetch galleries where client_id matches
+    // Fetch galleries where client_id matches ANY of the user's client records (multi-admin)
     const { data: clientGalleries, error: clientError } = await supabase
       .from('galleries')
       .select('*')
-      .eq('client_id', activeClientId);
+      .in('client_id', activeClientIds);
 
     // Fetch galleries from unlocked_galleries — only when user?.id is available
     const { data: unlockedGalleries, error: unlockedError } = user?.id
@@ -810,7 +821,7 @@ export default function GalleryScreen() {
 
     setGalleries(galleriesWithCovers);
     setGalleriesLoading(false);
-  }, [clientId, fetchClientId, isDemoMode, readLocalUnlockedGalleryIds, user?.id]);
+  }, [clientIds, fetchAllClientIds, isDemoMode, readLocalUnlockedGalleryIds, user?.id]);
 
   useEffect(() => {
     if (!pathname.includes('/gallery')) return;
@@ -855,7 +866,7 @@ export default function GalleryScreen() {
     const baseGalleryLink = galleryShareLink || shareAppLink;
     const rawLink = gallery.access_code ? `${accessCodeLink}${gallery.access_code}` : baseGalleryLink;
     const normalized = rawLink.startsWith('epix-visuals://') ? baseGalleryLink : rawLink;
-    if (!normalized || normalized.includes('rork.app')) return '';
+    if (!normalized) return '';
     return normalized;
   }, [accessCodeLink, galleryShareLink, shareAppLink]);
 
@@ -1021,9 +1032,10 @@ export default function GalleryScreen() {
         const fileName = `${gallery.name.replace(/[^a-z0-9-_]/gi, '_')}-${i + 1}.jpg`;
         const destination = `${folderPath}${fileName}`;
         try {
-          await FileSystem.downloadAsync(sourceUrl, destination);
+          await downloadAndCompress(sourceUrl, destination);
           savedCount++;
-        } catch {
+        } catch (downloadErr) {
+          console.warn('[Gallery] Download failed for', fileName, downloadErr);
         }
       }
 
@@ -1051,18 +1063,69 @@ export default function GalleryScreen() {
     }
   }, [downloadOnWeb, photos, resolveGalleryLink, selectedGallery?.id]);
 
-  const handleDownloadFavorites = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert(
-      'Download Favorites',
-      `Download ${favoritesCount} favorite photos?\n\nChoose your format:`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Web (Social)', onPress: () => Alert.alert('Downloading', 'Web-optimized photos are being prepared...') },
-        { text: 'High-Res (Print)', onPress: () => Alert.alert('Downloading', 'High-resolution photos are being prepared...') },
-      ]
-    );
-  }, [favoritesCount]);
+  const handleDownloadFavorites = useCallback(async () => {
+    if (favoritesCount === 0) {
+      Alert.alert('No Favorites', 'You haven\'t favorited any photos yet. Double-tap a photo to like it.');
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    // Gather all liked photos from current gallery
+    const likedPhotosList = photos.filter(p => likedPhotos.has(p.id));
+    if (likedPhotosList.length === 0) {
+      Alert.alert('No Favorites', 'Your favorited photos from this gallery will appear here.');
+      return;
+    }
+
+    const sourceUrls = likedPhotosList
+      .map(p => p.url || p.thumbnailUrl)
+      .filter((url): url is string => !!url);
+
+    if (sourceUrls.length === 0) {
+      Alert.alert('Unavailable', 'No downloadable files available for your favorites.');
+      return;
+    }
+
+    if (Platform.OS === 'web') {
+      try {
+        let downloadedCount = 0;
+        for (let i = 0; i < sourceUrls.length; i++) {
+          await downloadOnWeb(sourceUrls[i], `favorite-${i + 1}.jpg`);
+          downloadedCount++;
+        }
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Downloaded', `${downloadedCount} favorite photo(s) downloaded.`);
+      } catch (error) {
+        console.error('Failed to download favorites on web:', error);
+        Alert.alert('Download Failed', 'Could not download favorites right now.');
+      }
+      return;
+    }
+
+    try {
+      const folderPath = `${FileSystem.documentDirectory}favorites/`;
+      await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
+      let savedCount = 0;
+      for (let i = 0; i < sourceUrls.length; i++) {
+        const dest = `${folderPath}favorite-${Date.now()}-${i}.jpg`;
+        try {
+          await downloadAndCompress(sourceUrls[i], dest);
+          savedCount++;
+        } catch (e) {
+          console.warn('[Favorites] Download failed for', i, e);
+        }
+      }
+      if (savedCount > 0) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Downloaded', `${savedCount} favorite photo(s) saved to app storage.`);
+      } else {
+        Alert.alert('Download Failed', 'Could not save favorites right now.');
+      }
+    } catch (error) {
+      console.error('Failed to download favorites:', error);
+      Alert.alert('Download Failed', 'Could not save favorites right now.');
+    }
+  }, [favoritesCount, photos, likedPhotos, downloadOnWeb]);
 
   const handleOpenPhoto = useCallback((photo: PhotoRow) => {
     setSelectedPhotoItem(photo);
@@ -1124,7 +1187,7 @@ export default function GalleryScreen() {
 
     try {
       await FileSystem.makeDirectoryAsync(folderPath, { intermediates: true });
-      await FileSystem.downloadAsync(downloadUrl, destination);
+      await downloadAndCompress(downloadUrl, destination);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Downloaded', 'Photo saved to app storage.');
     } catch (error) {
@@ -1149,8 +1212,8 @@ export default function GalleryScreen() {
   useEffect(() => {
     // Skip all data fetches for unassigned non-demo users — they see the empty state
     if (!isDemoMode && !isAssigned) return;
-    fetchClientId().then(() => fetchGalleries());
-  }, [fetchClientId, fetchGalleries, isDemoMode, isAssigned]);
+    fetchAllClientIds().then(() => fetchGalleries());
+  }, [fetchAllClientIds, fetchGalleries, isDemoMode, isAssigned]);
 
   // Fix 12: Refresh signed URLs when app returns to foreground (they expire after 1 hour)
   useEffect(() => {
@@ -1167,29 +1230,35 @@ export default function GalleryScreen() {
     let cancelled = false;
 
     (async () => {
-      const activeClientId = clientId ?? (await fetchClientId());
-      if (!activeClientId || cancelled) return;
+      const activeClientIds = clientIds.length > 0 ? clientIds : (await fetchAllClientIds());
+      if (activeClientIds.length === 0 || cancelled) return;
 
+      // Subscribe to gallery changes for ALL client records (multi-admin)
       channel = supabase
-        .channel(`client-galleries-${activeClientId}-${Date.now()}`)
+        .channel(`client-galleries-multi-${Date.now()}`)
         .on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'galleries', filter: `client_id=eq.${activeClientId}` },
-          () => {
-            if (galleriesRefreshTimerRef.current) clearTimeout(galleriesRefreshTimerRef.current);
-            galleriesRefreshTimerRef.current = setTimeout(() => {
-              fetchGalleries({ silent: true });
-            }, 1500);
+          { event: 'INSERT', schema: 'public', table: 'galleries' },
+          (payload: any) => {
+            // Only refresh if the new gallery belongs to one of our client IDs
+            if (activeClientIds.includes(payload.new?.client_id)) {
+              if (galleriesRefreshTimerRef.current) clearTimeout(galleriesRefreshTimerRef.current);
+              galleriesRefreshTimerRef.current = setTimeout(() => {
+                fetchGalleries({ silent: true });
+              }, 1500);
+            }
           }
         )
         .on(
           'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'galleries', filter: `client_id=eq.${activeClientId}` },
-          () => {
-            if (galleriesRefreshTimerRef.current) clearTimeout(galleriesRefreshTimerRef.current);
-            galleriesRefreshTimerRef.current = setTimeout(() => {
-              fetchGalleries({ silent: true });
-            }, 1500);
+          { event: 'UPDATE', schema: 'public', table: 'galleries' },
+          (payload: any) => {
+            if (activeClientIds.includes(payload.new?.client_id)) {
+              if (galleriesRefreshTimerRef.current) clearTimeout(galleriesRefreshTimerRef.current);
+              galleriesRefreshTimerRef.current = setTimeout(() => {
+                fetchGalleries({ silent: true });
+              }, 1500);
+            }
           }
         )
         .subscribe();
@@ -1203,7 +1272,7 @@ export default function GalleryScreen() {
       }
       if (channel) supabase.removeChannel(channel);
     };
-  }, [clientId, fetchClientId, fetchGalleries]);
+  }, [clientIds, fetchAllClientIds, fetchGalleries]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -1288,14 +1357,18 @@ export default function GalleryScreen() {
   }, [fetchPhotosForGallery, selectedGallery]);
 
   const myGalleries = useMemo(() => {
-    const filtered = galleries.filter((g) =>
+    let filtered = galleries.filter((g) =>
       !g.is_locked || g.is_paid || (g.price ?? 0) === 0
     );
+    // Filter by selected admin (multi-admin support)
+    if (selectedAdminId) {
+      filtered = filtered.filter((g) => (g as any).owner_admin_id === selectedAdminId);
+    }
     if (searchQuery.trim()) {
       return filtered.filter((g) => g.name.toLowerCase().includes(searchQuery.toLowerCase()));
     }
     return filtered;
-  }, [galleries, searchQuery]);
+  }, [galleries, searchQuery, selectedAdminId]);
 
   const pendingPaymentGalleries = useMemo(
     () => galleries.filter((g) => g.is_locked && !g.is_paid && (g.price ?? 0) > 0),
@@ -1344,7 +1417,7 @@ export default function GalleryScreen() {
           const u = sourceUrls[i];
           if (!u) continue;
           const dest = `${folderPath}batch-${Date.now()}-${i}.jpg`;
-          await FileSystem.downloadAsync(u, dest);
+          await downloadAndCompress(u, dest);
           savedCount++;
         }
         Alert.alert('Downloaded', `${savedCount} photos saved to app storage.`);
@@ -1428,6 +1501,28 @@ export default function GalleryScreen() {
               </Pressable>
             </View>
           </BlurView>
+        )}
+
+        {!selectedGallery && activeTab === 'my-galleries' && Object.keys(adminNames).length > 1 && (
+          <View style={styles.adminFilterContainer}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.adminFilterScroll}>
+              <Pressable
+                style={[styles.adminFilterChip, selectedAdminId === null && styles.adminFilterChipActive]}
+                onPress={() => setSelectedAdminId(null)}
+              >
+                <Text style={[styles.adminFilterChipText, selectedAdminId === null && styles.adminFilterChipTextActive]}>All</Text>
+              </Pressable>
+              {Object.entries(adminNames).map(([id, name]) => (
+                <Pressable
+                  key={id}
+                  style={[styles.adminFilterChip, selectedAdminId === id && styles.adminFilterChipActive]}
+                  onPress={() => setSelectedAdminId(id)}
+                >
+                  <Text style={[styles.adminFilterChipText, selectedAdminId === id && styles.adminFilterChipTextActive]} numberOfLines={1}>{name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
         )}
 
         {favoritesCount > 0 && !selectedGallery && activeTab !== 'unlock' && (
@@ -2091,6 +2186,34 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: Colors.gold,
+  },
+  adminFilterContainer: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  adminFilterScroll: {
+    paddingHorizontal: 4,
+    gap: 8,
+  },
+  adminFilterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  adminFilterChipActive: {
+    backgroundColor: 'rgba(212,175,55,0.2)',
+    borderColor: 'rgba(212,175,55,0.5)',
+  },
+  adminFilterChipText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '500',
+  },
+  adminFilterChipTextActive: {
+    color: '#d4af37',
   },
   favoritesBar: {
     marginHorizontal: 20,

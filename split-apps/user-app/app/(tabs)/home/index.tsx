@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, Dimensions, FlatList, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Animated, Dimensions, FlatList, Modal, ActivityIndicator, RefreshControl } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -69,11 +69,16 @@ function BTSStoryCard({
     const listener = scrollX.addListener(({ value }) => {
       const currentIndex = Math.round(value / BTS_SNAP);
       if (currentIndex !== index && isPlaying) {
-        videoRef.current?.pauseAsync();
+        videoRef.current?.stopAsync();
+        videoRef.current?.setPositionAsync(0);
         setIsPlaying(false);
       }
     });
-    return () => scrollX.removeListener(listener);
+    return () => {
+      scrollX.removeListener(listener);
+      // Cleanup video on unmount
+      try { videoRef.current?.unloadAsync(); } catch {}
+    };
   }, [scrollX, index, isPlaying]);
 
   const inputRange = [(index - 1) * BTS_SNAP, index * BTS_SNAP, (index + 1) * BTS_SNAP];
@@ -343,9 +348,11 @@ export default function HomeScreen() {
     const announcementId = searchParams.announcementId as string;
 
     if (filter === 'packages') {
-      // Logic to scroll to packages
-    } else if (btsId || announcementId) {
-      // Logic to open specific BTS or announcement
+      router.push('/(tabs)/bookings');
+    } else if (btsId) {
+      router.push(`/bts/${btsId}` as any);
+    } else if (announcementId) {
+      router.push(`/announcements/${announcementId}` as any);
     }
   }, [searchParams]);
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -369,28 +376,7 @@ export default function HomeScreen() {
     setGreeting(`${timeGreeting}, ${firstName} 👋`);
     setSubGreeting('Welcome to your studio');
 
-    const timer = setTimeout(() => {
-      Animated.sequence([
-        Animated.timing(greetingFadeAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
-        Animated.delay(100),
-      ]).start(() => {
-        const quotes = [
-          "Preserving your best moments.",
-          "Memories beautifully framed.",
-          "Making time stand still.",
-          "Capturing what matters.",
-          "Your story, through our lens."
-        ];
-        const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
-        
-        setGreeting(randomQuote);
-        setSubGreeting(''); 
-        
-        Animated.timing(greetingFadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
-      });
-    }, 5000);
-
-    return () => clearTimeout(timer);
+    // Greeting stays visible — no timeout replacement
   }, [user, profile, greetingFadeAnim]);
   const previewScale = useRef(new Animated.Value(0.96)).current;
   const [btsPosts, setBtsPosts] = useState<BTSPost[]>([]);
@@ -399,7 +385,7 @@ export default function HomeScreen() {
   const [previewPost, setPreviewPost] = useState<BTSPost | null>(null);
   const [viewedIds, setViewedIds] = useState<Set<string>>(new Set());
   const [unreadCount, setUnreadCount] = useState(0);
-  const [clientId, setClientId] = useState<string | null>(null);
+  const [clientIds, setClientIds] = useState<string[]>([]);
   const [galleries, setGalleries] = useState<GalleryRow[]>([]);
   const [galleriesLoading, setGalleriesLoading] = useState(true);
   const [galleriesError, setGalleriesError] = useState<string | null>(null);
@@ -409,6 +395,8 @@ export default function HomeScreen() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [paymentGallery, setPaymentGallery] = useState<GalleryRow | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [trustStats, setTrustStats] = useState({ clientCount: 0, avgRating: 0 });
 
   const readLocalUnlockedGalleryIds = useCallback(async (): Promise<string[]> => {
     try {
@@ -458,17 +446,20 @@ export default function HomeScreen() {
         return;
       }
       
-      console.log('[BTS Feed] Fetching BTS posts with visibility filtering...');
+
       
       // Use the visibility filtering RPC function
       const { data: session } = await supabase.auth.getSession();
       if (!session.session?.user) {
-        console.log('[BTS Feed] No user session, showing only global content');
+
         // If not logged in, only show active content
+        const nowIso = new Date().toISOString();
         const { data, error } = await supabase
           .from('bts_posts')
-          .select('*')
+          .select('*, user_profiles:created_by (id, name, avatar_url)')
           .eq('is_active', true)
+          .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+          .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
           .order('created_at', { ascending: false })
           .limit(20);
 
@@ -480,25 +471,30 @@ export default function HomeScreen() {
           return;
         }
 
-        console.log('[BTS Feed] ✓ Loaded', (data || []).length, 'global BTS posts');
+
         setBtsPosts(data || []);
       } else {
-        // Use RPC to get visible content for user
-        const { data, error } = await supabase.rpc('get_visible_content_for_user' as any, {
-          p_user_id: session.session.user.id,
-          p_content_type: 'bts'
-        }) as any;
+        // Direct query — show all active BTS posts (RLS allows public read)
+        // Join user_profiles to get admin name/avatar for display
+        const nowIso = new Date().toISOString();
+        const { data, error } = await supabase
+          .from('bts_posts')
+          .select('*, user_profiles:created_by (id, name, avatar_url)')
+          .eq('is_active', true)
+          .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+          .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
+          .order('created_at', { ascending: false })
+          .limit(20);
 
         if (error) {
           console.error('[BTS Feed] ✗ Failed to load BTS posts:', error);
-          console.error('[BTS Feed] Error message:', error.message);
           setBtsPosts([]);
           setBtsError('Failed to load BTS. Error: ' + (error.message || 'Unknown error'));
           setBtsLoading(false);
           return;
         }
 
-        console.log('[BTS Feed] ✓ Loaded', (data || []).length, 'visible BTS posts');
+
         setBtsPosts((data || []) as BTSPost[]);
       }
     } catch (err) {
@@ -509,32 +505,30 @@ export default function HomeScreen() {
     }
   }, [isDemoMode]);
 
-  const fetchClientId = useCallback(async () => {
+  const fetchAllClientIds = useCallback(async () => {
     if (isDemoMode) {
-      setClientId('demo-client');
-      return 'demo-client';
+      setClientIds(['demo-client']);
+      return ['demo-client'];
     }
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) {
-      setClientId(null);
-      return null;
+      setClientIds([]);
+      return [];
     }
 
     const { data, error } = await supabase
       .from('clients')
       .select('id')
-      .eq('user_id', authUser.id)
-      .limit(1)
-      .maybeSingle();
+      .eq('user_id', authUser.id);
 
     if (error) {
-      setClientId(null);
-      return null;
+      setClientIds([]);
+      return [];
     }
 
-    const id = data?.id ?? null;
-    setClientId(id);
-    return id;
+    const ids = (data || []).map((r: any) => r.id).filter(Boolean);
+    setClientIds(ids);
+    return ids;
   }, [isDemoMode]);
 
   const fetchUnreadCount = useCallback(async () => {
@@ -574,8 +568,8 @@ export default function HomeScreen() {
       return;
     }
 
-    const activeClientId = clientId ?? (await fetchClientId());
-    if (!activeClientId) {
+    const activeClientIds = clientIds.length > 0 ? clientIds : (await fetchAllClientIds());
+    if (activeClientIds.length === 0) {
       setGalleries([]);
       setGalleriesLoading(false);
       return;
@@ -584,7 +578,7 @@ export default function HomeScreen() {
     const { data: clientGalleries, error: clientError } = await supabase
       .from('galleries')
       .select('*')
-      .eq('client_id', activeClientId);
+      .in('client_id', activeClientIds);
 
     // Only fetch unlocked galleries when user?.id is available
     const { data: unlockedGalleries, error: unlockedError } = user?.id
@@ -686,12 +680,10 @@ export default function HomeScreen() {
 
     setGalleries(withSignedCovers);
     setGalleriesLoading(false);
-  }, [clientId, fetchClientId, isDemoMode, readLocalUnlockedGalleryIds, user?.id]);
+  }, [clientIds, fetchAllClientIds, isDemoMode, readLocalUnlockedGalleryIds, user?.id]);
 
-  useEffect(() => {
-    if (!pathname.includes('/home')) return;
-    fetchGalleries();
-  }, [pathname, fetchGalleries]);
+  // Gallery fetches are handled by the main useEffect below (fetchAllClientIds -> fetchGalleries)
+  // Removed duplicate pathname-based fetch to prevent double network calls on mount
 
   const fetchAnnouncements = useCallback(async () => {
     setAnnouncementsLoading(true);
@@ -702,17 +694,17 @@ export default function HomeScreen() {
       return;
     }
 
-    console.log('[Announcements] Fetching announcements with visibility filtering...');
+
 
     try {
       // Use the visibility filtering RPC function
       const { data: session } = await supabase.auth.getSession();
       if (!session.session?.user) {
-        console.log('[Announcements] No user session, showing only active content');
+
         // If not logged in, only show active content
         const { data, error } = await supabase
           .from('announcements')
-          .select('*')
+          .select('*, user_profiles:created_by (id, name, avatar_url)')
           .eq('is_active', true)
           .order('created_at', { ascending: false })
           .limit(8);
@@ -725,15 +717,18 @@ export default function HomeScreen() {
           return;
         }
 
-        console.log('[Announcements] ✓ Loaded', data.length, 'global announcements');
+
         setAnnouncements(data);
         setAnnouncementsLoading(false);
       } else {
-        // Use RPC to get visible content for user
-        const { data, error } = await supabase.rpc('get_visible_content_for_user' as any, {
-          p_user_id: session.session.user.id,
-          p_content_type: 'announcements'
-        }) as any;
+        // Direct query — show all active announcements (RLS allows public read)
+        // Join user_profiles to get admin name/avatar for display
+        const { data, error } = await supabase
+          .from('announcements')
+          .select('*, user_profiles:created_by (id, name, avatar_url)')
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(20);
 
         if (error || !data) {
           console.error('[Announcements] ✗ Failed to load announcements:', error);
@@ -743,7 +738,7 @@ export default function HomeScreen() {
           return;
         }
 
-        console.log('[Announcements] ✓ Loaded', data.length, 'visible announcements');
+
         setAnnouncements(data as AnnouncementRow[]);
         setAnnouncementsLoading(false);
       }
@@ -771,15 +766,41 @@ export default function HomeScreen() {
   );
   const hasPendingPayments = pendingPaymentGalleries.length > 0;
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        fetchBts(),
+        fetchUnreadCount(),
+        fetchAllClientIds().then(() => Promise.all([fetchGalleries(), fetchAnnouncements()])),
+      ]);
+    } catch {}
+    setRefreshing(false);
+  }, [fetchBts, fetchUnreadCount, fetchAllClientIds, fetchGalleries, fetchAnnouncements]);
+
   useEffect(() => {
     loadViewed();
     fetchBts();
     fetchUnreadCount();
-    fetchClientId().then(() => {
+    fetchAllClientIds().then(() => {
       fetchGalleries();
       fetchAnnouncements();
     });
-  }, [fetchAnnouncements, fetchBts, fetchClientId, fetchGalleries, fetchUnreadCount, loadViewed]);
+    // Fetch trust stats (client count + average rating)
+    (async () => {
+      try {
+        const { count: clientCount } = await supabase
+          .from('clients')
+          .select('id', { count: 'exact', head: true });
+        const { data: ratingData } = await supabase
+          .from('reviews')
+          .select('rating');
+        const ratings = (ratingData || []).map((r: any) => r.rating).filter(Boolean);
+        const avgRating = ratings.length > 0 ? (ratings.reduce((a: number, b: number) => a + b, 0) / ratings.length).toFixed(1) : '0.0';
+        setTrustStats({ clientCount: clientCount ?? 0, avgRating: parseFloat(avgRating) });
+      } catch {}
+    })();
+  }, [fetchAnnouncements, fetchBts, fetchAllClientIds, fetchGalleries, fetchUnreadCount, loadViewed]);
 
   // Use refs to store callbacks so realtime subscription doesn't re-run when they change
   const fetchBtsRef = useRef(fetchBts);
@@ -872,6 +893,7 @@ export default function HomeScreen() {
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingTop: 80 + insets.top, paddingBottom: Math.max(insets.bottom + 120, 160) }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} colors={[Colors.gold]} />}
       >
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -1108,8 +1130,8 @@ export default function HomeScreen() {
               </View>
             </View>
             <View style={styles.trustBannerContent}>
-              <Text style={styles.trustBannerTitle}>Trusted by 50+ clients</Text>
-              <Text style={styles.trustBannerDesc}>4.9 average rating across all sessions</Text>
+              <Text style={styles.trustBannerTitle}>Trusted by {trustStats.clientCount || '50+'} clients</Text>
+              <Text style={styles.trustBannerDesc}>{trustStats.avgRating > 0 ? `${trustStats.avgRating} average rating` : 'Rated by clients'}</Text>
             </View>
             <ChevronRight size={16} color={Colors.textMuted} />
           </LinearGradient>

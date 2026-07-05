@@ -15,7 +15,8 @@ import {
   ActivityIndicator,
   ImageBackground
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Crypto from 'expo-crypto';
@@ -36,6 +37,14 @@ import { ClientService } from '@/services/client';
 
 export default function SignupScreen() {
   const router = useRouter();
+  const { ref: referralCode } = useLocalSearchParams<{ ref?: string }>();
+
+  // Store pending referral token on mount if ref param is present
+  useEffect(() => {
+    if (referralCode && typeof referralCode === 'string' && referralCode.trim()) {
+      AsyncStorage.setItem('pending_referral_token', referralCode.trim()).catch(() => {});
+    }
+  }, [referralCode]);
   const [form, setForm] = useState<SignupFormState>({
     fullName: '',
     phone: '',

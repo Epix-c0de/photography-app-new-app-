@@ -2,9 +2,10 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, AppState, Keyboard } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
-import { Send, Clock, Check, CheckCheck, Paperclip, User, Sparkles, Images, CreditCard, CalendarDays, ChevronRight } from 'lucide-react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Send, Clock, Check, CheckCheck, Paperclip, User, Sparkles, Images, CreditCard, CalendarDays, ChevronRight, ArrowLeft, Image as ImageIcon } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import Colors from '@/constants/colors';
 import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -53,7 +54,7 @@ function inferMessageKind(text: string): ChatMessage['kind'] {
   return 'text';
 }
 
-function StructuredMessageCard({ message }: { message: ChatMessage }) {
+function StructuredMessageCard({ message, onCtaPress }: { message: ChatMessage; onCtaPress?: () => void }) {
   const isClient = message.sender === 'client';
   const cardStyles = [styles.structuredCard, isClient ? styles.clientStructuredCard : styles.adminStructuredCard];
 
@@ -103,19 +104,19 @@ function StructuredMessageCard({ message }: { message: ChatMessage }) {
         <Text style={styles.structuredBody}>{message.text}</Text>
         <View style={styles.structuredFooter}>
           <Text style={styles.structuredTime}>{message.timestamp}</Text>
-          <View style={styles.structuredCta}>
+          <Pressable style={styles.structuredCta} onPress={onCtaPress}>
             <Text style={styles.structuredCtaText}>{cta}</Text>
             <ChevronRight size={14} color={Colors.gold} />
-          </View>
+          </Pressable>
         </View>
       </View>
     </View>
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({ message, onStructuredCtaPress }: { message: ChatMessage; onStructuredCtaPress?: (kind: string) => void }) {
   if (message.kind && message.kind !== 'text') {
-    return <StructuredMessageCard message={message} />;
+    return <StructuredMessageCard message={message} onCtaPress={() => onStructuredCtaPress?.(message.kind || 'text')} />;
   }
 
   const isClient = message.sender === 'client';
@@ -289,16 +290,18 @@ export default function ChatScreen() {
       isDemoMode={isDemoMode}
       activeAdminId={selectedThreadAdminId ?? activeAdminId}
       brandName={brandName}
+      onBackToThreads={multiAdmin ? () => setSelectedThreadAdminId(null) : undefined}
     />
   );
 }
 
 // ─── ChatBody: all chat hooks live here, rendered only when user is assigned ───
-function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName }: {
+function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBackToThreads }: {
   initialMessage: string;
   isDemoMode: boolean;
   activeAdminId: string | null;
   brandName: string;
+  onBackToThreads?: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState<string>(initialMessage || '');
@@ -567,7 +570,7 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName }: {
             kind: 'system',
           };
 
-          setMessages(loadedMessages.length > 0 ? [introMessage, ...loadedMessages] : []);
+          setMessages(loadedMessages.length > 0 ? [introMessage, ...loadedMessages] : [introMessage]);
         }
       } catch (e: any) {
         console.error('[Chat] Init error:', e);
@@ -717,6 +720,7 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName }: {
         .subscribe();
       presenceChannelRef.current = channel;
       const sendPing = () => {
+        if (!clientRowId) return; // Wait until clientRowId is resolved
         channel.send({
           type: 'broadcast',
           event: 'status',
@@ -861,6 +865,22 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName }: {
     }
   }, [clientRowId, inputText, isDemoMode, messageClientId, ownerAdminId, sendScale, adminOnline]);
 
+  const handleAttach = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: false,
+        quality: 0.7,
+      });
+      if (!result.canceled && result.assets[0]) {
+        Alert.alert('Attachment', 'Image selected. This feature will be fully implemented soon.');
+      }
+    } catch (error) {
+      console.error('Failed to pick image:', error);
+    }
+  }, []);
+
   const isOfficeHours = () => {
     const hour = new Date().getHours();
     return hour >= 8 && hour < 18;
@@ -873,6 +893,25 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName }: {
       : 'We will pick this up next business window';
 
   const displayMessages = useMemo(() => messages, [messages]);
+
+  const router = useRouter();
+
+  const handleStructuredCtaPress = useCallback((kind: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    switch (kind) {
+      case 'invoice':
+        router.push('/(tabs)/profile');
+        break;
+      case 'gallery_ready':
+        router.push('/(tabs)/gallery');
+        break;
+      case 'booking_confirmation':
+        router.push('/(tabs)/bookings');
+        break;
+      default:
+        break;
+    }
+  }, [router]);
   // composerSpacing only needs to clear the safe area bottom — the tab bar space
   // is already handled by sceneStyle.paddingBottom in the tab layout
   const composerSpacing = isKeyboardVisible
@@ -911,6 +950,14 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName }: {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerTopRow}>
+          {onBackToThreads && (
+            <Pressable
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onBackToThreads(); }}
+              style={styles.backButton}
+            >
+              <ArrowLeft size={20} color={Colors.white} />
+            </Pressable>
+          )}
           {logoUrl ? (
             <Image source={{ uri: logoUrl }} style={styles.headerLogo} contentFit="cover" />
           ) : adminAvatar ? (
@@ -996,7 +1043,7 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName }: {
             </View>
           ) : (
             displayMessages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
+              <MessageBubble key={msg.id} message={msg} onStructuredCtaPress={handleStructuredCtaPress} />
             ))
           )}
           {typingIndicatorVisible && (
@@ -1033,7 +1080,7 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName }: {
           )}
 
           <View style={styles.inputContainer}>
-            <Pressable style={styles.attachButton} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
+            <Pressable style={styles.attachButton} onPress={handleAttach}>
               <Paperclip size={20} color={Colors.textSecondary} />
             </Pressable>
             <TextInput
@@ -1076,6 +1123,15 @@ const styles = StyleSheet.create({
   headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   headerLogo: {
     width: 50,

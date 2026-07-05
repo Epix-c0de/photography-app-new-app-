@@ -118,20 +118,22 @@ export default function ProfileScreen() {
           setTotalPhotos(demoGalleries.length * 8);
           setNextBooking(demoBookings[0] ?? null);
           setSessionCount(demoBookings.length);
+          setLoading(false);
           return;
         }
-        // Get client ID
-        const { data: clientData } = await supabase
+        // Get ALL client IDs for this user (multi-admin support)
+        const { data: clientRows } = await supabase
           .from('clients')
           .select('id')
-          .eq('user_id', user.id)
-          .maybeSingle();
+          .eq('user_id', user.id);
 
-          if (clientData) {
+        const allClientIds = (clientRows || []).map((c: any) => c.id).filter(Boolean);
+
+        if (allClientIds.length > 0) {
             const { data: paymentsData } = await supabase
               .from('payments')
               .select('*')
-              .eq('client_id', clientData.id)
+              .in('client_id', allClientIds)
               .order('created_at', { ascending: false });
 
             if (paymentsData) setPayments(paymentsData);
@@ -139,7 +141,7 @@ export default function ProfileScreen() {
             const { data: clientGalleries } = await supabase
               .from('galleries')
               .select('*')
-              .eq('client_id', clientData.id);
+              .in('client_id', allClientIds);
 
             const { data: unlockedGalleries } = await supabase
               .from('unlocked_galleries')
@@ -248,7 +250,7 @@ export default function ProfileScreen() {
 
       case 'library':
         const libraryResult = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ['images'],
           allowsEditing: true,
           aspect: [1, 1],
           quality: 0.5,
@@ -440,7 +442,7 @@ export default function ProfileScreen() {
   const settingsItems: MenuItem[] = [
     { icon: <Bell size={20} color={Colors.textSecondary} />, label: 'Notifications', subtitle: 'Manage push preferences', action: () => router.push('/profile/settings/notifications') },
     { icon: <Shield size={20} color={Colors.textSecondary} />, label: 'Privacy & Security', subtitle: 'Password, data controls', action: () => router.push('/profile/settings/privacy-security') },
-    { icon: <HelpCircle size={20} color={Colors.textSecondary} />, label: 'Help & Support', subtitle: 'Chat with us', action: () => router.push('/chat') },
+    { icon: <HelpCircle size={20} color={Colors.textSecondary} />, label: 'Help & Support', subtitle: 'Chat with us', action: () => router.push('/profile/settings/help-support') },
   ];
 
   return (
@@ -493,7 +495,7 @@ export default function ProfileScreen() {
           </View>
         </BlurView>
 
-        {user?.loyaltyTier && (
+        {(profile as any)?.loyalty_tier && (
           <View style={styles.loyaltyCard}>
             <LinearGradient
               colors={['rgba(212,175,55,0.15)', 'rgba(212,175,55,0.05)']}
@@ -505,7 +507,7 @@ export default function ProfileScreen() {
                 <Award size={22} color={Colors.gold} />
               </View>
               <View style={styles.loyaltyInfo}>
-                <Text style={styles.loyaltyTitle}>{user.loyaltyTier} Member</Text>
+                <Text style={styles.loyaltyTitle}>{(profile as any)?.loyalty_tier || 'Member'} Member</Text>
                 <Text style={styles.loyaltyDesc}>Enjoy 10% off your next booking</Text>
               </View>
               <ChevronRight size={16} color={Colors.gold} />
@@ -582,14 +584,10 @@ export default function ProfileScreen() {
                 <Star size={18} color={Colors.gold} fill={Colors.gold} />
               </View>
               <View style={styles.activityInfo}>
-                <Text style={styles.activityLabel}>Average Rating</Text>
+                <Text style={styles.activityLabel}>Your Rating</Text>
                 <View style={styles.ratingRow}>
-                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
-                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
-                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
-                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
-                  <Star size={12} color={Colors.gold} fill={Colors.gold} />
-                  <Text style={styles.ratingText}>5.0</Text>
+                  <Star size={12} color={Colors.textMuted} />
+                  <Text style={[styles.ratingText, { color: Colors.textMuted }]}>No reviews yet</Text>
                 </View>
               </View>
             </View>
@@ -616,7 +614,7 @@ export default function ProfileScreen() {
                 <Text style={styles.activityLabel}>Next Shoot</Text>
                 <Text style={styles.activityValue}>
                   {nextBooking 
-                    ? `${new Date(nextBooking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} • ${nextBooking.location}`
+                    ? `${new Date(nextBooking.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}${nextBooking.location ? ` • ${nextBooking.location}` : ''}`
                     : 'No upcoming shoots'}
                 </Text>
               </View>
@@ -628,12 +626,12 @@ export default function ProfileScreen() {
           <Text style={styles.premiumSectionTitle}>ACHIEVEMENTS</Text>
           <BlurView intensity={40} tint="dark" style={styles.premiumAchievementsBlur}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.achievementsScroll}>
-              <View style={[styles.achievementBadge, styles.achievementUnlocked]}>
+              <View style={[styles.achievementBadge, sessionCount >= 1 && styles.achievementUnlocked]}>
                 <View style={styles.achievementIcon}>
-                  <Camera size={24} color={Colors.gold} />
+                  <Camera size={24} color={sessionCount >= 1 ? Colors.gold : Colors.textMuted} />
                 </View>
-                <Text style={styles.achievementTitle}>First Shoot</Text>
-                <Text style={styles.achievementDesc}>Booked your first session</Text>
+                <Text style={[styles.achievementTitle, sessionCount < 1 && styles.achievementLocked]}>First Shoot</Text>
+                <Text style={[styles.achievementDesc, sessionCount < 1 && styles.achievementLocked]}>Booked your first session</Text>
               </View>
               
               <View style={[styles.achievementBadge, sessionCount >= 3 && styles.achievementUnlocked]}>

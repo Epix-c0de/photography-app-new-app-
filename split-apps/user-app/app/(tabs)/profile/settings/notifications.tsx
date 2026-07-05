@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Switch } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Bell, Calendar, Tag, ChevronRight, MessageCircle, Star } from 'lucide-react-native';
@@ -47,6 +48,24 @@ function SettingsToggle({ icon, label, description, value, onToggle }: {
   );
 }
 
+const NOTIF_PREFS_KEY = 'notification_preferences_v1';
+
+interface NotifPrefs {
+  push: boolean;
+  reminders: boolean;
+  offers: boolean;
+  messages: boolean;
+  galleryUpdates: boolean;
+}
+
+const DEFAULT_PREFS: NotifPrefs = {
+  push: true,
+  reminders: true,
+  offers: true,
+  messages: true,
+  galleryUpdates: true,
+};
+
 export default function Notifications() {
   const insets = useSafeAreaInsets();
   
@@ -55,6 +74,32 @@ export default function Notifications() {
   const [offers, setOffers] = useState(true);
   const [messages, setMessages] = useState(true);
   const [galleryUpdates, setGalleryUpdates] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+
+  // Load saved preferences on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(NOTIF_PREFS_KEY);
+        if (raw) {
+          const saved: NotifPrefs = JSON.parse(raw);
+          setPush(saved.push);
+          setReminders(saved.reminders);
+          setOffers(saved.offers);
+          setMessages(saved.messages);
+          setGalleryUpdates(saved.galleryUpdates);
+        }
+      } catch {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  // Save preferences whenever they change (after initial load)
+  useEffect(() => {
+    if (!loaded) return;
+    const prefs: NotifPrefs = { push, reminders, offers, messages, galleryUpdates };
+    AsyncStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(prefs)).catch(() => {});
+  }, [push, reminders, offers, messages, galleryUpdates, loaded]);
 
   return (
     <View style={styles.container}>

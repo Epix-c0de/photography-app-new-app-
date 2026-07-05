@@ -164,7 +164,7 @@ export default function AnnouncementViewerScreen() {
 
     if (isDemoMode) return;
 
-    // 1. Realtime subscription (catch-all event)
+    // Realtime subscription for comments
     const channel = supabase
       .channel(`public:announcement_comments_${id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_comments', filter: `announcement_id=eq.${id}` }, () => {
@@ -172,12 +172,8 @@ export default function AnnouncementViewerScreen() {
       })
       .subscribe();
 
-    // 2. Polling fallback every 5 seconds (in case realtime is not configured)
-    const pollInterval = setInterval(fetchComments, 5000);
-
     return () => { 
       supabase.removeChannel(channel); 
-      clearInterval(pollInterval);
     };
   }, [fetchComments, id, isDemoMode]);
 

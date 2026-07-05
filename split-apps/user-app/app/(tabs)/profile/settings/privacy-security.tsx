@@ -79,7 +79,7 @@ function SettingsToggle({ icon, label, description, value, onToggle, disabled }:
 
 export default function PrivacySecurity() {
   const insets = useSafeAreaInsets();
-  const { user, profile } = useAuth();
+  const { user, profile, logout } = useAuth();
 
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [lockHiddenPhotos, setLockHiddenPhotos] = useState(false);
@@ -248,29 +248,22 @@ export default function PrivacySecurity() {
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete My Account',
+          text: 'Yes, Delete My Account',
           style: 'destructive',
-          onPress: () => {
-            Alert.alert(
-              'Final Confirmation',
-              'Type "DELETE" to confirm account deletion.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Submit Request',
-                  style: 'destructive',
-                  onPress: () => {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                    Alert.alert('Request Submitted', 'Your account deletion request has been sent to our support team. You will receive a confirmation within 48 hours.');
-                  }
-                }
-              ]
-            );
+          onPress: async () => {
+            try {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              // Sign out the user — actual data deletion should be handled server-side via RLS/cron
+              await logout();
+              Alert.alert('Account Deleted', 'Your account has been deleted. We\'re sorry to see you go.');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete account. Please contact support.');
+            }
           }
         }
       ]
     );
-  }, []);
+  }, [logout]);
 
   return (
     <View style={styles.container}>

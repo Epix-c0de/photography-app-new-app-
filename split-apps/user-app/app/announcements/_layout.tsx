@@ -20,6 +20,12 @@ export default function AnnouncementsLayout() {
           presentation: 'fullScreenModal',
         }}
       />
+      <Stack.Screen 
+        name="all"
+        options={{
+          presentation: 'card',
+        }}
+      />
     </Stack>
   );
 }

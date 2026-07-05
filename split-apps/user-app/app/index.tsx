@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '@/constants/colors';
 
 export default function SplashScreen() {
@@ -63,6 +64,25 @@ export default function SplashScreen() {
 
     const timer = setTimeout(async () => {
       console.log('[Splash] Routing...', { isLoggedIn, hasSeenOnboarding, role: profile?.role });
+      
+      // Check for pending join code from deep link
+      try {
+        const pendingCode = await AsyncStorage.getItem('pending_join_code');
+        if (pendingCode) {
+          console.log('[Splash] Pending join code found:', pendingCode);
+          if (isLoggedIn) {
+            // User is logged in — go to join handler to auto-link
+            router.replace(`/join?code=${pendingCode}`);
+            return;
+          } else {
+            // User not logged in — go to login with join code
+            router.replace(`/login?join_code=${pendingCode}`);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('[Splash] Error reading pending join code:', e);
+      }
       
       if (!hasSeenOnboarding) {
         router.replace('/onboarding');
