@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { generateAccessCodeLink, type BrandSettings } from '@/lib/shareable-links';
 import Link from 'next/link';
 
 type Gallery = {
@@ -123,8 +124,12 @@ export default function GalleriesPage() {
     showToast('Access code copied!');
   };
 
-  const copyShareLink = (code: string) => {
-    const link = `https://epixvisuals.co/unlock?code=${code}`;
+  const copyShareLink = async (code: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: profile } = await supabase.from('user_profiles').select('brand_name, business_name').eq('id', user.id).single();
+    const brandName = profile?.brand_name || profile?.business_name || 'Studio';
+    const link = generateAccessCodeLink(code, { brand_name: brandName, brand_slug: brandName.toLowerCase().replace(/\s+/g, '-') });
     navigator.clipboard.writeText(link);
     showToast('Share link copied!');
   };
@@ -214,13 +219,22 @@ export default function GalleriesPage() {
                 {g.price > 0 && <p style={{ fontSize: 14, fontWeight: 800, color: '#D4AF37', marginBottom: 10 }}>KES {g.price.toLocaleString()}</p>}
 
                 {/* Access code row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.3)', borderRadius: 10, padding: '8px 12px', marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.3)', borderRadius: 10, padding: '8px 12px', marginBottom: 8 }}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#D4AF37', fontSize: 15, letterSpacing: 2, flex: 1 }}>{g.access_code}</span>
                   <button onClick={() => copyCode(g.id, g.access_code)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'rgba(255,255,255,0.5)' }} title="Copy code">
                     {copiedId === g.id ? '✅' : '📋'}
                   </button>
                   <button onClick={() => copyShareLink(g.access_code)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'rgba(255,255,255,0.5)' }} title="Copy share link">
                     🔗
+                  </button>
+                </div>
+
+                {/* USSD Code */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '6px 12px', marginBottom: 12, border: '1px solid rgba(212,175,55,0.1)' }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>USSD:</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#D4AF37', fontSize: 13, letterSpacing: 1, flex: 1 }}>*123*{g.access_code?.replace('-', '')}#</span>
+                  <button onClick={() => { navigator.clipboard.writeText(`*123*${g.access_code?.replace('-', '')}#`); showToast('USSD code copied!'); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'rgba(255,255,255,0.4)' }} title="Copy USSD">
+                    📋
                   </button>
                 </div>
 
