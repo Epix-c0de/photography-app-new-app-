@@ -11,10 +11,17 @@ import {
   Share,
   ActivityIndicator,
 } from 'react-native';
-import { Copy, Share2, RefreshCw } from 'lucide-react-native';
+import { Copy, Share2, RefreshCw, Link } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import QRCode from 'react-native-qrcode-svg';
+
+async function safeHapticImpact(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
+  try { await Haptics.impactAsync(style); } catch {}
+}
+async function safeHapticNotification(style: Haptics.NotificationFeedbackType) {
+  try { await Haptics.notificationAsync(style); } catch {}
+}
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
@@ -33,17 +40,21 @@ export default function PhotographerCodeDisplay({
   // User app download links fetched from platform_settings (set by super admin)
   const [userAppAndroid, setUserAppAndroid] = useState('https://play.google.com/store');
   const [userAppIos, setUserAppIos] = useState('https://apps.apple.com');
+  const [domain, setDomain] = useState('https://epixvisuals.co.ke');
+
+  const inviteLink = `${domain}/join/${photographerCode}`;
 
   useEffect(() => {
-    // Load user app download links from super admin platform settings
+    // Load domain and app download links from platform settings
     supabase
       .from('platform_settings')
       .select('key, value')
-      .in('key', ['platform_app_android_link', 'platform_app_ios_link', 'platform_app_name'])
+      .in('key', ['platform_domain', 'platform_app_android_link', 'platform_app_ios_link', 'platform_app_name'])
       .then(({ data }) => {
         if (data) {
           const map: Record<string, string> = {};
           data.forEach((r: any) => { map[r.key] = r.value || ''; });
+          if (map['platform_domain']) setDomain(map['platform_domain']);
           if (map['platform_app_android_link']) setUserAppAndroid(map['platform_app_android_link']);
           if (map['platform_app_ios_link']) setUserAppIos(map['platform_app_ios_link']);
         }
@@ -53,7 +64,7 @@ export default function PhotographerCodeDisplay({
   const handleCopyCode = async () => {
     try {
       await Clipboard.setStringAsync(photographerCode);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      safeHapticNotification(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Copied!', 'Photographer code copied to clipboard.');
     } catch (error) {
       console.error('[PhotographerCodeDisplay] Copy error:', error);
@@ -61,9 +72,43 @@ export default function PhotographerCodeDisplay({
     }
   };
 
+  const handleShareLink = async () => {
+    try {
+      safeHapticImpact(Haptics.ImpactFeedbackStyle.Light);
+
+      const shareMessage = [
+        `Hi! I'm your photographer on Epix Visuals.`,
+        ``,
+        `Click the link below to connect with me directly:`,
+        `${inviteLink}`,
+        ``,
+        `Or download the app and enter code: ${photographerCode}`,
+      ].join('\n');
+
+      await Share.share({
+        message: shareMessage,
+        title: 'Connect with Your Photographer',
+        url: inviteLink,
+      });
+    } catch (error) {
+      console.error('[PhotographerCodeDisplay] Share link error:', error);
+    }
+  };
+
+  const handleCopyLink = async () => {
+    try {
+      await Clipboard.setStringAsync(inviteLink);
+      safeHapticNotification(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Copied!', 'Invite link copied to clipboard.');
+    } catch (error) {
+      console.error('[PhotographerCodeDisplay] Copy link error:', error);
+      Alert.alert('Error', 'Failed to copy link to clipboard.');
+    }
+  };
+
   const handleShareCode = async () => {
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      safeHapticImpact(Haptics.ImpactFeedbackStyle.Light);
       
       const shareMessage = [
         `Hi! I'm your photographer on Epix Visuals.`,
@@ -89,7 +134,7 @@ export default function PhotographerCodeDisplay({
   };
 
   const handleRegenerateCode = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    safeHapticImpact(Haptics.ImpactFeedbackStyle.Medium);
     
     Alert.alert(
       'Regenerate Code?',
@@ -154,7 +199,7 @@ export default function PhotographerCodeDisplay({
       }
 
       // Success!
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      safeHapticNotification(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         'Code Regenerated',
         `Your new photographer code is: ${newCode}\n\nShare this code with your clients to let them connect with you.`,
@@ -230,6 +275,38 @@ export default function PhotographerCodeDisplay({
         </Pressable>
       </View>
 
+      {/* Invite Link Section */}
+      <View style={styles.inviteLinkSection}>
+        <Text style={styles.inviteLinkLabel}>Your Invite Link</Text>
+        <Text style={styles.inviteLinkDescription}>
+          Share this link with clients — they can download the app and connect automatically
+        </Text>
+
+        <View style={styles.inviteLinkContainer}>
+          <Text style={styles.inviteLink} numberOfLines={1}>{inviteLink}</Text>
+        </View>
+
+        <View style={styles.actions}>
+          <Pressable
+            style={[styles.actionButton, styles.primaryAction]}
+            onPress={handleCopyLink}
+            disabled={regenerating}
+          >
+            <Link size={20} color={Colors.background} strokeWidth={2} />
+            <Text style={styles.primaryActionText}>Copy Link</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.actionButton, styles.secondaryAction]}
+            onPress={handleShareLink}
+            disabled={regenerating}
+          >
+            <Share2 size={20} color={Colors.gold} strokeWidth={2} />
+            <Text style={styles.secondaryActionText}>Share Link</Text>
+          </Pressable>
+        </View>
+      </View>
+
       {/* QR Code */}
       <View style={styles.qrSection}>
         <Text style={styles.qrLabel}>QR Code</Text>
@@ -238,12 +315,20 @@ export default function PhotographerCodeDisplay({
         </Text>
         
         <View style={styles.qrContainer}>
-          <QRCode
-            value={qrCodeData}
-            size={200}
-            color={Colors.text}
-            backgroundColor={Colors.white}
-          />
+          {photographerCode ? (
+            <QRCode
+              value={qrCodeData}
+              size={180}
+              color="#000000"
+              backgroundColor="#FFFFFF"
+              ecl="M"
+              enableLinearGradient={false}
+            />
+          ) : (
+            <View style={styles.qrPlaceholder}>
+              <Text style={styles.qrPlaceholderText}>No code</Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -348,6 +433,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
+  inviteLinkSection: {
+    marginBottom: 24,
+  },
+  inviteLinkLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  inviteLinkDescription: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  inviteLinkContainer: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.3)',
+  },
+  inviteLink: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.gold,
+    letterSpacing: 0.5,
+  },
   qrLabel: {
     fontSize: 16,
     fontWeight: '600',
@@ -364,6 +478,20 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     padding: 20,
     borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrPlaceholder: {
+    width: 180,
+    height: 180,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qrPlaceholderText: {
+    color: '#999',
+    fontSize: 14,
   },
   regenerateButton: {
     flexDirection: 'row',
