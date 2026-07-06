@@ -10,7 +10,7 @@ config.resolver.sourceExts = [
   'mjs',
 ];
 
-// Prevent Metro from pulling mismatched deps from parent/root node_modules.
+// Each app uses only its own node_modules — no workspace root
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
 ];
@@ -19,6 +19,7 @@ config.resolver.disableHierarchicalLookup = true;
 config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules,
   'jimp-compact': path.resolve(projectRoot, 'mocks/jimp-compact.js'),
+  '@tanstack/react-query': path.resolve(projectRoot, 'node_modules/@tanstack/react-query'),
 };
 
 // Exclude test files from bundling to prevent import errors

@@ -9,6 +9,10 @@ export interface AssignmentStatus {
   photographerId: string | null;
   photographerName: string | null;
   clientId: string | null;
+  /** All admin IDs this user is linked to (multi-admin support) */
+  adminIds: string[];
+  /** All client IDs for this user (one per linked admin) */
+  clientIds: string[];
   loading?: boolean;
   refresh?: () => void;
 }

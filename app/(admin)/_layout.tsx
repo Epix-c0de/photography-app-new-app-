@@ -1,5 +1,17 @@
 import { Tabs } from 'expo-router';
-import { LayoutDashboard, Users, Calendar, MessageSquare, Settings, Upload, Camera } from 'lucide-react-native';
+import { 
+  LayoutDashboard, 
+  Users, 
+  Calendar, 
+  MessageSquare, 
+  Settings, 
+  Upload, 
+  Camera, 
+  Image as ImageIcon,
+  Bell,
+  MoreHorizontal,
+  Star
+} from 'lucide-react-native';
 import { View, StyleSheet } from 'react-native';
 import { useEffect, useRef } from 'react';
 import Colors from '@/constants/colors';
@@ -58,25 +70,36 @@ export default function AdminTabLayout() {
           backgroundColor: '#111111',
           borderTopColor: 'rgba(212,175,55,0.15)',
           borderTopWidth: 0.5,
-          height: 60,
-          paddingBottom: 8,
+          height: 65,
+          paddingBottom: 10,
           paddingTop: 8,
         },
         tabBarLabelStyle: {
           fontSize: 9,
           fontWeight: '600' as const,
           letterSpacing: 0.3,
-          marginBottom: 4,
+          marginBottom: 2,
         },
       }}
     >
       <Tabs.Screen
         name="dashboard"
         options={{
-          title: 'Dashboard',
+          title: 'Home',
           tabBarIcon: ({ color, focused }) => (
             <View style={focused ? styles.activeIcon : undefined}>
-              <LayoutDashboard size={20} color={color} />
+              <LayoutDashboard size={22} color={color} />
+            </View>
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="upload"
+        options={{
+          title: 'Upload',
+          tabBarIcon: ({ color, focused }) => (
+            <View style={[styles.uploadButton, focused && styles.activeUploadButton]}>
+              <Upload size={24} color={focused ? '#080810' : color} />
             </View>
           ),
         }}
@@ -87,18 +110,7 @@ export default function AdminTabLayout() {
           title: 'Clients',
           tabBarIcon: ({ color, focused }) => (
             <View style={focused ? styles.activeIcon : undefined}>
-              <Users size={20} color={color} />
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="admin-bookings"
-        options={{
-          title: 'Bookings',
-          tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIcon : undefined}>
-              <Calendar size={20} color={color} />
+              <Users size={22} color={color} />
             </View>
           ),
         }}
@@ -109,7 +121,7 @@ export default function AdminTabLayout() {
           title: 'Inbox',
           tabBarIcon: ({ color, focused }) => (
             <View style={focused ? styles.activeIcon : undefined}>
-              <MessageSquare size={20} color={color} />
+              <MessageSquare size={22} color={color} />
             </View>
           ),
           tabBarBadge: 6,
@@ -124,25 +136,38 @@ export default function AdminTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="bts-announcements"
+        name="calendar"
         options={{
-          title: 'BTS & Announcements',
+          title: 'Calendar',
           tabBarIcon: ({ color, focused }) => (
             <View style={focused ? styles.activeIcon : undefined}>
-              <Camera size={20} color={color} />
+              <Calendar size={22} color={color} />
             </View>
           ),
         }}
       />
       <Tabs.Screen
-        name="upload"
+        name="more"
         options={{
-          title: 'Upload',
+          title: 'More',
           tabBarIcon: ({ color, focused }) => (
             <View style={focused ? styles.activeIcon : undefined}>
-              <Upload size={20} color={color} />
+              <MoreHorizontal size={22} color={color} />
             </View>
           ),
+        }}
+      />
+      {/* Hidden screens */}
+      <Tabs.Screen
+        name="bts-announcements"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="admin-bookings"
+        options={{
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -152,14 +177,27 @@ export default function AdminTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="reviews"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="referrals"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="social"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
-          tabBarIcon: ({ color, focused }) => (
-            <View style={focused ? styles.activeIcon : undefined}>
-              <Settings size={20} color={color} />
-            </View>
-          ),
+          href: null,
         }}
       />
     </Tabs>
@@ -173,5 +211,22 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
     shadowRadius: 8,
+  },
+  uploadButton: {
+    backgroundColor: Colors.gold,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -15,
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+  },
+  activeUploadButton: {
+    transform: [{ scale: 1.1 }],
+    shadowOpacity: 0.6,
   },
 });

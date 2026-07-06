@@ -421,7 +421,7 @@ export const ClientService = {
         .from('announcements')
         .select(`
           *,
-          announcement_comments (id, user_id, content, created_at, user_profiles:user_id (id, name, avatar_url)),
+          announcement_comments (id, user_id, comment, created_at, user_profiles:user_id (id, name, avatar_url)),
           announcement_reactions (id, user_id, reaction_emoji),
           user_profiles:owner_admin_id (id, name, avatar_url)
         `)
@@ -439,7 +439,7 @@ export const ClientService = {
         .from('announcements')
         .select(`
           *,
-          announcement_comments (id, user_id, content, created_at, user_profiles:user_id (id, name, avatar_url)),
+          announcement_comments (id, user_id, comment, created_at, user_profiles:user_id (id, name, avatar_url)),
           announcement_reactions (id, user_id, reaction_emoji)
         `)
         .eq('owner_admin_id', adminId)
@@ -457,7 +457,7 @@ export const ClientService = {
         .from('announcements')
         .select(`
           *,
-          announcement_comments (id, user_id, content, created_at, user_profiles:user_id (id, name, avatar_url)),
+          announcement_comments (id, user_id, comment, created_at, user_profiles:user_id (id, name, avatar_url)),
           announcement_reactions (id, user_id, reaction_emoji),
           user_profiles:owner_admin_id (id, name, avatar_url)
         `)
@@ -501,7 +501,7 @@ export const ClientService = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Try to insert, if it already exists, delete it (toggle behavior)
+      // Check if user already reacted with this emoji
       const { data: existing } = await supabase
         .from('announcement_reactions')
         .select('id')
@@ -511,22 +511,23 @@ export const ClientService = {
         .maybeSingle();
 
       if (existing) {
-        // Already reacted with this emoji, remove it
-        await supabase
+        // Already reacted with this emoji, remove it (toggle off)
+        const { error } = await supabase
           .from('announcement_reactions')
           .delete()
           .eq('id', existing.id);
+        if (error) throw error;
         return null;
       }
 
-      // Add new reaction
+      // Add new reaction — use upsert to handle race conditions gracefully
       const { data, error } = await supabase
         .from('announcement_reactions')
-        .insert({
+        .upsert({
           announcement_id: announcementId,
           user_id: user.id,
           reaction_emoji: reactionEmoji
-        })
+        }, { onConflict: 'announcement_id,user_id,reaction_emoji', ignoreDuplicates: true })
         .select()
         .single();
 
@@ -538,11 +539,17 @@ export const ClientService = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
+      const { data: client } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
       const { error } = await supabase
         .from('announcement_comments')
         .delete()
         .eq('id', commentId)
-        .eq('user_id', user.id);
+        .eq('client_id', client?.id || '');
 
       if (error) throw error;
       return true;

@@ -201,7 +201,7 @@ function AnnouncementCard({ item, index, onPress }: { item: AnnouncementRow; ind
             <View style={styles.announcementVideoContainer}>
               <Video
                 ref={videoRef}
-                source={{ uri: item.image_url || item.media_url || '' }}
+                source={{ uri: item.media_url || item.image_url || '' }}
                 style={styles.announcementVideo}
                 resizeMode={ResizeMode.CONTAIN}
                 shouldPlay={false}
@@ -220,7 +220,7 @@ function AnnouncementCard({ item, index, onPress }: { item: AnnouncementRow; ind
             </View>
           ) : (
             <Image 
-              source={{ uri: item.image_url || item.media_url || '' }} 
+              source={{ uri: item.media_url || item.image_url || '' }} 
               style={styles.announcementImage} 
               contentFit="contain" 
             />
@@ -419,9 +419,18 @@ export default function HomeScreen() {
     setViewedIds((prev) => {
       const next = new Set(prev);
       next.add(id);
-      AsyncStorage.setItem(VIEWED_BTS_KEY, JSON.stringify(Array.from(next)));
       return next;
     });
+    try {
+      const raw = await AsyncStorage.getItem(VIEWED_BTS_KEY);
+      const ids = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(ids) && !ids.includes(id)) {
+        ids.push(id);
+      }
+      await AsyncStorage.setItem(VIEWED_BTS_KEY, JSON.stringify(ids));
+    } catch {
+      // silent
+    }
   }, []);
 
   const fetchBts = useCallback(async () => {

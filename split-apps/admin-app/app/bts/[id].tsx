@@ -86,14 +86,20 @@ export default function BTSViewerScreen() {
       if (showRefresh) setRefreshing(true);
       else setLoading(true);
 
-      const nowIso = new Date().toISOString();
-      const { data, error } = await supabase
+      const now = Date.now();
+      const { data: rawData, error } = await supabase
         .from('bts_posts')
         .select('*')
         .eq('is_active', true)
-        .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-        .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
         .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const data = (rawData || []).filter((p: any) => {
+        if (p.expires_at && new Date(p.expires_at).getTime() <= now) return false;
+        if (p.scheduled_for && new Date(p.scheduled_for).getTime() > now) return false;
+        return true;
+      });
 
       if (error) throw error;
 

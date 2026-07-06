@@ -25,19 +25,41 @@ import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 import { AdminService } from '@/services/admin';
+import { supabase } from '@/lib/supabase';
 
 const { width } = Dimensions.get('window');
 
-// Placeholder for chart data until we implement granular analytics
-const weeklyRevenuePlaceholder = [
-  { label: 'Mon', amount: 0 },
-  { label: 'Tue', amount: 0 },
-  { label: 'Wed', amount: 0 },
-  { label: 'Thu', amount: 0 },
-  { label: 'Fri', amount: 0 },
-  { label: 'Sat', amount: 0 },
-  { label: 'Sun', amount: 0 },
-];
+// Generate real weekly revenue data from payments
+function generateWeeklyRevenue(payments: any[]): { label: string; amount: number }[] {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const now = new Date();
+  const weekData: { label: string; amount: number }[] = [];
+  
+  // Get start of this week (Monday)
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay() + 1);
+  startOfWeek.setHours(0, 0, 0, 0);
+  
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(startOfWeek);
+    date.setDate(startOfWeek.getDate() + i);
+    
+    const dayPayments = payments.filter(p => {
+      const paymentDate = new Date(p.created_at || p.paid_at);
+      return paymentDate.toDateString() === date.toDateString() && 
+             (p.status === 'paid' || p.status === 'success' || p.status === 'completed');
+    });
+    
+    const total = dayPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    
+    weekData.push({
+      label: days[date.getDay()],
+      amount: total,
+    });
+  }
+  
+  return weekData;
+}
 
 type DashboardStats = {
   totalClients: number;
@@ -98,12 +120,28 @@ function StatCard({ icon, label, value, subValue, color, delay }: {
   );
 }
 
-function RevenueChart({ revenue }: { revenue: number }) {
-  // Use placeholder data but update total amount if available
-  // In future, pass real weekly data
-  const data = weeklyRevenuePlaceholder;
+function RevenueChart({ revenue, weeklyData }: { revenue: number; weeklyData?: { label: string; amount: number }[] }) {
+  // Use real weekly data if provided, otherwise show zeros
+  const data = weeklyData || [
+    { label: 'Mon', amount: 0 },
+    { label: 'Tue', amount: 0 },
+    { label: 'Wed', amount: 0 },
+    { label: 'Thu', amount: 0 },
+    { label: 'Fri', amount: 0 },
+    { label: 'Sat', amount: 0 },
+    { label: 'Sun', amount: 0 },
+  ];
   const maxAmount = useMemo(() => Math.max(...data.map(d => d.amount)) || 100, [data]);
   const barAnims = useRef(data.map(() => new Animated.Value(0))).current;
+  
+  // Calculate percentage change (compare first half vs second half of week)
+  const midPoint = Math.floor(data.length / 2);
+  const firstHalfTotal = data.slice(0, midPoint).reduce((sum, d) => sum + d.amount, 0);
+  const secondHalfTotal = data.slice(midPoint).reduce((sum, d) => sum + d.amount, 0);
+  const percentageChange = firstHalfTotal > 0 
+    ? Math.round(((secondHalfTotal - firstHalfTotal) / firstHalfTotal) * 100) 
+    : secondHalfTotal > 0 ? 100 : 0;
+  const isPositive = percentageChange >= 0;
 
   useEffect(() => {
     const animations = barAnims.map((anim, index) =>
@@ -117,8 +155,10 @@ function RevenueChart({ revenue }: { revenue: number }) {
       <View style={styles.chartHeader}>
         <Text style={styles.chartTitle}>This Week</Text>
         <View style={styles.chartBadge}>
-          <ArrowUpRight size={12} color={Colors.success} />
-          <Text style={styles.chartBadgeText}>+0%</Text>
+          <ArrowUpRight size={12} color={isPositive ? Colors.success : '#ef4444'} />
+          <Text style={[styles.chartBadgeText, { color: isPositive ? Colors.success : '#ef4444' }]}>
+            {isPositive ? '+' : ''}{percentageChange}%
+          </Text>
         </View>
       </View>
       <Text style={styles.chartAmount}>{formatCurrency(revenue)}</Text>
@@ -210,6 +250,7 @@ export default function AdminDashboard() {
   });
   const [unpaidGalleries, setUnpaidGalleries] = useState<any[]>([]);
   const [upcomingBookings, setUpcomingBookings] = useState<any[]>([]);
+  const [weeklyRevenue, setWeeklyRevenue] = useState<{ label: string; amount: number }[]>([]);
   const [isLoading, setIsLoading] = useState(!AdminService.cache.get('dashboard'));
 
   useEffect(() => {
@@ -221,10 +262,11 @@ export default function AdminDashboard() {
       }
 
       try {
-        const [analytics, galleries, clients] = await Promise.all([
+        const [analytics, galleries, clients, paymentsResult] = await Promise.all([
           AdminService.dashboard.getAnalytics(),
           AdminService.gallery.list(),
-          AdminService.clients.list() // Pre-fetch clients for faster upload screen
+          AdminService.clients.list(), // Pre-fetch clients for faster upload screen
+          supabase.from('payments').select('amount, status, created_at, paid_at').limit(100)
         ]);
 
         setStats(analytics);
@@ -241,6 +283,11 @@ export default function AdminDashboard() {
 
         setUnpaidGalleries(unpaid);
         setUpcomingBookings([]);
+
+        // Generate weekly revenue chart data
+        const payments = paymentsResult.data || [];
+        const weeklyData = generateWeeklyRevenue(payments);
+        setWeeklyRevenue(weeklyData);
 
       } catch (e) {
         console.error('Failed to load dashboard data:', e);
@@ -400,7 +447,7 @@ export default function AdminDashboard() {
           </View>
 
           <View style={styles.section}>
-            <RevenueChart revenue={stats.revenueThisWeek} />
+            <RevenueChart revenue={stats.revenueThisWeek} weeklyData={weeklyRevenue} />
           </View>
 
           <View style={styles.section}>

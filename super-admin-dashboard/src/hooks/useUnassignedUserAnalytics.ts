@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import type {
   AverageTimeToAssignment,
   PhotographerConversionRate,
@@ -13,8 +13,6 @@ import type {
   FailedAttemptStatistics,
   UnassignedUserAnalyticsSummary,
 } from '@/types/unassigned-user-analytics';
-
-const supabase = createClient();
 
 /**
  * Hook to fetch total unassigned users count

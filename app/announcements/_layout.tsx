@@ -17,7 +17,13 @@ export default function AnnouncementsLayout() {
       <Stack.Screen 
         name="[id]"
         options={{
-          presentation: 'fullScreenModal',
+          presentation: 'card',
+        }}
+      />
+      <Stack.Screen 
+        name="all"
+        options={{
+          presentation: 'card',
         }}
       />
     </Stack>

@@ -8,7 +8,7 @@
  *  - Shows poster thumbnail until playback starts
  *  - Native controls become visible on tap
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { View, StyleSheet, Pressable, Text } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Play, Volume2, VolumeX } from 'lucide-react-native';
@@ -30,10 +30,19 @@ export default function FeedVideoPlayer({
   aspectRatio = 16 / 9,
 }: FeedVideoPlayerProps) {
   const videoRef = useRef<Video>(null);
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showControls, setShowControls] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+      try { videoRef.current?.unloadAsync(); } catch {}
+    };
+  }, []);
 
   // Auto-play / pause based on viewport visibility
   useEffect(() => {
@@ -64,7 +73,8 @@ export default function FeedVideoPlayer({
 
     // Show controls briefly
     setShowControls(true);
-    setTimeout(() => setShowControls(false), 3000);
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    controlsTimeoutRef.current = setTimeout(() => setShowControls(false), 3000);
   };
 
   return (

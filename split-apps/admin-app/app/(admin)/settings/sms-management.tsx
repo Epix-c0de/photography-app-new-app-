@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { ChevronLeft, Send, FileText, History, Plus, X, User, Check, Trash2, Smartphone, Search, BarChart3 } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '@/constants/colors';
+import { supabase } from '@/lib/supabase';
 import { SMSService, SMSTemplate, SMSLog, SMSLogWithClient } from '@/services/sms';
 import { AdminService, Client } from '@/services/admin';
 import { LocalSmsGateway, type LocalSmsGatewayStatus } from '@lenzart/local-sms-gateway';
@@ -381,8 +382,6 @@ export default function SmsManagementScreen() {
 
     setScheduling(true);
     try {
-      // For now, we'll store scheduled messages locally
-      // In a production app, this would be stored on the server
       const scheduledSMS = {
         id: `scheduled_${Date.now()}`,
         clients: scheduleClients,
@@ -391,7 +390,23 @@ export default function SmsManagementScreen() {
         createdAt: new Date().toISOString(),
       };
 
-      // Store in AsyncStorage for demo (would be server-side in production)
+      // Persist to Supabase sms_logs table for reliability
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from('sms_logs').insert({
+            admin_id: user.id,
+            message: scheduleMessage,
+            scheduled_for: scheduledDateTime.toISOString(),
+            status: 'scheduled',
+            recipient_count: scheduleClients.length,
+          } as any);
+        }
+      } catch (dbErr) {
+        console.warn('Failed to persist scheduled SMS to DB, falling back to local storage:', dbErr);
+      }
+
+      // Also store locally as backup
       const existing = await AsyncStorage.getItem('scheduled_sms') || '[]';
       const scheduled = JSON.parse(existing);
       scheduled.push(scheduledSMS);

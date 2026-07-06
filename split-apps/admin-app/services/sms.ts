@@ -68,9 +68,20 @@ function shouldTryNow(item: LocalQueueItem) {
 
 export const SMSService = {
   /**
-   * Check if SMS is available on the device
+   * Check if SMS is available (server-side Africa's Talking or local gateway)
    */
   isAvailable: async () => {
+    // 1. Check if Africa's Talking is configured
+    try {
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'africastalking_api_key')
+        .maybeSingle();
+      if (data?.value) return true;
+    } catch {}
+
+    // 2. Fallback: check local device SMS
     if (Platform.OS === 'android') {
       try {
         const status = await LocalSmsGateway.getStatus();
@@ -83,7 +94,7 @@ export const SMSService = {
   },
 
   /**
-   * Send SMS using the device's native SMS capability
+   * Send SMS via Supabase Edge Function (Africa's Talking), falling back to local gateway
    */
   send: async ({ phoneNumber, message, clientId, subscriptionId }: SendSMSParams): Promise<'sent' | 'queued' | 'failed'> => {
     try {
@@ -91,6 +102,28 @@ export const SMSService = {
       const msg = message.trim();
       if (!pn || !msg) throw new Error('Missing phone number or message');
 
+      // 1. Try server-side SMS via Supabase Edge Function (Africa's Talking)
+      try {
+        const { data, error } = await supabase.functions.invoke('send-sms', {
+          body: { phone_number: pn, message: msg, client_id: clientId ?? null },
+        });
+        if (!error && data?.success) {
+          await SMSService.logs.record({
+            phone_number: pn,
+            message: msg,
+            client_id: clientId ?? null,
+            status: 'sent',
+            sent_at: nowIso(),
+            error_message: null,
+          });
+          return 'sent';
+        }
+        console.warn('[SMS] Server-side send failed, falling back to local gateway:', error || data);
+      } catch (e) {
+        console.warn('[SMS] Edge Function unavailable, falling back to local gateway:', e);
+      }
+
+      // 2. Fallback: local device SMS (Android only)
       if (Platform.OS === 'android') {
         const sendResult = await LocalSmsGateway.sendSms({ phoneNumber: pn, message: msg, subscriptionId: subscriptionId ?? null });
         if (sendResult.status === 'sent') {
@@ -105,8 +138,8 @@ export const SMSService = {
           return 'sent';
         }
 
-        const errorCode = sendResult.status === 'failed' ? sendResult.errorCode : sendResult.errorCode;
-        const errorMessage = sendResult.status === 'failed' ? sendResult.errorMessage : sendResult.errorMessage;
+        const errorCode = sendResult.errorCode;
+        const errorMessage = sendResult.errorMessage;
 
         if (errorCode === 'NO_SERVICE' || errorCode === 'RADIO_OFF') {
           await SMSService.queue.enqueue({
@@ -137,6 +170,7 @@ export const SMSService = {
         return 'failed';
       }
 
+      // 3. iOS fallback — native SMS dialog
       const isAvailable = await SMS.isAvailableAsync();
       if (!isAvailable) throw new Error('SMS is not available on this device');
       const { result } = await SMS.sendSMSAsync([pn], msg);
@@ -151,26 +185,15 @@ export const SMSService = {
         });
         return 'sent';
       }
-      if (result === 'cancelled') {
-        await SMSService.logs.record({
-          phone_number: pn,
-          message: msg,
-          client_id: clientId ?? null,
-          status: 'failed',
-          sent_at: null,
-          error_message: 'User cancelled',
-        });
-        return 'failed';
-      }
       await SMSService.logs.record({
         phone_number: pn,
         message: msg,
         client_id: clientId ?? null,
-        status: 'queued',
+        status: 'failed',
         sent_at: null,
-        error_message: 'Unknown result',
+        error_message: 'User cancelled',
       });
-      return 'queued';
+      return 'failed';
     } catch (error: any) {
       throw error;
     }

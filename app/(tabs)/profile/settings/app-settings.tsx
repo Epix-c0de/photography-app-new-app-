@@ -88,6 +88,7 @@ function SettingsToggle({
 export default function AppSettings() {
   const insets = useSafeAreaInsets();
   const [wifiOnly, setWifiOnly] = useState(false);
+  const [networkCompression, setNetworkCompression] = useState(true);
   const [theme, setTheme] = useState<'system'|'dark'|'light'>('dark');
 
   useEffect(() => {
@@ -95,6 +96,8 @@ export default function AppSettings() {
       try {
         const val = await AsyncStorage.getItem('user_wifiOnly');
         if (val !== null) setWifiOnly(val === 'true');
+        const compVal = await AsyncStorage.getItem('network_compression_enabled');
+        if (compVal !== null) setNetworkCompression(compVal !== 'false');
       } catch (e) {}
     };
     loadSettings();
@@ -104,6 +107,14 @@ export default function AppSettings() {
     setWifiOnly(val);
     try {
       await AsyncStorage.setItem('user_wifiOnly', String(val));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {}
+  };
+
+  const handleToggleNetworkCompression = async (val: boolean) => {
+    setNetworkCompression(val);
+    try {
+      await AsyncStorage.setItem('network_compression_enabled', String(val));
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (e) {}
   };
@@ -174,6 +185,14 @@ export default function AppSettings() {
               description="Reduce cellular data usage for high-res images"
               value={wifiOnly}
               onToggle={handleToggleWifi}
+            />
+            <View style={styles.divider} />
+            <SettingsToggle
+              icon={<Smartphone size={20} color="#FF9500" />}
+              label="Network Compression"
+              description="Optimize images for slower networks"
+              value={networkCompression}
+              onToggle={handleToggleNetworkCompression}
             />
             <View style={styles.divider} />
             <SettingsRow

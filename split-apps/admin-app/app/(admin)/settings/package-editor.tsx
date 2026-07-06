@@ -329,8 +329,6 @@ export default function PackageEditorScreen() {
         </Pressable>
         <Text style={styles.headerTitle}>Package Editor</Text>
         <Pressable style={styles.addBtn} onPress={() => {
-          console.log('Add button pressed');
-          Alert.alert('Debug', 'Add button pressed');
           handleAddNew();
         }}>
           <Plus size={20} color={Colors.background} />

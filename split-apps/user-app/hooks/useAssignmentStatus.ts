@@ -28,6 +28,8 @@ export function useAssignmentStatus(): AssignmentStatus {
       photographerId: null,
       photographerName: null,
       clientId: null,
+      adminIds: [],
+      clientIds: [],
       loading: true,
     };
   });
@@ -44,6 +46,8 @@ export function useAssignmentStatus(): AssignmentStatus {
           photographerId: null,
           photographerName: null,
           clientId: null,
+          adminIds: [],
+          clientIds: [],
           loading: false,
         };
         moduleCache = unauthStatus;
@@ -51,7 +55,7 @@ export function useAssignmentStatus(): AssignmentStatus {
         return;
       }
 
-      // Query: SELECT c.id, c.owner_admin_id, up.name FROM clients c LEFT JOIN user_profiles up WHERE c.user_id = $userId
+      // Fetch ALL client rows for this user (multi-admin: one row per linked admin)
       const { data, error } = await supabase
         .from('clients')
         .select(`
@@ -62,24 +66,44 @@ export function useAssignmentStatus(): AssignmentStatus {
             name
           )
         `)
-        .eq('user_id', user.id)
-        .single();
+        .eq('user_id', user.id);
 
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
         console.error('Error fetching assignment status:', error);
         setStatus(prev => ({ ...prev, loading: false }));
         return;
       }
 
-      // Handle orphaned client record: record exists but user_id is NULL
-      // or owner_admin_id points to a non-existent user_profiles row (Req 16.2, 16.6)
-      if (data && data.user_id === null) {
-        console.warn('[useAssignmentStatus] Orphaned client record detected (null user_id). Treating as unassigned.');
+      if (!data || data.length === 0) {
+        const unassignedStatus: AssignmentStatus = {
+          isAssigned: false,
+          photographerId: null,
+          photographerName: null,
+          clientId: null,
+          adminIds: [],
+          clientIds: [],
+          loading: false,
+        };
+        moduleCache = unassignedStatus;
+        setStatus(unassignedStatus);
+        return;
+      }
+
+      // Filter out orphaned records (null user_id)
+      const validRows = data.filter((row: any) => row.user_id !== null);
+      const orphanedRows = data.filter((row: any) => row.user_id === null);
+      if (orphanedRows.length > 0) {
+        console.warn(`[useAssignmentStatus] ${orphanedRows.length} orphaned client record(s) detected (null user_id). Ignoring.`);
+      }
+
+      if (validRows.length === 0) {
         const orphanStatus: AssignmentStatus = {
           isAssigned: false,
           photographerId: null,
           photographerName: null,
-          clientId: data.id,
+          clientId: orphanedRows[0]?.id ?? null,
+          adminIds: [],
+          clientIds: [],
           loading: false,
         };
         moduleCache = orphanStatus;
@@ -87,17 +111,21 @@ export function useAssignmentStatus(): AssignmentStatus {
         return;
       }
 
+      // Multi-admin: collect all admin IDs and client IDs
+      const adminIds = validRows.map((r: any) => r.owner_admin_id).filter(Boolean);
+      const clientIds = validRows.map((r: any) => r.id).filter(Boolean);
+
       const newStatus: AssignmentStatus = {
-        isAssigned: !!data?.owner_admin_id,
-        photographerId: data?.owner_admin_id || null,
-        // Gracefully handle the case where the photographer's profile no longer
-        // exists (deleted/suspended account) — fall back to null name (Req 16.6)
-        photographerName: (data?.user_profiles as any)?.name ?? null,
-        clientId: data?.id || null,
+        isAssigned: adminIds.length > 0,
+        // Primary admin = first linked admin (for backward compat)
+        photographerId: adminIds[0] ?? null,
+        photographerName: (validRows[0]?.user_profiles as any)?.name ?? null,
+        clientId: clientIds[0] ?? null,
+        adminIds,
+        clientIds,
         loading: false,
       };
 
-      // Update module-level cache so all future hook instances share the result
       moduleCache = newStatus;
       setStatus(newStatus);
     } catch (err) {

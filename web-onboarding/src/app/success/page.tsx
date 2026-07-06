@@ -8,8 +8,15 @@ export default function SuccessPage() {
   const [dashboardUrl, setDashboardUrl] = useState('');
   const [adminAppAndroid, setAdminAppAndroid] = useState('https://play.google.com/store');
   const [adminAppIos, setAdminAppIos] = useState('https://apps.apple.com');
+  const [loginToken, setLoginToken] = useState('');
+  const [adminId, setAdminId] = useState('');
 
   useEffect(() => {
+    // Get admin_id from URL params (passed from signup)
+    const params = new URLSearchParams(window.location.search);
+    const adminIdParam = params.get('admin_id') || '';
+    setAdminId(adminIdParam);
+
     // Determine photographer dashboard URL
     const url = process.env.NEXT_PUBLIC_PHOTOGRAPHER_DASHBOARD_URL || 'http://localhost:3002';
     setDashboardUrl(url);
@@ -28,12 +35,31 @@ export default function SuccessPage() {
         }
       });
 
+    // Generate one-time login token for seamless redirect
+    if (adminIdParam) {
+      fetch('/api/generate-login-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_id: adminIdParam }),
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.token) {
+            setLoginToken(data.token);
+          }
+        })
+        .catch(err => console.error('Failed to generate login token:', err));
+    }
+
     // Auto-redirect to photographer dashboard after 5 seconds
     const interval = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
           clearInterval(interval);
-          window.location.href = url;
+          const redirectUrl = loginToken
+            ? `${url}/login?token=${loginToken}&email=${encodeURIComponent(adminIdParam)}`
+            : url;
+          window.location.href = redirectUrl;
           return 0;
         }
         return prev - 1;
@@ -41,10 +67,13 @@ export default function SuccessPage() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [loginToken]);
 
   const goToDashboard = () => {
-    window.location.href = dashboardUrl;
+    const redirectUrl = loginToken
+      ? `${dashboardUrl}/login?token=${loginToken}&email=${encodeURIComponent(adminId)}`
+      : dashboardUrl;
+    window.location.href = redirectUrl;
   };
 
   return (

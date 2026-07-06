@@ -15,6 +15,7 @@ import {
   Trash2, CreditCard, Mail, Smartphone, AlertTriangle, Shield, Calendar,
   Check, Send, MessageCircle, Phone, X, Search, Camera
 } from 'lucide-react-native';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -106,6 +107,67 @@ export default function ClientPhotoUploadScreen() {
 
 
   const normalizePhone = (value: string) => value.replace(/[^\d+]/g, '');
+
+  // Compression function for mobile - targets 5-10MB like Pixieset
+  const compressPhoto = async (photo: Photo): Promise<Photo> => {
+    // If file is small, don't compress
+    if (photo.fileSize <= 5 * 1024 * 1024) {
+      return photo;
+    }
+
+    try {
+      // Determine quality based on file size
+      let quality = 0.88;
+      let maxWidth = 2400;
+      
+      if (photo.fileSize > 50 * 1024 * 1024) {
+        quality = 0.75;
+        maxWidth = 1200;
+      } else if (photo.fileSize > 20 * 1024 * 1024) {
+        quality = 0.80;
+        maxWidth = 1800;
+      } else if (photo.fileSize > 10 * 1024 * 1024) {
+        quality = 0.85;
+        maxWidth = 2000;
+      }
+
+      const result = await ImageManipulator.manipulateAsync(
+        photo.uri,
+        [{ resize: { width: maxWidth } }],
+        { compress: quality, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      // Get file size of compressed image
+      const fileInfo = await FileSystem.getInfoAsync(result.uri);
+
+      console.log(`Compressed ${photo.fileName}: ${(photo.fileSize / 1024 / 1024).toFixed(1)}MB → ${(fileInfo.size / 1024 / 1024).toFixed(1)}MB`);
+
+      return {
+        ...photo,
+        uri: result.uri,
+        fileSize: fileInfo.size || photo.fileSize,
+        mimeType: 'image/jpeg',
+      };
+    } catch (error) {
+      console.warn('Compression failed for', photo.fileName, error);
+      return photo;
+    }
+  };
+
+  // Compress all photos before upload
+  const compressAllPhotos = async (photosToCompress: Photo[]): Promise<Photo[]> => {
+    const compressed: Photo[] = [];
+    for (const photo of photosToCompress) {
+      if (photo.fileSize > 5 * 1024 * 1024) {
+        setUploadStatus(`Compressing ${compressed.length + 1}/${photosToCompress.length}...`);
+        const compressedPhoto = await compressPhoto(photo);
+        compressed.push(compressedPhoto);
+      } else {
+        compressed.push(photo);
+      }
+    }
+    return compressed;
+  };
 
   const generateLocalAccessCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -413,15 +475,18 @@ export default function ClientPhotoUploadScreen() {
     items: Photo[],
     concurrency: number
   ) => {
+    // Compress photos larger than 5MB first
+    const itemsToUpload = await compressAllPhotos(items);
+    
     let completed = 0;
-    const total = items.length;
+    const total = itemsToUpload.length;
     let index = 0;
 
     const worker = async () => {
       while (index < total) {
         const currentIndex = index;
         index += 1;
-        const photo = items[currentIndex];
+        const photo = itemsToUpload[currentIndex];
 
         setUploadProgress(prev => ({
           total,
@@ -503,44 +568,127 @@ export default function ClientPhotoUploadScreen() {
     if (!phoneNumber || !accessCode) return;
     const deepLink = `${accessLink}${accessCode}`;
     const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
-    const smsUrl = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
 
-    try {
-      const supported = await Linking.canOpenURL(smsUrl);
-      if (supported) {
-        await Linking.openURL(smsUrl);
-        await supabase.from('sms_logs').insert({
-          owner_admin_id: user?.id,
-          client_id: clientData?.id,
-          phone_number: phoneNumber,
-          message: message,
-          status: 'queued',
-        });
-        Alert.alert('SMS Composer Opened', 'SMS composer has been opened with the prefilled message.');
-      } else {
-        Alert.alert('Error', 'SMS is not supported on this device.');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to open SMS composer.');
-    }
+    Alert.alert(
+      'Send SMS',
+      'Choose how to send the SMS:',
+      [
+        {
+          text: 'Cloud SMS (KES 0.50)',
+          onPress: async () => {
+            try {
+              setUploadStatus('Sending SMS via cloud...');
+              const { data, error } = await supabase.functions.invoke('send-sms', {
+                body: {
+                  phone_number: phoneNumber,
+                  message,
+                  photographer_id: user?.id,
+                  client_id: clientData?.id,
+                  gallery_id: initializedGallery?.id,
+                },
+              });
+              if (error) throw error;
+              if (data?.success) {
+                Alert.alert('SMS Sent', 'SMS sent successfully via cloud.');
+              } else {
+                Alert.alert('Failed', data?.error || 'SMS failed to send.');
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Failed to send SMS via cloud.');
+            }
+          },
+        },
+        {
+          text: 'Native SMS (Free)',
+          onPress: async () => {
+            const smsUrl = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+            try {
+              const supported = await Linking.canOpenURL(smsUrl);
+              if (supported) {
+                await Linking.openURL(smsUrl);
+                await supabase.from('sms_logs').insert({
+                  owner_admin_id: user?.id,
+                  client_id: clientData?.id,
+                  phone_number: phoneNumber,
+                  message,
+                  status: 'queued',
+                  provider: 'native',
+                });
+              } else {
+                Alert.alert('Error', 'SMS is not supported on this device.');
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Failed to open SMS composer.');
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
   };
 
   const handleSendWhatsApp = async () => {
     if (!phoneNumber || !accessCode) return;
     const deepLink = `${accessLink}${accessCode}`;
     const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
-    const whatsappUrl = `https://wa.me/${phoneNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
 
+    Alert.alert(
+      'Send WhatsApp',
+      'Choose how to send:',
+      [
+        {
+          text: 'WhatsApp Business API',
+          onPress: async () => {
+            try {
+              setUploadStatus('Sending via WhatsApp API...');
+              const { data, error } = await supabase.functions.invoke('send-whatsapp', {
+                body: {
+                  phone_number: phoneNumber,
+                  message,
+                  photographer_id: user?.id,
+                  client_id: clientData?.id,
+                  gallery_id: initializedGallery?.id,
+                },
+              });
+              if (error) throw error;
+              if (data?.success) {
+                Alert.alert('Sent', 'WhatsApp message sent successfully.');
+              } else {
+                Alert.alert('Failed', data?.error || 'WhatsApp message failed.');
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Failed to send via WhatsApp API.');
+            }
+          },
+        },
+        {
+          text: 'Open WhatsApp App',
+          onPress: async () => {
+            const whatsappUrl = `https://wa.me/${phoneNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
+            try {
+              const supported = await Linking.canOpenURL(whatsappUrl);
+              if (supported) {
+                await Linking.openURL(whatsappUrl);
+              } else {
+                Alert.alert('Error', 'WhatsApp is not installed.');
+              }
+            } catch (error) {
+              Alert.alert('Error', 'Failed to open WhatsApp.');
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleCopyAccessCode = async () => {
+    if (!accessCode) return;
     try {
-      const supported = await Linking.canOpenURL(whatsappUrl);
-      if (supported) {
-        await Linking.openURL(whatsappUrl);
-        Alert.alert('WhatsApp Opened', 'WhatsApp has been opened with the prefilled message.');
-      } else {
-        Alert.alert('Error', 'WhatsApp is not installed or supported on this device.');
-      }
+      await Clipboard.setStringAsync(accessCode);
+      Alert.alert('Copied!', `Access code "${accessCode}" copied to clipboard.`);
     } catch (error) {
-      Alert.alert('Error', 'Failed to open WhatsApp.');
+      Alert.alert('Error', 'Failed to copy access code.');
     }
   };
 
@@ -1453,6 +1601,36 @@ export default function ClientPhotoUploadScreen() {
               Your gallery is live and notifications are queued.
             </Text>
 
+            {/* Access Code Card */}
+            {accessCode && (
+              <View style={styles.accessCodeCard}>
+                <Text style={styles.accessCodeLabel}>Client Access Code</Text>
+                <Text style={styles.accessCodeValue}>{accessCode}</Text>
+                <Pressable onPress={handleCopyAccessCode} style={styles.copyCodeBtn}>
+                  <Copy size={14} color={Colors.gold} />
+                  <Text style={styles.copyCodeText}>Copy Code</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Price Info */}
+            {price && parseFloat(price) > 0 && (
+              <View style={styles.priceInfoCard}>
+                <Text style={styles.priceLabel}>Gallery Price</Text>
+                <Text style={styles.priceValue}>KES {parseFloat(price).toLocaleString('en-KE')}</Text>
+                <Text style={styles.priceHint}>Client will be prompted to pay via M-Pesa</Text>
+              </View>
+            )}
+
+            {/* USSD Code */}
+            {accessCode && (
+              <View style={styles.ussdCard}>
+                <Text style={styles.ussdLabel}>USSD Code</Text>
+                <Text style={styles.ussdHint}>Client can dial to get gallery link</Text>
+                <Text style={styles.ussdCode}>*123*{accessCode.replace('-', '')}#</Text>
+              </View>
+            )}
+
             <View style={styles.successActions}>
               <Pressable style={styles.actionBtnRow} onPress={handleSendSMS}>
                 <Send size={16} color={Colors.white} />
@@ -2213,6 +2391,99 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 32,
     lineHeight: 22,
+  },
+  accessCodeCard: {
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.3)',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+    width: '100%',
+  },
+  accessCodeLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  accessCodeValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: Colors.gold,
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  copyCodeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    borderRadius: 8,
+  },
+  copyCodeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.gold,
+  },
+  priceInfoCard: {
+    backgroundColor: 'rgba(52, 199, 89, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(52, 199, 89, 0.3)',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+    width: '100%',
+  },
+  priceLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  priceValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.success,
+    marginBottom: 4,
+  },
+  priceHint: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
+  ussdCard: {
+    backgroundColor: '#0D1219',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 20,
+  },
+  ussdLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    marginBottom: 2,
+  },
+  ussdHint: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginBottom: 8,
+  },
+  ussdCode: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: Colors.gold,
+    letterSpacing: 3,
   },
   successActions: {
     width: '100%',

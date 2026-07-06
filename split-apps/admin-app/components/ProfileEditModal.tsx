@@ -7,6 +7,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 
+async function safeHapticImpact(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
+  try { await Haptics.impactAsync(style); } catch {}
+}
+
 interface ProfileEditModalProps {
   visible: boolean;
   onClose: () => void;
@@ -52,7 +56,7 @@ export default function ProfileEditModal({ visible, onClose, onOptionSelect, has
   }, [visible]);
 
   const handleSelect = (option: 'camera' | 'library' | 'remove') => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    safeHapticImpact(Haptics.ImpactFeedbackStyle.Medium);
     onClose(); // Close modal first or let parent handle? Better to animate out then callback.
     // Actually, usually we want to trigger action immediately.
     // Let's call callback and let parent handle closing if needed, but usually parent will set visible=false.

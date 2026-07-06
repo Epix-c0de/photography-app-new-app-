@@ -1,15 +1,54 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 export default function PhotographerLogin() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [tokenLoading, setTokenLoading] = useState(false);
+
+  // Handle token-based login from web onboarding redirect
+  useEffect(() => {
+    const token = searchParams.get('token');
+    const emailParam = searchParams.get('email');
+
+    if (token && emailParam) {
+      setTokenLoading(true);
+      handleTokenLogin(token, emailParam);
+    }
+  }, [searchParams]);
+
+  const handleTokenLogin = async (token: string, email: string) => {
+    try {
+      // Verify token with dashboard API
+      const res = await fetch('/api/verify-login-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Invalid login link');
+      }
+
+      // Token valid - sign in the user with their email (they need password)
+      // For now, redirect to manual login with pre-filled email
+      setEmail(email);
+      setError('Your account is ready! Please enter your password to continue.');
+    } catch (err: any) {
+      setError(err.message || 'Login link expired or invalid. Please sign in manually.');
+    } finally {
+      setTokenLoading(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,9 +126,20 @@ export default function PhotographerLogin() {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
+            {tokenLoading && (
+              <div className="rounded-xl p-3 text-sm text-center"
+                style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.2)', color: '#D4AF37' }}>
+                <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin mx-auto mb-2" style={{ borderColor: 'rgba(212,175,55,0.6)', borderTopColor: 'transparent' }} />
+                Verifying your login link...
+              </div>
+            )}
             {error && (
               <div className="rounded-xl p-3 text-sm"
-                style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.2)', color: '#FF3B30' }}>
+                style={{ 
+                  background: error.includes('ready') ? 'rgba(52,199,89,0.1)' : 'rgba(255,59,48,0.1)', 
+                  border: error.includes('ready') ? '1px solid rgba(52,199,89,0.2)' : '1px solid rgba(255,59,48,0.2)', 
+                  color: error.includes('ready') ? '#34C759' : '#FF3B30' 
+                }}>
                 {error}
               </div>
             )}

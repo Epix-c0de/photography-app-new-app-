@@ -57,10 +57,16 @@ export default function PhotographersPage() {
       const revenueCounts = new Map<string, number>();
       (subs || []).forEach((s: any) => revenueCounts.set(s.admin_id, (revenueCounts.get(s.admin_id) || 0) + (s.amount || 0)));
 
-      // Load storage metrics for each photographer
-      const photographersWithStorage = await Promise.all((admins || []).map(async (a: any) => {
-        const { data: storageData } = await supabase.rpc('get_photographer_storage_metrics', { p_admin_id: a.id });
-        const storage = storageData && storageData.length > 0 ? storageData[0] : null;
+      // Storage metrics fetched once for all photographers (avoids N+1)
+      const { data: allStorageData } = await supabase.rpc('get_all_photographer_storage_metrics');
+      const storageMap = new Map<string, StorageMetrics>();
+      (allStorageData || []).forEach((s: any) => {
+        const key = s.admin_id || s.p_admin_id;
+        if (key) storageMap.set(key, s);
+      });
+
+      const photographersWithStorage = (admins || []).map((a: any) => {
+        const storage = storageMap.get(a.id);
         return {
           ...a,
           gallery_count: galleryCounts.get(a.id) || 0,
@@ -70,7 +76,7 @@ export default function PhotographersPage() {
           total_photos: storage?.total_photos || 0,
           avg_photo_size_bytes: storage?.avg_photo_size_bytes || 0,
         };
-      }));
+      });
 
       setPhotographers(photographersWithStorage);
     } catch (e) { console.error(e); }

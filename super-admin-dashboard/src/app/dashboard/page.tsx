@@ -1,12 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 
 export default function SuperAdminOverview() {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalPhotographers: 0, activeNow: 0, expiringSoon: 0,
@@ -18,11 +16,6 @@ export default function SuperAdminOverview() {
 
   const loadData = useCallback(async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/login'); return; }
-      const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single() as any;
-      if (profile?.role !== 'super_admin') { router.push('/login'); return; }
-
       const [
         { data: admins },
         { data: galleries },
@@ -59,7 +52,7 @@ export default function SuperAdminOverview() {
       setRecentSubs(subs || []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  }, [router]);
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 

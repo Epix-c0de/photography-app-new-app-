@@ -96,25 +96,28 @@ Deno.serve(async (req: Request) => {
       .eq("role", "client");
 
     if (!clientsError && clientUsers && clientUsers.length > 0) {
-      // Create notifications for all clients (in batches to avoid limits)
-      const notifications = clientUsers.slice(0, 50).map(client => ({
-        user_id: client.id,
-        type: 'bts_post',
-        title: 'New BTS Content!',
-        body: `Check out our latest behind-the-scenes content: ${updatedCaption}`,
-        data: {
-          bts_id: bts_id,
-          action_type: 'view_bts'
+      // Create notifications for ALL clients (batched to avoid Supabase limits)
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < clientUsers.length; i += BATCH_SIZE) {
+        const batch = clientUsers.slice(i, i + BATCH_SIZE);
+        const notifications = batch.map(client => ({
+          user_id: client.id,
+          type: 'bts_post',
+          title: 'New BTS Content!',
+          body: `Check out our latest behind-the-scenes content: ${updatedCaption}`,
+          data: {
+            bts_id: bts_id,
+            action_type: 'view_bts'
+          }
+        }));
+
+        const { error: notificationError } = await adminClient
+          .from("notifications")
+          .insert(notifications);
+
+        if (notificationError) {
+          console.error(`Failed to create notifications batch ${Math.floor(i / BATCH_SIZE) + 1}:`, notificationError);
         }
-      }));
-
-      const { error: notificationError } = await adminClient
-        .from("notifications")
-        .insert(notifications);
-
-      if (notificationError) {
-        console.error('Failed to create notifications:', notificationError);
-        // Don't fail the publish for notification issues
       }
     }
 

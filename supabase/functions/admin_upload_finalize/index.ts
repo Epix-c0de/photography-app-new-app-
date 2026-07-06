@@ -127,25 +127,51 @@ Deno.serve(async (req: Request) => {
       // Don't fail the whole operation for this
     }
 
-    // Create client-specific notification
-    const { error: notificationError } = await adminClient
+    // Create client-specific notification (with deduplication)
+    // First check if a notification for this gallery already exists
+    const { data: existingNotification } = await adminClient
       .from("notifications")
-      .insert({
-        user_id: gallery.client_id,
-        type: 'gallery_ready',
-        title: 'Your Photos Are Ready!',
-        body: `Your gallery "${gallery.name}" with ${photoCount} photos is now ready to view.`,
-        data: {
-          gallery_id: session.gallery_id,
-          gallery_name: gallery.name,
-          photo_count: photoCount,
-          action_type: 'view_gallery'
-        }
-      });
+      .select("id")
+      .eq("type", 'gallery_ready')
+      .contains("data", { gallery_id: session.gallery_id })
+      .maybeSingle();
 
-    if (notificationError) {
-      console.error('Failed to create notification:', notificationError);
-      // Don't fail the whole operation for notification issues
+    let notificationSent = false;
+    if (!existingNotification) {
+      // Resolve client_id to user_profiles.id for the notifications table
+      let resolvedUserId = gallery.client_id;
+      const { data: clientRecord } = await adminClient
+        .from("clients")
+        .select("user_id")
+        .eq("id", gallery.client_id)
+        .maybeSingle();
+      if (clientRecord?.user_id) {
+        resolvedUserId = clientRecord.user_id;
+      }
+
+      const { error: notificationError } = await adminClient
+        .from("notifications")
+        .insert({
+          user_id: resolvedUserId,
+          type: 'gallery_ready',
+          title: 'Your Photos Are Ready!',
+          body: `Your gallery "${gallery.name}" with ${photoCount} photos is now ready to view.`,
+          data: {
+            gallery_id: session.gallery_id,
+            gallery_name: gallery.name,
+            photo_count: photoCount,
+            action_type: 'view_gallery'
+          }
+        });
+
+      if (notificationError) {
+        console.error('Failed to create notification:', notificationError);
+      } else {
+        notificationSent = true;
+      }
+    } else {
+      console.log('Notification already exists for gallery, skipping duplicate');
+      notificationSent = true; // Already sent
     }
 
     // Log finalization success
@@ -153,7 +179,7 @@ Deno.serve(async (req: Request) => {
       session_id: session_id,
       gallery_id: session.gallery_id,
       status: "gallery_finalized",
-      message: `Gallery activated with ${photoCount} photos. Notification sent to client.`
+      message: `Gallery activated with ${photoCount} photos. Notification ${notificationSent ? 'sent' : 'skipped (duplicate)'}.`
     });
 
     return new Response(
@@ -164,7 +190,7 @@ Deno.serve(async (req: Request) => {
         uploaded_files: session.uploaded_files,
         total_files: session.total_files,
         photo_count: photoCount,
-        notification_sent: !notificationError
+        notification_sent: notificationSent
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

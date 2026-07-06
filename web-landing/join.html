@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Join Epix Visuals</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0A0A0A;
+      color: #FFFFFF;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: #1A1A1A;
+      border-radius: 24px;
+      padding: 32px;
+      border: 1px solid rgba(212,175,55,0.15);
+      text-align: center;
+    }
+
+    .logo-container { margin-bottom: 24px; }
+
+    .logo-frame {
+      width: 64px;
+      height: 64px;
+      border: 1.5px solid #D4AF37;
+      border-radius: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+
+    .logo-icon { font-size: 28px; color: #D4AF37; }
+
+    .logo-text {
+      font-size: 24px;
+      font-weight: 200;
+      color: #FFFFFF;
+      letter-spacing: 8px;
+    }
+
+    .logo-accent { color: #D4AF37; font-weight: 600; }
+
+    .divider {
+      width: 80px;
+      height: 1px;
+      background: #D4AF37;
+      margin: 0 auto 24px;
+    }
+
+    .photographer-section { margin-bottom: 32px; }
+
+    .avatar {
+      width: 80px;
+      height: 80px;
+      border-radius: 40px;
+      margin: 0 auto 12px;
+      object-fit: cover;
+      border: 2px solid rgba(212,175,55,0.3);
+    }
+
+    .avatar-placeholder {
+      width: 80px;
+      height: 80px;
+      border-radius: 40px;
+      background: rgba(212,175,55,0.15);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+      border: 2px solid rgba(212,175,55,0.3);
+    }
+
+    .avatar-initial {
+      font-size: 32px;
+      font-weight: 700;
+      color: #D4AF37;
+    }
+
+    .photographer-name {
+      font-size: 22px;
+      font-weight: 700;
+      color: #FFFFFF;
+      margin-bottom: 4px;
+    }
+
+    .photographer-tagline {
+      font-size: 14px;
+      color: #A0A0A0;
+      font-style: italic;
+      margin-bottom: 8px;
+    }
+
+    .invite-text {
+      font-size: 14px;
+      color: #666666;
+    }
+
+    .button-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .btn {
+      width: 100%;
+      height: 52px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+
+    .btn:active { opacity: 0.8; }
+
+    .btn-primary {
+      background: #D4AF37;
+      color: #0A0A0A;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1.5px solid #D4AF37;
+      color: #D4AF37;
+    }
+
+    .footer-text {
+      font-size: 13px;
+      color: #666666;
+      line-height: 20px;
+    }
+
+    .code-highlight {
+      color: #D4AF37;
+      font-weight: 700;
+      letter-spacing: 2px;
+    }
+
+    .loading { padding: 40px 0; color: #A0A0A0; }
+
+    .error-title {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .error-text {
+      font-size: 16px;
+      color: #A0A0A0;
+    }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="loading" id="loading">Loading...</div>
+  </div>
+
+  <script>
+    const APP_STORE_URL = 'https://apps.apple.com/app/epix-visuals-studios-co/id6478863262';
+    const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=app.rork.epix_visuals_studios_co';
+    const SUPABASE_URL = 'https://gghqurnamjdxoriuuopf.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdnaHF1cm5hbWpkeG9yaXV1b3BmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNTI4MDEsImV4cCI6MjA5MTkyODgwMX0.VXEMNxA70znWq0dVK3hEkWhG8u5JVu0Z3-xLM3qQYuc';
+
+    async function init() {
+      const params = new URLSearchParams(window.location.search);
+      const hash = window.location.hash;
+      let code = params.get('code');
+
+      // Also try hash-based routing: /join/CODE
+      if (!code) {
+        const pathMatch = window.location.pathname.match(/\/join\/([A-Za-z0-9]+)/);
+        if (pathMatch) code = pathMatch[1];
+      }
+
+      if (!code) {
+        showError('Invalid Link', 'No photographer code found in this link.');
+        return;
+      }
+
+      code = code.toUpperCase();
+
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_photographer_by_code`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ p_code: code }),
+        });
+
+        const data = await res.json();
+
+        if (!data || data.length === 0) {
+          showError('Invalid Invite', 'This invite link is no longer valid.');
+          return;
+        }
+
+        const photographer = data[0];
+        renderPage(photographer, code);
+      } catch (err) {
+        showError('Error', 'Could not load photographer info. Please try again.');
+      }
+    }
+
+    function renderPage(photographer, code) {
+      const card = document.getElementById('card');
+      const avatarHtml = photographer.avatar_url
+        ? `<img class="avatar" src="${photographer.avatar_url}" alt="${photographer.name}" />`
+        : `<div class="avatar-placeholder"><span class="avatar-initial">${photographer.name.charAt(0).toUpperCase()}</span></div>`;
+
+      const taglineHtml = photographer.tagline
+        ? `<div class="photographer-tagline">${photographer.tagline}</div>`
+        : '';
+
+      card.innerHTML = `
+        <div class="logo-container">
+          <div class="logo-frame"><span class="logo-icon">◈</span></div>
+          <div class="logo-text">EPIX<span class="logo-accent">VISUALS</span></div>
+        </div>
+        <div class="divider"></div>
+        <div class="photographer-section">
+          ${avatarHtml}
+          <div class="photographer-name">${photographer.name}</div>
+          ${taglineHtml}
+          <div class="invite-text">has invited you to join</div>
+        </div>
+        <div class="button-group">
+          <button class="btn btn-primary" onclick="openInApp('${code}')">Open in App</button>
+          <button class="btn btn-secondary" onclick="downloadApp()">Download App</button>
+        </div>
+        <div class="footer-text">
+          After downloading, enter code <span class="code-highlight">${code}</span> to connect with ${photographer.name}
+        </div>
+      `;
+    }
+
+    function showError(title, message) {
+      document.getElementById('card').innerHTML = `
+        <div style="padding: 20px 0;">
+          <div style="font-size: 48px; color: #D4AF37; font-weight: 700; margin-bottom: 16px;">!</div>
+          <div class="error-title">${title}</div>
+          <div class="error-text">${message}</div>
+        </div>
+      `;
+    }
+
+    function openInApp(code) {
+      const ua = navigator.userAgent;
+      const deepLink = `epix-visuals://join?code=${code}`;
+
+      // Try to open in app
+      window.location.href = deepLink;
+
+      // Fallback to store after delay
+      setTimeout(() => {
+        if (/android/i.test(ua)) {
+          window.location.href = PLAY_STORE_URL;
+        } else {
+          window.location.href = APP_STORE_URL;
+        }
+      }, 2500);
+    }
+
+    function downloadApp() {
+      const ua = navigator.userAgent;
+      if (/android/i.test(ua)) {
+        window.location.href = PLAY_STORE_URL;
+      } else {
+        window.location.href = APP_STORE_URL;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

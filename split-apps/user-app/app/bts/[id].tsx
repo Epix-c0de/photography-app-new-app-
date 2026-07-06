@@ -30,7 +30,7 @@ import {
   VolumeX,
 } from 'lucide-react-native';
 import { Image } from 'expo-image';
-import { Video, ResizeMode, Audio, AVPlaybackStatusContext, AVPlaybackStatus } from 'expo-av';
+import { Video, ResizeMode, Audio, AVPlaybackStatus } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -72,6 +72,12 @@ export default function BTSViewerScreen() {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const [isMuted, setIsMuted] = useState(false);
+  const isMutedRef = useRef(false);
+  const postsRef = useRef<BTSWithSocial[]>([]);
+
+  // Keep refs in sync
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
+  useEffect(() => { postsRef.current = posts; }, [posts]);
 
   // Comment sheet state
   const [showComments, setShowComments] = useState<BTSWithSocial | null>(null);
@@ -193,12 +199,12 @@ export default function BTSViewerScreen() {
         setSound(null);
       }
 
-      const post = posts.find(p => p.id === activePostId);
+      const post = postsRef.current.find(p => p.id === activePostId);
       if (post && post.music_url) {
         try {
           const { sound: newSound } = await Audio.Sound.createAsync(
             { uri: post.music_url },
-            { shouldPlay: true, isLooping: true, volume: 0.2, isMuted }
+            { shouldPlay: true, isLooping: true, volume: 0.2, isMuted: isMutedRef.current }
           );
           soundRef.current = newSound;
           setSound(newSound);
@@ -336,10 +342,10 @@ export default function BTSViewerScreen() {
   };
 
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    if (viewableItems.length > 0) {
+    if (viewableItems.length > 0 && viewableItems[0].item?.id) {
       const idx = viewableItems[0].index ?? 0;
       setActiveIndex(idx);
-      setActivePostId(viewableItems[0].item?.id);
+      setActivePostId(viewableItems[0].item.id);
     }
   }).current;
 
@@ -365,7 +371,6 @@ export default function BTSViewerScreen() {
             ? baseLink.replace('{id}', item.id)
             : `${baseLink}${baseLink.endsWith('/') ? '' : '/'}${item.id}`;
           Share.share({ message: `Check out this BTS: ${item.title}\n${link}`, url: link });
-          (supabase as any).rpc('increment_shares', { row_id: item.id, table_name: 'bts_posts' });
         }}
         onBack={() => router.back()}
         insets={insets}

@@ -51,14 +51,13 @@ Deno.serve(async (req: Request) => {
     }
 
     const { data: photos, error: photosError } = await adminClient
-      .from("photos")
-      .select("file_name, file_url, upload_status")
+      .from("gallery_photos")
+      .select("file_name, photo_url, storage_path")
       .eq("gallery_id", galleryId);
     if (photosError) throw photosError;
 
     const uploadedFiles = (photos ?? [])
-      .filter((p: any) => p.upload_status === "uploaded")
-      .map((p: any) => p.file_name || p.file_url);
+      .map((p: any) => p.file_name || p.photo_url || p.storage_path);
 
     const { data: failedLogs } = await adminClient
       .from("upload_logs")

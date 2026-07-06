@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { compressImage, getRecommendedPreset, formatFileSize } from '@/lib/compression';
 
 type UploadFile = {
   file: File;
   id: string;
-  status: 'pending' | 'uploading' | 'done' | 'error';
+  status: 'pending' | 'compressing' | 'uploading' | 'done' | 'error';
   progress: number;
   error?: string;
+  compressedSize?: number;
+  originalSize?: number;
 };
 
 type Client = {
@@ -207,17 +210,41 @@ export default function UploadPage() {
       while (index < total) {
         const i = index++;
         const f = files[i];
-        setFiles(prev => prev.map(p => p.id === f.id ? { ...p, status: 'uploading' } : p));
+        setFiles(prev => prev.map(p => p.id === f.id ? { ...p, status: 'compressing', originalSize: f.file.size } : p));
         try {
+          // Compress image if it's a photo (target 5-10MB like Pixieset)
+          let uploadFile = f.file;
+          let compressedSize = f.file.size;
+
+          if (f.file.type.startsWith('image/') && f.file.size > 5 * 1024 * 1024) {
+            const preset = getRecommendedPreset(f.file.size);
+            try {
+              const compressed = await compressImage(f.file, preset);
+              // Convert base64 back to blob
+              const binaryString = atob(compressed.compressedBase64);
+              const bytes = new Uint8Array(binaryString.length);
+              for (let j = 0; j < binaryString.length; j++) {
+                bytes[j] = binaryString.charCodeAt(j);
+              }
+              uploadFile = new Blob([bytes], { type: `image/${compressed.format}` });
+              compressedSize = compressed.compressedSize;
+              console.log(`Compressed ${f.file.name}: ${formatFileSize(f.file.size)} → ${formatFileSize(compressedSize)} (${compressed.compressionRatio})`);
+              setFiles(prev => prev.map(p => p.id === f.id ? { ...p, compressedSize } : p));
+            } catch (compressionError) {
+              console.warn('Compression failed, uploading original:', compressionError);
+            }
+          }
+
+          setFiles(prev => prev.map(p => p.id === f.id ? { ...p, status: 'uploading', progress: 0 } : p));
           const ext = f.file.name.split('.').pop() || 'jpg';
           const path = `clients/${clientId}/${gId}/images/${Date.now()}-${i}.${ext}`;
-          const { error: upErr } = await supabase.storage.from('client-photos').upload(path, f.file, {
+          const { error: upErr } = await supabase.storage.from('client-photos').upload(path, uploadFile, {
             contentType: f.file.type, upsert: true,
           });
           if (upErr) throw upErr;
           await supabase.from('gallery_photos').insert({
             gallery_id: gId, photo_url: path, file_name: f.file.name,
-            file_size: f.file.size, mime_type: f.file.type, upload_order: i,
+            file_size: compressedSize, mime_type: f.file.type, upload_order: i,
           });
           if (i === 0) {
             await supabase.from('galleries').update({ cover_photo_url: path }).eq('id', gId).is('cover_photo_url', null);
@@ -521,10 +548,17 @@ export default function UploadPage() {
                 <img src={URL.createObjectURL(f.file)} className="w-full h-full object-cover rounded-lg" alt="" />
                 <div className={`absolute inset-0 rounded-lg flex items-center justify-center text-lg ${
                   f.status === 'done' ? 'bg-green-500/40' : f.status === 'error' ? 'bg-red-500/40' :
+                  f.status === 'compressing' ? 'bg-blue-500/30' :
                   f.status === 'uploading' ? 'bg-yellow-500/20' : 'bg-black/40'
                 }`}>
-                  {f.status === 'done' ? '✅' : f.status === 'error' ? '❌' : f.status === 'uploading' ? '⏳' : ''}
+                  {f.status === 'done' ? '✅' : f.status === 'error' ? '❌' : 
+                   f.status === 'compressing' ? '🔄' : f.status === 'uploading' ? '⏳' : ''}
                 </div>
+                {f.originalSize && f.compressedSize && f.status === 'done' && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[9px] text-center py-0.5 rounded-b-lg text-green-400">
+                    {formatFileSize(f.originalSize)} → {formatFileSize(f.compressedSize)}
+                  </div>
+                )}
               </div>
             ))}
           </div>

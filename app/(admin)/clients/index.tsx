@@ -257,6 +257,10 @@ function GalleryCard({ gallery, onDeleted }: { gallery: AdminGallery; onDeleted:
             </View>
             <Text style={styles.galleryPrice}>{formatCurrency(gallery.price)}</Text>
           </View>
+          <View style={styles.ussdRow}>
+            <Text style={styles.ussdPrefix}>USSD:</Text>
+            <Text style={styles.ussdCode}>*123*{gallery.accessCode?.replace('-', '')}#</Text>
+          </View>
           <View style={styles.galleryActions}>
             <Pressable style={styles.galleryActionBtn} onPress={handleResendCode}>
               <Send size={13} color={Colors.gold} />
@@ -1001,6 +1005,26 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700' as const,
     color: Colors.white,
+  },
+  ussdRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  ussdPrefix: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  ussdCode: {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    color: Colors.gold,
+    letterSpacing: 1,
   },
   galleryActions: {
     flexDirection: 'row' as const,

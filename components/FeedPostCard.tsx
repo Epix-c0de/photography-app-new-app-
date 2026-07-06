@@ -145,11 +145,12 @@ export default function FeedPostCard({
 
   const CardWrapper = onCardPress ? Pressable : View;
 
+  const cardProps = onCardPress
+    ? { style: styles.card, onPress: onCardPress }
+    : { style: styles.card };
+
   return (
-    <CardWrapper
-      style={styles.card}
-      onPress={onCardPress}
-    >
+    <CardWrapper {...cardProps}>
       {/* ── HEADER ── */}
       <View style={styles.header}>
         {/* Avatar */}

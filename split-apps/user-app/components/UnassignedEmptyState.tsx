@@ -1,5 +1,5 @@
 // Reusable empty state shown on screens that require a photographer assignment.
-// Includes a "notify your photographer" card with a shareable signup link.
+// Includes a "notify your photographer" card with a personalized invite link.
 
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Share, Linking } from 'react-native';
@@ -9,9 +9,6 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/colors';
-
-// Default fallback URL if not configured by super admin
-const DEFAULT_SIGNUP_URL = 'https://join.epixvisuals.co';
 
 interface UnassignedEmptyStateProps {
   featureName?: string;
@@ -23,21 +20,65 @@ export default function UnassignedEmptyState({
   icon,
 }: UnassignedEmptyStateProps) {
   const router = useRouter();
-  const [signupUrl, setSignupUrl] = useState<string>(DEFAULT_SIGNUP_URL);
+  const [inviteLink, setInviteLink] = useState<string>('');
   const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
-    // Load the photographer signup URL configured by the super admin
-    supabase
-      .from('platform_settings')
-      .select('value')
-      .eq('key', 'platform_photographer_signup_url')
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.value) setSignupUrl(data.value);
-      })
-      .catch(() => {}); // Silent — fallback to default
+    loadInviteLink();
   }, []);
+
+  const loadInviteLink = async () => {
+    try {
+      // First, try to load from platform settings
+      const { data: settings } = await supabase
+        .from('platform_settings')
+        .select('value')
+        .eq('key', 'platform_invite_url')
+        .maybeSingle();
+
+      if (settings?.value) {
+        setInviteLink(settings.value);
+        return;
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setInviteLink('https://epixvisuals.co.ke');
+        return;
+      }
+
+      // Find the admin this client is assigned to via the clients table
+      const { data: clientRecord } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (clientRecord?.owner_admin_id) {
+        const { data: adminProfile } = await supabase
+          .from('user_profiles')
+          .select('photographer_code')
+          .eq('id', clientRecord.owner_admin_id)
+          .maybeSingle();
+
+        if (adminProfile?.photographer_code) {
+          // Fetch domain from platform_settings
+          const { data: domainSetting } = await supabase
+            .from('platform_settings')
+            .select('value')
+            .eq('key', 'platform_domain')
+            .maybeSingle();
+          const domain = domainSetting?.value || 'https://epixvisuals.co.ke';
+          setInviteLink(`${domain}/join/${adminProfile.photographer_code}`);
+          return;
+        }
+      }
+
+      setInviteLink('https://epixvisuals.co.ke');
+    } catch {
+      setInviteLink('https://epixvisuals.co.ke');
+    }
+  };
 
   const handleGoHome = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -49,10 +90,10 @@ export default function UnassignedEmptyState({
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     const message =
       `Hi! I use Epix Visuals to receive and manage my photo galleries. ` +
-      `Please sign up so I can access your professional services directly through the app:\n\n${signupUrl}`;
+      `Please download the app and use this link to connect with me:\n\n${inviteLink}`;
 
     try {
-      await Share.share({ message, url: signupUrl, title: 'Join Epix Visuals' });
+      await Share.share({ message, url: inviteLink, title: 'Join Epix Visuals' });
     } catch {
       // User cancelled — that's fine
     } finally {
@@ -60,9 +101,9 @@ export default function UnassignedEmptyState({
     }
   };
 
-  const handleOpenSignupLink = () => {
+  const handleOpenInviteLink = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Linking.openURL(signupUrl).catch(() => {});
+    Linking.openURL(inviteLink).catch(() => {});
   };
 
   return (
@@ -114,8 +155,8 @@ export default function UnassignedEmptyState({
           </LinearGradient>
         </Pressable>
 
-        <Pressable onPress={handleOpenSignupLink} style={styles.linkRow}>
-          <Text style={styles.linkText} numberOfLines={1}>{signupUrl}</Text>
+        <Pressable onPress={handleOpenInviteLink} style={styles.linkRow}>
+          <Text style={styles.linkText} numberOfLines={1}>{inviteLink}</Text>
           <ArrowRight size={14} color={Colors.textMuted} />
         </Pressable>
       </View>

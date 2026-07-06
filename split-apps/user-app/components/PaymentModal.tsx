@@ -5,6 +5,7 @@ import { X, Smartphone, CheckCircle, AlertCircle, CreditCard } from 'lucide-reac
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
+import { normalizePhone, isValidKenyanPhone } from '@/lib/phone';
 import type { Database } from '@/types/supabase';
 
 type Gallery = Database['public']['Tables']['galleries']['Row'];
@@ -19,25 +20,45 @@ interface PaymentModalProps {
 
 type PaymentState = 'idle' | 'initiating' | 'waiting' | 'verifying' | 'success' | 'failed' | 'manual_payment';
 
+const MPESA_RESULT_ERRORS: Record<number, string> = {
+  1: 'The initiator information is invalid.',
+  1032: 'Request cancelled by user.',
+  1037: 'DS timeout user cannot be reached.',
+  17: 'Insufficient balance in M-Pesa account.',
+  2001: 'Invalid credentials provided.',
+  2002: 'Transaction limit exceeded.',
+  2003: 'Duplicate transaction detected.',
+  2026: 'Debtor account is frozen.',
+  2027: 'Debtor account is closed.',
+  2028: 'Transaction expired.',
+  2029: 'Invalid amount.',
+  2030: 'Wrong paybill or till number.',
+  2031: 'Invalid account number.',
+};
+
+function getResultErrorMessage(resultCode: number | null | undefined): string {
+  if (resultCode === undefined || resultCode === null) return 'Payment was unsuccessful.';
+  if (resultCode === 0) return '';
+  return MPESA_RESULT_ERRORS[resultCode] || `Payment failed (Error code: ${resultCode}).`;
+}
+
 export default function PaymentModal({ visible, onClose, gallery, clientPhone, onSuccess }: PaymentModalProps) {
   const [paymentState, setPaymentState] = useState<PaymentState>('idle');
-  const [phoneNumber, setPhoneNumber] = useState(clientPhone || '');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [paymentSettings, setPaymentSettings] = useState<any>(null);
   const [mpesaMessage, setMpesaMessage] = useState('');
 
-  // Fix: store interval ref to prevent memory leaks
   const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Fix: track paymentState in a ref to avoid stale closures inside setInterval
   const paymentStateRef = useRef<PaymentState>('idle');
+  const checkoutRequestIdRef = useRef<string | null>(null);
 
   const updatePaymentState = useCallback((state: PaymentState) => {
     paymentStateRef.current = state;
     setPaymentState(state);
   }, []);
 
-  // Fix: cleanup interval on unmount
   useEffect(() => {
     return () => {
       if (pollingIntervalRef.current) {
@@ -54,7 +75,6 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     return typeof raw === 'string' ? raw : null;
   }, []);
 
-  // Animation values
   const scaleAnim = useState(new Animated.Value(0.9))[0];
   const opacityAnim = useState(new Animated.Value(0))[0];
 
@@ -62,8 +82,9 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     if (visible) {
       updatePaymentState('idle');
       setErrorMessage('');
-      setPhoneNumber(clientPhone || '');
+      setPhoneNumber('');
       setMpesaMessage('');
+      checkoutRequestIdRef.current = null;
       loadPaymentSettings();
 
       Animated.parallel([
@@ -80,7 +101,6 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         })
       ]).start();
     } else {
-      // Fix: clear polling interval when modal closes
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
@@ -104,7 +124,28 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     try {
       if (!gallery?.owner_admin_id) return;
 
-      // Try simple settings first
+      // Try payment_gateways table first (new system)
+      const { data: gateway } = await supabase
+        .from('payment_gateways')
+        .select('*')
+        .eq('admin_id', gallery.owner_admin_id)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (gateway) {
+        setPaymentSettings({
+          ...gateway,
+          payment_mode: gateway.type,
+          mpesa_number: gateway.shortcode,
+          mpesa_enabled: true,
+          auto_verification: true,
+          use_new_gateway: true,
+        });
+        setRecipientName(`${gateway.type}: ${gateway.shortcode}`);
+        return;
+      }
+
+      // Fallback to simple settings
       const { data: simple } = await supabase
         .from('simple_payment_settings')
         .select('*')
@@ -114,14 +155,13 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       if (simple) {
         setPaymentSettings(simple);
         setRecipientName(simple.business_name || 'Photographer');
-        // If mpesa is disabled, switch to manual payment state
         if (simple.mpesa_enabled === false) {
           updatePaymentState('manual_payment');
         }
         return;
       }
 
-      // Try advanced settings
+      // Fallback to advanced settings
       const { data: advanced } = await supabase
         .from('payment_settings')
         .select('*')
@@ -131,7 +171,6 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       if (advanced) {
         setPaymentSettings(advanced);
         setRecipientName(`Paybill/Till: ${advanced.shortcode}`);
-        // If mpesa is disabled, switch to manual payment state
         if (advanced.mpesa_enabled === false) {
           updatePaymentState('manual_payment');
         }
@@ -141,16 +180,104 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     }
   };
 
+  const checkDuplicatePayment = async (galleryId: string, phone: string): Promise<boolean> => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from('mpesa_transactions')
+      .select('id')
+      .eq('gallery_id', galleryId)
+      .eq('phone_number', phone)
+      .in('status', ['pending', 'success'])
+      .gt('created_at', fiveMinAgo)
+      .maybeSingle();
+    return !!data;
+  };
+
+  const querySTKStatus = async (checkoutRequestId: string): Promise<string | null> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('mpesa-stkquery', {
+        body: { checkout_request_id: checkoutRequestId },
+      });
+      if (error) return null;
+      return data?.ResultCode ?? data?.status ?? null;
+    } catch {
+      return null;
+    }
+  };
+
   const handlePay = async () => {
     if (!gallery) return;
     
-    // Check if using simple M-PESA (manual payment)
+    // Use new gateway system if available
+    if (paymentSettings?.use_new_gateway) {
+      if (!phoneNumber || !isValidKenyanPhone(phoneNumber)) {
+        Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number (e.g. 0712345678).');
+        return;
+      }
+
+      const normalizedPhone = normalizePhone(phoneNumber);
+      if (!normalizedPhone) {
+        Alert.alert('Invalid Phone', 'Could not normalize phone number. Please check and try again.');
+        return;
+      }
+
+      updatePaymentState('initiating');
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      try {
+        // Check for duplicate payment
+        const isDuplicate = await checkDuplicatePayment(gallery.id, normalizedPhone);
+        if (isDuplicate) {
+          updatePaymentState('failed');
+          setErrorMessage('A recent payment was already initiated for this gallery. Please wait a few minutes before trying again.');
+          return;
+        }
+
+        const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
+          body: {
+            phone_number: normalizedPhone,
+            amount: gallery.price || 0,
+            gallery_id: gallery.id,
+            account_reference: gallery.access_code || gallery.name,
+            admin_id: gallery.owner_admin_id,
+          },
+        });
+
+        if (error) throw error;
+
+        const checkoutRequestId =
+          readString(data, 'checkout_request_id') ??
+          readString(data, 'CheckoutRequestID') ??
+          readString(data, 'mpesa_checkout_request_id');
+
+        if (!checkoutRequestId) {
+          throw new Error('Payment initiated but missing checkout request id.');
+        }
+
+        checkoutRequestIdRef.current = checkoutRequestId;
+        updatePaymentState('waiting');
+        startPolling(checkoutRequestId, gallery.id);
+
+      } catch (e: any) {
+        console.error('Payment initiation failed:', e);
+        updatePaymentState('failed');
+        setErrorMessage(e.message || 'Could not initiate payment.');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
+      return;
+    }
+    
+    // Legacy flow - simple M-Pesa (manual payment)
     if (paymentSettings?.mpesa_number && !paymentSettings?.shortcode) {
-      // Check if auto-verification is enabled
       if (paymentSettings.auto_verification) {
-        // Auto-verification enabled - use STK push with platform credentials
-        if (!phoneNumber || phoneNumber.length < 10) {
+        if (!phoneNumber || !isValidKenyanPhone(phoneNumber)) {
           Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number.');
+          return;
+        }
+
+        const normalizedPhone = normalizePhone(phoneNumber);
+        if (!normalizedPhone) {
+          Alert.alert('Invalid Phone', 'Could not normalize phone number. Please check and try again.');
           return;
         }
 
@@ -158,11 +285,17 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
         try {
-          // Trigger STK Push via Edge Function
-          const { data, error } = await supabase.functions.invoke('stk_push', {
+          const isDuplicate = await checkDuplicatePayment(gallery.id, normalizedPhone);
+          if (isDuplicate) {
+            updatePaymentState('failed');
+            setErrorMessage('A recent payment was already initiated. Please wait before trying again.');
+            return;
+          }
+
+          const { data, error } = await supabase.functions.invoke('client_payments_stkpush', {
             body: {
-              phone_number: phoneNumber,
-              amount: gallery.price,
+              phone_number: normalizedPhone,
+              amount: gallery.price || 0,
               gallery_id: gallery.id,
               reference: gallery.access_code || gallery.name,
             },
@@ -179,6 +312,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
             throw new Error('Payment initiated but missing checkout request id.');
           }
 
+          checkoutRequestIdRef.current = checkoutRequestId;
           updatePaymentState('waiting');
           startPolling(checkoutRequestId, gallery.id);
 
@@ -189,11 +323,10 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         }
       } else {
-        // Manual verification - show instructions
+        // Manual verification
         updatePaymentState('waiting');
         setErrorMessage('');
         
-        // Create a manual payment record
         try {
           const { error } = await supabase
             .from('manual_payments')
@@ -201,7 +334,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
               gallery_id: gallery.id,
               client_id: gallery.client_id,
               admin_id: gallery.owner_admin_id,
-              amount: gallery.price,
+              amount: gallery.price || 0,
               phone_number: phoneNumber,
               mpesa_number: paymentSettings.mpesa_number,
               status: 'pending',
@@ -209,7 +342,6 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         
           if (error) throw error;
         
-          // Show instructions and wait for admin verification
           Alert.alert(
             'Payment Instructions',
             `Send ${gallery.price} ${paymentSettings.currency || 'KES'} to:\n\n${paymentSettings.mpesa_number}\n\nOnce sent, the admin will verify and unlock your gallery.`,
@@ -219,7 +351,6 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                 text: 'I\'ve Sent It', 
                 onPress: () => {
                   updatePaymentState('verifying');
-                  // Start polling for payment verification
                   startManualPolling(gallery.id);
                 }
               }
@@ -236,8 +367,14 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     }
     
     // Advanced M-PESA - STK push flow
-    if (!phoneNumber || phoneNumber.length < 10) {
+    if (!phoneNumber || !isValidKenyanPhone(phoneNumber)) {
       Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number.');
+      return;
+    }
+
+    const normalizedPhone = normalizePhone(phoneNumber);
+    if (!normalizedPhone) {
+      Alert.alert('Invalid Phone', 'Could not normalize phone number. Please check and try again.');
       return;
     }
 
@@ -245,10 +382,16 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // 1. Trigger STK Push via Edge Function — standardized to 'stk_push'
-      const { data, error } = await supabase.functions.invoke('stk_push', {
+      const isDuplicate = await checkDuplicatePayment(gallery.id, normalizedPhone);
+      if (isDuplicate) {
+        updatePaymentState('failed');
+        setErrorMessage('A recent payment was already initiated. Please wait before trying again.');
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('client_payments_stkpush', {
         body: {
-          phone_number: phoneNumber,
+          phone_number: normalizedPhone,
           amount: gallery.price,
           gallery_id: gallery.id,
           reference: gallery.access_code || gallery.name,
@@ -266,6 +409,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         throw new Error('Payment initiated but missing checkout request id.');
       }
 
+      checkoutRequestIdRef.current = checkoutRequestId;
       updatePaymentState('waiting');
       startPolling(checkoutRequestId, gallery.id);
 
@@ -278,12 +422,10 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
   };
 
   const startPolling = (checkoutRequestId: string, galleryId: string) => {
-    // Poll every 2 seconds for 1.5 minutes (Daraja timeout is usually 60s)
-    const pollInterval = 2000;
-    const maxAttempts = 45; 
+    const pollInterval = 3000;
+    const maxAttempts = 30; // 90 seconds max
     let attempts = 0;
 
-    // Clear any existing interval before starting a new one
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
@@ -291,20 +433,33 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
 
     pollingIntervalRef.current = setInterval(async () => {
       attempts++;
-      
-      // Fix: use ref to avoid stale closure on paymentState
-      if (attempts > 10 && paymentStateRef.current === 'waiting') {
+
+      if (attempts > 8 && paymentStateRef.current === 'waiting') {
         updatePaymentState('verifying');
       }
 
       try {
-        const { data, error } = await supabase
+        // Check mpesa_transactions table first (new system)
+        let { data, error } = await supabase
           .from('mpesa_transactions')
-          .select('status, result_desc')
+          .select('status, result_desc, result_code')
           .eq('checkout_request_id', checkoutRequestId)
           .eq('gallery_id', galleryId)
           .gt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
           .maybeSingle();
+
+        // Fallback: check transactions table (unified)
+        if (!data && !error) {
+          const result = await supabase
+            .from('transactions')
+            .select('status, result_desc, result_code')
+            .eq('checkout_request_id', checkoutRequestId)
+            .eq('gallery_id', galleryId)
+            .gt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
+            .maybeSingle();
+          data = result.data;
+          error = result.error;
+        }
 
         if (error) throw error;
 
@@ -316,19 +471,32 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
           setTimeout(() => {
             onSuccess();
             onClose();
-          }, 3000); // Give time for celebration
+          }, 3000);
         } else if (data?.status === 'failed' || data?.status === 'cancelled') {
           clearInterval(pollingIntervalRef.current!);
           pollingIntervalRef.current = null;
           updatePaymentState('failed');
-          setErrorMessage(data.result_desc || 'Payment was unsuccessful.');
+          const resultCode = data.result_code;
+          setErrorMessage(getResultErrorMessage(resultCode) || data.result_desc || 'Payment was unsuccessful.');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         } else if (attempts >= maxAttempts) {
+          // Timeout - try STK query as fallback
           clearInterval(pollingIntervalRef.current!);
           pollingIntervalRef.current = null;
-          updatePaymentState('failed');
-          setErrorMessage('Payment verification timed out. If you have been charged, please contact support.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          
+          const stkResult = await querySTKStatus(checkoutRequestId);
+          if (stkResult === '0') {
+            updatePaymentState('success');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setTimeout(() => {
+              onSuccess();
+              onClose();
+            }, 3000);
+          } else {
+            updatePaymentState('failed');
+            setErrorMessage('Payment verification timed out. If you have been charged, please contact support.');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          }
         }
       } catch (e) {
         console.error('Polling error:', e);
@@ -337,12 +505,10 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
   };
 
   const startManualPolling = (galleryId: string) => {
-    // Poll every 5 seconds for 10 minutes (manual payment verification)
     const pollInterval = 5000;
-    const maxAttempts = 120; // 10 minutes
+    const maxAttempts = 120;
     let attempts = 0;
 
-    // Clear any existing interval before starting a new one
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
@@ -402,7 +568,6 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // Fix: improved regex — M-Pesa codes are always exactly 10 uppercase alphanumeric chars
       const codeMatch = mpesaMessage.match(/\b([A-Z0-9]{10})\b/);
       const mpesaCode = codeMatch ? codeMatch[1] : null;
 
@@ -412,7 +577,6 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         return;
       }
 
-      // Get current user to find client_id
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
@@ -426,7 +590,6 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         throw new Error('Client record not found. Please contact support.');
       }
 
-      // Submit to manual_payment_verifications table
       const { error } = await supabase
         .from('manual_payment_verifications')
         .insert({
@@ -440,7 +603,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
 
       if (error) throw error;
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackStyle.Success);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         'Submission Received',
         'Your M-Pesa payment code has been sent to the admin. Your gallery will be unlocked once verified.',
@@ -453,7 +616,6 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     }
   };
 
-  // For demo/dev purposes, let's allow a "Simulate Success" if long press on title
   const handleSimulateSuccess = () => {
     if (__DEV__) {
       updatePaymentState('success');
@@ -520,7 +682,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                   )}
 
                   <Text style={styles.summaryLabel}>Total Amount</Text>
-                  <Text style={styles.summaryAmount}>KES {gallery.price?.toLocaleString()}</Text>
+                  <Text style={styles.summaryAmount}>KES {(gallery.price || 0).toLocaleString()}</Text>
                   <Text style={styles.summaryDescription}>
                     Unlock all photos in {gallery.name}, remove watermarks, and enable high-res downloads.
                   </Text>
@@ -532,29 +694,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                   </View>
                 ) : null}
 
-                {paymentSettings?.payment_mode === 'STK_PUSH' || !paymentSettings?.payment_mode ? (
-                  <>
-                    <View style={styles.inputContainer}>
-                      <Text style={styles.inputLabel}>M-Pesa Phone Number</Text>
-                      <View style={styles.inputWrapper}>
-                        <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
-                        <TextInput
-                          style={styles.input}
-                          value={phoneNumber}
-                          onChangeText={setPhoneNumber}
-                          placeholder="e.g. 0712345678"
-                          placeholderTextColor={Colors.textMuted}
-                          keyboardType="phone-pad"
-                          autoFocus={false}
-                        />
-                      </View>
-                    </View>
-
-                    <Pressable style={styles.payButton} onPress={handlePay}>
-                      <Text style={styles.payButtonText}>Pay via STK Push</Text>
-                    </Pressable>
-                  </>
-                ) : (
+                {paymentSettings?.payment_mode === 'PAYBILL' || paymentSettings?.payment_mode === 'TILL_NUMBER' ? (
                   <View style={styles.instructionContainer}>
                     <Text style={styles.instructionTitle}>Manual Payment Instructions</Text>
                     <View style={styles.instructionBox}>
@@ -586,6 +726,28 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                       <Text style={[styles.payButtonText, { color: Colors.gold }]}>I have paid, check status</Text>
                     </Pressable>
                   </View>
+                ) : (
+                  <>
+                    <View style={styles.inputContainer}>
+                      <Text style={styles.inputLabel}>M-Pesa Phone Number</Text>
+                      <View style={styles.inputWrapper}>
+                        <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.input}
+                          value={phoneNumber}
+                          onChangeText={setPhoneNumber}
+                          placeholder="e.g. 0712345678"
+                          placeholderTextColor={Colors.textMuted}
+                          keyboardType="phone-pad"
+                          autoFocus={false}
+                        />
+                      </View>
+                    </View>
+
+                    <Pressable style={styles.payButton} onPress={handlePay}>
+                      <Text style={styles.payButtonText}>Pay via STK Push</Text>
+                    </Pressable>
+                  </>
                 )}
               </>
             )}
@@ -703,15 +865,15 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
             {paymentState === 'success' && (
               <View style={styles.stateContainer}>
                 <Animated.View style={{ transform: [{ scale: 1.2 }] }}>
-                  <CheckCircle size={80} color="#4CAF50" style={styles.stateIcon} />
+                  <CheckCircle size={80} color="#2ECC71" style={styles.stateIcon} />
                 </Animated.View>
-                <Text style={[styles.stateTitle, { color: '#4CAF50' }]}>Payment Successful!</Text>
+                <Text style={[styles.stateTitle, { color: '#2ECC71' }]}>Payment Successful!</Text>
                 <Text style={styles.stateDescription}>
                   Your gallery is being unlocked right now. Get ready to enjoy your photos!
                 </Text>
                 <View style={styles.celebrationContainer}>
-                   <ActivityIndicator size="small" color="#4CAF50" />
-                   <Text style={{color: '#4CAF50', marginLeft: 8, fontWeight: '600'}}>Applying access...</Text>
+                   <ActivityIndicator size="small" color="#2ECC71" />
+                   <Text style={{color: '#2ECC71', marginLeft: 8, fontWeight: '600'}}>Applying access...</Text>
                 </View>
               </View>
             )}
@@ -863,7 +1025,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   payButton: {
-    backgroundColor: '#4CAF50', // M-Pesa Green
+    backgroundColor: '#2ECC71',
     borderRadius: 12,
     height: 50,
     justifyContent: 'center',
@@ -939,7 +1101,7 @@ const styles = StyleSheet.create({
     width: 24,
   },
   stepDotCompleted: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: '#2ECC71',
   },
   celebrationContainer: {
     flexDirection: 'row',

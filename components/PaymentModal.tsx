@@ -123,13 +123,12 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
         try {
-          // Trigger STK Push via Edge Function
-          const { data, error } = await supabase.functions.invoke('stk_push', {
+          // Trigger STK Push via Edge Function (use real production function)
+          const { data, error } = await supabase.functions.invoke('client_payments_stkpush', {
             body: {
+              access_code: gallery.access_code,
               phone_number: phoneNumber,
               amount: gallery.price,
-              gallery_id: gallery.id,
-              reference: gallery.access_code || gallery.name,
             },
           });
 
@@ -257,17 +256,37 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       }
 
       try {
+        // Check both payments and mpesa_transactions tables
+        const { data: paymentsData } = await supabase
+          .from('payments')
+          .select('status')
+          .eq('gallery_id', galleryId)
+          .eq('mpesa_checkout_request_id', checkoutRequestId)
+          .gt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
+          .maybeSingle();
+
+        if (paymentsData?.status === 'paid' || paymentsData?.status === 'success') {
+          // Payment found in payments table - unlock is handled by trigger
+          clearInterval(interval);
+          setPaymentState('success');
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          setTimeout(() => {
+            onSuccess();
+            onClose();
+          }, 3000);
+          return;
+        }
+
         const { data, error } = await supabase
           .from('mpesa_transactions')
           .select('status, result_desc')
           .eq('checkout_request_id', checkoutRequestId)
-          .eq('gallery_id', galleryId)
           .gt('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
           .maybeSingle();
 
         if (error) throw error;
 
-        if (data?.status === 'success') {
+        if (data?.status === 'success' || data?.status === 'completed') {
           clearInterval(interval);
           setPaymentState('success');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

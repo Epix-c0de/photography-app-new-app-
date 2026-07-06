@@ -1,213 +1,180 @@
-// @ts-nocheck
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
-Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+interface STKPushRequest {
+  phone_number: string;
+  amount: number;
+  gallery_id?: string;
+  receipt_id?: string;
+  till_number?: string;
+  description?: string;
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const { phone_number, amount, gallery_id } = await req.json();
-
-    if (!phone_number || !amount || !gallery_id) {
-      throw new Error('Missing required fields');
-    }
-
-    // 1. Verify gallery exists and is locked
-    const { data: gallery, error: galleryError } = await supabase
-      .from('galleries')
-      .select('id, owner_admin_id, client_id, is_locked, is_paid, price, name')
-      .eq('id', gallery_id)
-      .single();
-
-    if (galleryError || !gallery) {
-      throw new Error('Gallery not found');
-    }
-
-    if (!gallery.is_locked || gallery.is_paid) {
-      throw new Error('Gallery is already unlocked or paid');
-    }
-
-    // 2. Prevent duplicate payments
-    // If status = success -> reject
-    // If status = pending AND created < 10 mins -> reject
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const { data: existingTx, error: txError } = await supabase
-      .from('mpesa_transactions')
-      .select('id, status, created_at')
-      .eq('gallery_id', gallery_id)
-      .or(`status.eq.success,and(status.eq.pending,created_at.gt.${tenMinutesAgo})`)
-      .maybeSingle();
-
-    if (existingTx) {
-      if (existingTx.status === 'success') {
-        throw new Error('Gallery already paid');
-      }
-      throw new Error('A payment is already pending. Please wait 10 minutes before retrying.');
-    }
-
-    // 3. Get Payment Settings for the admin
-    let mpesaSettings = null;
-
-    // First try Simple Payment Settings
-    const { data: simpleSettings } = await supabase
-      .from('simple_payment_settings')
-      .select('*')
-      .eq('admin_id', gallery.owner_admin_id)
-      .maybeSingle();
-
-    if (simpleSettings && simpleSettings.mpesa_number) {
-      // Use platform-wide credentials but log the admin's number
-      mpesaSettings = {
-        environment: 'sandbox', // Or production
-        consumer_key: Deno.env.get('PLATFORM_MPESA_CONSUMER_KEY') || Deno.env.get('MPESA_CONSUMER_KEY'),
-        consumer_secret: Deno.env.get('PLATFORM_MPESA_CONSUMER_SECRET') || Deno.env.get('MPESA_CONSUMER_SECRET'),
-        shortcode: Deno.env.get('PLATFORM_MPESA_SHORTCODE') || Deno.env.get('MPESA_SHORTCODE'),
-        passkey: Deno.env.get('PLATFORM_MPESA_PASSKEY') || Deno.env.get('MPESA_PASSKEY'),
-      };
-    } else {
-      // Fallback to advanced Daraja settings
-      const { data: advancedSettings, error: settingsError } = await supabase
-        .from('payment_settings')
-        .select('*')
-        .eq('admin_id', gallery.owner_admin_id)
-        .single();
-
-      if (settingsError || !advancedSettings) {
-        console.error('Payment settings missing for admin:', gallery.owner_admin_id);
-        throw new Error('M-PESA is not configured for this gallery. Please set up payment in admin settings.');
-      }
-      mpesaSettings = advancedSettings;
-    }
-
     const {
-      environment,
-      consumer_key,
-      consumer_secret,
-      shortcode,
-      passkey,
-    } = mpesaSettings;
+      phone_number,
+      amount,
+      gallery_id,
+      receipt_id,
+      till_number,
+      description,
+    }: STKPushRequest = await req.json();
 
-    if (!consumer_key || !consumer_secret || !shortcode || !passkey) {
-      throw new Error('M-PESA configuration is incomplete');
+    if (!phone_number || !amount) {
+      return new Response(
+        JSON.stringify({ error: "Missing phone_number or amount" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
-    const baseUrl = environment === 'production'
-      ? 'https://api.safaricom.co.ke'
-      : 'https://sandbox.safaricom.co.ke';
+    // Get M-Pesa credentials from platform settings
+    const { data: settings } = await supabase
+      .from("platform_settings")
+      .select("key, value")
+      .in("key", [
+        "mpesa_consumer_key",
+        "mpesa_consumer_secret",
+        "mpesa_passkey",
+        "mpesa_shortcode",
+        "mpesa_callback_url",
+        "mpesa_environment",
+      ]);
 
-    // 4. Generate Access Token
-    const auth = btoa(`${consumer_key}:${consumer_secret}`);
-    const tokenRes = await fetch(`${baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
-      headers: { 'Authorization': `Basic ${auth}` }
+    const config: Record<string, string> = {};
+    settings?.forEach((s: any) => {
+      config[s.key] = s.value || "";
     });
-    const tokenData = await tokenRes.json();
-    const accessToken = tokenData.access_token;
 
-    if (!accessToken) {
-      throw new Error('Failed to authenticate with Safaricom');
+    const consumerKey = config.mpesa_consumer_key;
+    const consumerSecret = config.mpesa_consumer_secret;
+    const passkey = config.mpesa_passkey;
+    const shortcode = till_number || config.mpesa_shortcode;
+    const callbackUrl =
+      config.mpesa_callback_url ||
+      `${Deno.env.get("SUPABASE_URL")}/functions/v1/mpesa-callback`;
+    const environment = config.mpesa_environment || "sandbox";
+
+    if (!consumerKey || !consumerSecret) {
+      return new Response(
+        JSON.stringify({ error: "M-Pesa credentials not configured" }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
-    // 5. Generate Password and Timestamp
-    const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+    // Get access token
+    const tokenResponse = await fetch(
+      `https://${environment === "production" ? "api" : "sandbox"}.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Basic ${btoa(`${consumerKey}:${consumerSecret}`)}`,
+        },
+      }
+    );
+
+    const tokenData = await tokenResponse.json();
+
+    if (!tokenData.access_token) {
+      throw new Error("Failed to get M-Pesa access token");
+    }
+
+    // Format phone number (remove +, ensure 254 prefix)
+    const formattedPhone = phone_number.startsWith("254")
+      ? phone_number
+      : phone_number.replace(/^0/, "254").replace(/^\+/, "");
+
+    // Generate timestamp
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[-T:\.Z]/g, "")
+      .slice(0, 14);
+
+    // Generate password
     const password = btoa(`${shortcode}${passkey}${timestamp}`);
 
-    // 6. Initiate STK Push
-    const callbackUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/mpesa-callback`;
-    const stkBody = {
-      BusinessShortCode: shortcode,
-      Password: password,
-      Timestamp: timestamp,
-      TransactionType: "CustomerPayBillOnline",
-      Amount: Math.max(1, Math.round(Number(amount))),
-      PartyA: phone_number,
-      PartyB: shortcode,
-      PhoneNumber: phone_number,
-      CallBackURL: callbackUrl,
-      AccountReference: `GAL-${gallery_id.slice(0, 8).toUpperCase()}`,
-      TransactionDesc: `Unlocking Gallery: ${gallery.name}`
-    };
+    // STK Push request
+    const stkResponse = await fetch(
+      `https://${environment === "production" ? "api" : "sandbox"}.safaricom.co.ke/mpesa/stkpush/v1/processrequest`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          BusinessShortCode: shortcode,
+          Password: password,
+          Timestamp: timestamp,
+          TransactionType: "CustomerPayBillOnline",
+          Amount: Math.round(amount),
+          PartyA: formattedPhone,
+          PartyB: shortcode,
+          PhoneNumber: formattedPhone,
+          CallBackURL: `${callbackUrl}?receipt_id=${receipt_id || ""}&gallery_id=${gallery_id || ""}`,
+          AccountReference: description || "Epix Visuals Payment",
+          TransactionDesc: description || "Gallery Payment",
+        }),
+      }
+    );
 
-    // Log request
-    await supabase.from('mpesa_logs').insert({ request_payload: stkBody });
+    const stkData = await stkResponse.json();
 
-    const stkRes = await fetch(`${baseUrl}/mpesa/stkpush/v1/processrequest`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(stkBody)
-    });
-
-    const stkData = await stkRes.json();
-    
-    // Log response
-    await supabase.from('mpesa_logs').insert({ response_payload: stkData });
-
-    if (stkData.ResponseCode !== "0") {
-      throw new Error(stkData.ResponseDescription || 'STK Push failed');
-    }
-
-    // 7. Create transaction and payment records
-    const { error: insertError } = await supabase
-      .from('mpesa_transactions')
-      .insert({
-        gallery_id: gallery_id,
-        client_id: gallery.client_id,
-        phone_number: phone_number,
-        amount: Number(amount),
-        merchant_request_id: stkData.MerchantRequestID,
+    // Log the transaction
+    if (receipt_id) {
+      await supabase.from("mpesa_transactions").insert({
+        receipt_id,
         checkout_request_id: stkData.CheckoutRequestID,
-        status: 'pending'
+        merchant_request_id: stkData.MerchantRequestID,
+        phone_number: formattedPhone,
+        amount,
+        till_number: shortcode,
+        status: "pending",
       });
-
-    if (insertError) {
-      console.error('Failed to record mpesa transaction:', insertError);
-    }
-
-    // Also add to global payments table for unified history/accounting
-    const { error: paymentError } = await supabase
-      .from('payments')
-      .insert({
-        owner_admin_id: gallery.owner_admin_id,
-        client_id: gallery.client_id,
-        gallery_id: gallery_id,
-        amount: Number(amount),
-        status: 'pending',
-        mpesa_checkout_request_id: stkData.CheckoutRequestID,
-        phone_number: phone_number
-      });
-
-    if (paymentError) {
-      console.error('Failed to record global payment:', paymentError);
     }
 
     return new Response(
       JSON.stringify({
-        message: 'STK Push sent successfully',
+        success: true,
         checkout_request_id: stkData.CheckoutRequestID,
-        ...stkData
+        merchant_request_id: stkData.MerchantRequestID,
+        response_code: stkData.ResponseCode,
+        response_description: stkData.ResponseDescription,
+        customer_message: stkData.CustomerMessage,
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
     );
-
-  } catch (error: unknown) {
-    console.error(error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
+  } catch (error) {
+    console.error("STK Push error:", error);
     return new Response(
-      JSON.stringify({ error: message }),
-      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: error.message || "STK Push failed" }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
     );
   }
 });

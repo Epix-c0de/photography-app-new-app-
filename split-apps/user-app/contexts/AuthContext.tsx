@@ -272,6 +272,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const processPendingReferral = useCallback(async (userId: string) => {
+    try {
+      const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+      const token = await AsyncStorage.getItem('pending_referral_token');
+      if (!token) return;
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
+
+      if (!accessToken) {
+        console.warn('[Referral] No access token available');
+        return;
+      }
+
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://gghqurnamjdxoriuuopf.supabase.co';
+      const response = await fetch(`${supabaseUrl}/functions/v1/process-referral`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+          'apikey': process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '',
+        },
+        body: JSON.stringify({
+          action: 'apply',
+          referral_code: token,
+          user_id: userId,
+        }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        await AsyncStorage.removeItem('pending_referral_token');
+        console.log('[Referral] Referral applied successfully:', result);
+      } else {
+        console.warn('[Referral] Failed to apply referral:', result.error);
+        // Still remove token to prevent retry loops on invalid codes
+        await AsyncStorage.removeItem('pending_referral_token');
+      }
+    } catch (e) {
+      console.warn('[Referral] Error processing referral:', e);
+    }
+  }, []);
+
   // Login function
   const login = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -529,6 +572,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } catch {}
           // Claim any pending invite token from deep link
           await claimPendingInvite(session.user.id);
+          // Process any pending referral token from signup
+          await processPendingReferral(session.user.id);
         }
       } else if (isAdminByAuth) {
         const resolvedProfile: UserProfile = {
@@ -591,6 +636,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           await ClientService.clients.ensureLinkedRecordsForCurrentUser();
         } catch {}
+        // Process pending referral token for fallback profile users
+        await processPendingReferral(session.user.id);
       }
     } catch (error) {
       console.error('Auth check error:', error);
@@ -674,6 +721,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               } catch {}
               // Claim any pending invite token from deep link
               await claimPendingInvite(session.user.id);
+              // Process any pending referral token from signup
+              await processPendingReferral(session.user.id);
             }
           }
         }

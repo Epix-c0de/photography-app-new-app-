@@ -4,6 +4,13 @@ import { BlurView } from 'expo-blur';
 import { X, Smartphone, CheckCircle, AlertCircle, CreditCard } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+
+async function safeHapticImpact(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
+  try { await Haptics.impactAsync(style); } catch {}
+}
+async function safeHapticNotification(style: Haptics.NotificationFeedbackType) {
+  try { await Haptics.notificationAsync(style); } catch {}
+}
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 
@@ -120,11 +127,11 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         }
 
         setPaymentState('initiating');
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        safeHapticImpact(Haptics.ImpactFeedbackStyle.Medium);
 
         try {
           // Trigger STK Push via Edge Function
-          const { data, error } = await supabase.functions.invoke('stk_push', {
+          const { data, error } = await supabase.functions.invoke('client_payments_stkpush', {
             body: {
               phone_number: phoneNumber,
               amount: gallery.price,
@@ -151,7 +158,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
           console.error('Payment initiation failed:', e);
           setPaymentState('failed');
           setErrorMessage(e.message || 'Could not initiate payment.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          safeHapticNotification(Haptics.NotificationFeedbackType.Error);
         }
       } else {
         // Manual verification - show instructions
@@ -194,7 +201,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
           console.error('Failed to create manual payment record:', e);
           setPaymentState('failed');
           setErrorMessage('Could not initiate payment. Please try again.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          safeHapticNotification(Haptics.NotificationFeedbackType.Error);
         }
       }
       return;
@@ -207,11 +214,11 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     }
 
     setPaymentState('initiating');
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    safeHapticImpact(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       // 1. Trigger STK Push via Edge Function
-      const { data, error } = await supabase.functions.invoke('stk_push', {
+      const { data, error } = await supabase.functions.invoke('client_payments_stkpush', {
         body: {
           phone_number: phoneNumber,
           amount: gallery.price,
@@ -238,7 +245,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       console.error('Payment initiation failed:', e);
       setPaymentState('failed');
       setErrorMessage(e.message || 'Could not initiate payment.');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      safeHapticNotification(Haptics.NotificationFeedbackType.Error);
     }
   };
 
@@ -270,7 +277,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         if (data?.status === 'success') {
           clearInterval(interval);
           setPaymentState('success');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          safeHapticNotification(Haptics.NotificationFeedbackType.Success);
           setTimeout(() => {
             onSuccess();
             onClose();
@@ -279,12 +286,12 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
           clearInterval(interval);
           setPaymentState('failed');
           setErrorMessage(data.result_desc || 'Payment was unsuccessful.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          safeHapticNotification(Haptics.NotificationFeedbackType.Error);
         } else if (attempts >= maxAttempts) {
           clearInterval(interval);
           setPaymentState('failed');
           setErrorMessage('Payment verification timed out. If you have been charged, please contact support.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          safeHapticNotification(Haptics.NotificationFeedbackType.Error);
         }
       } catch (e) {
         console.error('Polling error:', e);
@@ -316,7 +323,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         if (data?.status === 'verified') {
           clearInterval(interval);
           setPaymentState('success');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          safeHapticNotification(Haptics.NotificationFeedbackType.Success);
           setTimeout(() => {
             onSuccess();
             onClose();
@@ -325,12 +332,12 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
           clearInterval(interval);
           setPaymentState('failed');
           setErrorMessage('Payment was rejected. Please try again or contact support.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          safeHapticNotification(Haptics.NotificationFeedbackType.Error);
         } else if (attempts >= maxAttempts) {
           clearInterval(interval);
           setPaymentState('failed');
           setErrorMessage('Payment verification timed out. Please contact the admin to verify your payment.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          safeHapticNotification(Haptics.NotificationFeedbackType.Error);
         }
       } catch (e) {
         console.error('Manual polling error:', e);
@@ -417,29 +424,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                   </View>
                 ) : null}
 
-                {paymentSettings?.payment_mode === 'STK_PUSH' || !paymentSettings?.payment_mode ? (
-                  <>
-                    <View style={styles.inputContainer}>
-                      <Text style={styles.inputLabel}>M-Pesa Phone Number</Text>
-                      <View style={styles.inputWrapper}>
-                        <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
-                        <TextInput
-                          style={styles.input}
-                          value={phoneNumber}
-                          onChangeText={setPhoneNumber}
-                          placeholder="e.g. 0712345678"
-                          placeholderTextColor={Colors.textMuted}
-                          keyboardType="phone-pad"
-                          autoFocus={false}
-                        />
-                      </View>
-                    </View>
-
-                    <Pressable style={styles.payButton} onPress={handlePay}>
-                      <Text style={styles.payButtonText}>Pay via STK Push</Text>
-                    </Pressable>
-                  </>
-                ) : (
+                {paymentSettings?.payment_mode === 'PAYBILL' || paymentSettings?.payment_mode === 'TILL_NUMBER' ? (
                   <View style={styles.instructionContainer}>
                     <Text style={styles.instructionTitle}>Manual Payment Instructions</Text>
                     <View style={styles.instructionBox}>
@@ -471,6 +456,28 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                       <Text style={[styles.payButtonText, { color: Colors.gold }]}>I have paid, check status</Text>
                     </Pressable>
                   </View>
+                ) : (
+                  <>
+                    <View style={styles.inputContainer}>
+                      <Text style={styles.inputLabel}>M-Pesa Phone Number</Text>
+                      <View style={styles.inputWrapper}>
+                        <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
+                        <TextInput
+                          style={styles.input}
+                          value={phoneNumber}
+                          onChangeText={setPhoneNumber}
+                          placeholder="e.g. 0712345678"
+                          placeholderTextColor={Colors.textMuted}
+                          keyboardType="phone-pad"
+                          autoFocus={false}
+                        />
+                      </View>
+                    </View>
+
+                    <Pressable style={styles.payButton} onPress={handlePay}>
+                      <Text style={styles.payButtonText}>Pay via STK Push</Text>
+                    </Pressable>
+                  </>
                 )}
               </>
             )}

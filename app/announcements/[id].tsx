@@ -47,6 +47,7 @@ export default function AnnouncementViewerScreen() {
 
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [fullScreenMedia, setFullScreenMedia] = useState(false);
   
   const [comments, setComments] = useState<AnnouncementComment[]>([]);
@@ -66,13 +67,19 @@ export default function AnnouncementViewerScreen() {
 
     const fetchAnnouncement = async () => {
       setLoading(true);
+      setError(null);
       const { data, error } = await supabase
         .from('announcements')
         .select('*')
         .eq('id', id)
         .single();
       
-      if (!error && data) setAnnouncement(data);
+      if (error) {
+        console.error('[Announcement] Failed to fetch:', error);
+        setError('Failed to load announcement');
+      } else if (data) {
+        setAnnouncement(data);
+      }
       setLoading(false);
     };
 
@@ -124,7 +131,7 @@ export default function AnnouncementViewerScreen() {
     if (!id) return;
     fetchComments();
 
-    // 1. Realtime subscription (catch-all event)
+    // Realtime subscription (catch-all event)
     const channel = supabase
       .channel(`public:announcement_comments_${id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_comments', filter: `announcement_id=eq.${id}` }, () => {
@@ -132,12 +139,8 @@ export default function AnnouncementViewerScreen() {
       })
       .subscribe();
 
-    // 2. Polling fallback every 5 seconds (in case realtime is not configured)
-    const pollInterval = setInterval(fetchComments, 5000);
-
     return () => { 
       supabase.removeChannel(channel); 
-      clearInterval(pollInterval);
     };
   }, [id, fetchComments]);
 
@@ -187,7 +190,21 @@ export default function AnnouncementViewerScreen() {
       parent_comment_id: parentId || null
     });
 
-    if (!error) {
+    if (error) {
+      // Revert optimistic update on error
+      setComments(prev => {
+        if (parentId) {
+          return prev.map(p => {
+            if (p.id === parentId) {
+              return { ...p, replies: (p.replies || []).filter(r => r.id !== tempComment.id) };
+            }
+            return p;
+          });
+        }
+        return prev.filter(c => c.id !== tempComment.id);
+      });
+      Alert.alert('Error', 'Failed to post comment');
+    } else {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       fetchComments(); // fetch real IDs
       setTimeout(() => {
@@ -216,7 +233,16 @@ export default function AnnouncementViewerScreen() {
   if (loading || !announcement) {
     return (
       <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color={Colors.gold} />
+        {error ? (
+          <View style={{ alignItems: 'center', padding: 20 }}>
+            <Text style={{ color: Colors.error, fontSize: 16, marginBottom: 12 }}>{error}</Text>
+            <Pressable onPress={() => router.back()} style={{ padding: 8 }}>
+              <Text style={{ color: Colors.gold, fontSize: 14 }}>Go Back</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <ActivityIndicator size="large" color={Colors.gold} />
+        )}
       </View>
     );
   }

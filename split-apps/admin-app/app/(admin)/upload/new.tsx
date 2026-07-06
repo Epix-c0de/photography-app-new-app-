@@ -8,6 +8,13 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+
+let ImageManipulator: any = null;
+try {
+  ImageManipulator = require('expo-image-manipulator');
+} catch {
+  // Not available on web
+}
 import * as Clipboard from 'expo-clipboard';
 import {
   User, ArrowLeft, ChevronUp, ChevronDown,
@@ -24,7 +31,7 @@ import { supabase } from '@/lib/supabase';
 import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
 
-type DeliveryMethod = 'sms' | 'whatsapp' | 'email' | 'in_app';
+type DeliveryMethod = 'sms' | 'whatsapp' | 'email' | 'in_app' | 'ussd';
 type ShootType = 'wedding' | 'portrait' | 'event' | 'commercial' | 'other';
 
 type Client = {
@@ -44,7 +51,46 @@ type Photo = {
   mimeType: string;
   width?: number;
   height?: number;
+  mediaType?: 'image' | 'video';
 };
+
+const COMPRESS_THRESHOLD = 5 * 1024 * 1024; // 5MB
+
+async function compressImage(uri: string): Promise<{ uri: string; width: number; height: number; size: number }> {
+  if (!ImageManipulator) {
+    const info = await FileSystem.getInfoAsync(uri);
+    return { uri, width: 0, height: 0, size: info.exists ? (info as any).size || 0 : 0 };
+  }
+
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    const originalSize = info.exists ? (info as any).size || 0 : 0;
+
+    if (originalSize <= COMPRESS_THRESHOLD) {
+      return { uri, width: 0, height: 0, size: originalSize };
+    }
+
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 2400 } }],
+      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: false }
+    );
+
+    const compressedInfo = await FileSystem.getInfoAsync(result.uri);
+    const compressedSize = compressedInfo.exists ? (compressedInfo as any).size || 0 : 0;
+
+    return {
+      uri: result.uri,
+      width: result.width,
+      height: result.height,
+      size: compressedSize || originalSize,
+    };
+  } catch (e) {
+    console.warn('Compression failed, using original:', e);
+    const info = await FileSystem.getInfoAsync(uri);
+    return { uri, width: 0, height: 0, size: info.exists ? (info as any).size || 0 : 0 };
+  }
+}
 
 export default function ClientPhotoUploadScreen() {
   const insets = useSafeAreaInsets();
@@ -86,6 +132,7 @@ export default function ClientPhotoUploadScreen() {
   const [requirePaymentBeforeDownload, setRequirePaymentBeforeDownload] = useState(false);
   const [customMessage, setCustomMessage] = useState('');
   const [outdoorMode, setOutdoorMode] = useState(false);
+  const [enableUssdAccess, setEnableUssdAccess] = useState(true);
 
   // Photos
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -310,51 +357,69 @@ export default function ClientPhotoUploadScreen() {
       };
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
         allowsMultipleSelection: true,
         selectionLimit: 100,
-        // Removed quality and exif to prevent silent failures on Android
+        videoMaxDuration: 300,
       });
 
       if (result.canceled || !result.assets?.length) {
-        Alert.alert('No Photos Selected', 'Please choose at least one photo to upload.');
+        Alert.alert('No Media Selected', 'Please choose at least one photo or video to upload.');
         return;
       }
 
       if (result.assets?.length) {
+        setUploadStatus('Processing files...');
         const newPhotos = (
           await Promise.all(
             result.assets.map(async (asset) => {
               if (!asset.uri) return null;
-              if (asset.type === 'video') return null;
+
+              const isVideo = asset.type === 'video';
+              const fileName = asset.fileName || asset.uri.split('/').pop() || `file_${Date.now()}`;
+              const extension = fileName.split('.').pop() || '';
+              const mimeType = asset.mimeType || (isVideo ? 'video/mp4' : mimeFromExtension(extension) || 'application/octet-stream');
+
               let fileSize = asset.fileSize || 0;
               if (!fileSize) {
                 try {
                   const fileInfo = await FileSystem.getInfoAsync(asset.uri);
                   fileSize = fileInfo.exists ? (fileInfo as any).size || 0 : 0;
-                } catch {
-                  fileSize = 0;
-                }
+                } catch { fileSize = 0; }
               }
-              const fileName = asset.fileName || asset.uri.split('/').pop() || `photo_${Date.now()}`;
-              const extension = fileName.split('.').pop() || '';
-              const mimeType = asset.mimeType || mimeFromExtension(extension) || 'application/octet-stream';
+
+              let processedUri = asset.uri;
+              let width = asset.width;
+              let height = asset.height;
+
+              if (!isVideo) {
+                setUploadStatus(`Compressing ${fileName}...`);
+                const compressed = await compressImage(asset.uri);
+                processedUri = compressed.uri;
+                fileSize = compressed.size || fileSize;
+                if (compressed.width) width = compressed.width;
+                if (compressed.height) height = compressed.height;
+              } else if (fileSize > 100 * 1024 * 1024) {
+                Alert.alert('Large Video', `${fileName} is ${(fileSize / (1024 * 1024)).toFixed(0)}MB. Upload may be slow.`);
+              }
 
               return {
                 id: asset.assetId || Math.random().toString(),
-                uri: asset.uri,
-                fileName: fileName,
-                fileSize: fileSize,
-                mimeType: mimeType,
-                width: asset.width,
-                height: asset.height
+                uri: processedUri,
+                fileName,
+                fileSize,
+                mimeType,
+                width,
+                height,
+                mediaType: isVideo ? 'video' as const : 'image' as const,
               };
             })
           )
         ).filter(Boolean) as Photo[];
 
+        setUploadStatus('');
         if (!newPhotos.length) {
-          Alert.alert('No Valid Photos', 'We could not process the selected photos.');
+          Alert.alert('No Valid Files', 'We could not process the selected files.');
           return;
         }
 
@@ -416,6 +481,7 @@ export default function ClientPhotoUploadScreen() {
     let completed = 0;
     const total = items.length;
     let index = 0;
+    const failed: string[] = [];
 
     const worker = async () => {
       while (index < total) {
@@ -438,7 +504,7 @@ export default function ClientPhotoUploadScreen() {
           );
         } catch (error) {
           console.error(`Failed to upload photo ${photo.fileName}:`, error);
-          throw error;
+          failed.push(photo.fileName);
         }
 
         completed += 1;
@@ -453,6 +519,10 @@ export default function ClientPhotoUploadScreen() {
     const workers = Array.from({ length: Math.min(concurrency, total) }, () => worker());
     await Promise.all(workers);
 
+    if (failed.length > 0) {
+      Alert.alert('Partial Upload', `${failed.length} of ${total} files failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '...' : ''}`);
+    }
+    return { failed };
   };
 
   const uploadTempPhotosWithConcurrency = async (
@@ -465,6 +535,7 @@ export default function ClientPhotoUploadScreen() {
     let completed = 0;
     const total = items.length;
     let index = 0;
+    const failed: string[] = [];
 
     const worker = async () => {
       while (index < total) {
@@ -478,13 +549,18 @@ export default function ClientPhotoUploadScreen() {
           currentFile: `Uploading ${currentIndex + 1}/${total}: ${photo.fileName}`
         }));
 
-        await AdminService.tempUploads.uploadPhoto({
-          temporaryName,
-          temporaryIdentifier,
-          accessCode,
-          file: photo,
-          uploadOrder: currentIndex + 1
-        });
+        try {
+          await AdminService.tempUploads.uploadPhoto({
+            temporaryName,
+            temporaryIdentifier,
+            accessCode,
+            file: photo,
+            uploadOrder: currentIndex + 1
+          });
+        } catch (error) {
+          console.error(`Failed to upload temp photo ${photo.fileName}:`, error);
+          failed.push(photo.fileName);
+        }
 
         completed += 1;
         setUploadProgress(prev => ({
@@ -497,6 +573,11 @@ export default function ClientPhotoUploadScreen() {
 
     const workers = Array.from({ length: Math.min(concurrency, total) }, () => worker());
     await Promise.all(workers);
+
+    if (failed.length > 0) {
+      Alert.alert('Partial Upload', `${failed.length} of ${total} files failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '...' : ''}`);
+    }
+    return { failed };
   };
 
   const handleSendSMS = async () => {
@@ -1307,7 +1388,25 @@ export default function ClientPhotoUploadScreen() {
                         In-App
                       </Text>
                     </Pressable>
+
+                    <Pressable
+                      style={[styles.deliveryChip, deliveryMethods.includes('ussd') && styles.deliveryChipActive]}
+                      onPress={() => toggleDeliveryMethod('ussd')}
+                    >
+                      <Phone size={16} color={deliveryMethods.includes('ussd') ? Colors.white : Colors.textMuted} />
+                      <Text style={[styles.deliveryText, deliveryMethods.includes('ussd') && styles.deliveryTextActive]}>
+                        USSD
+                      </Text>
+                    </Pressable>
                   </View>
+
+                  {deliveryMethods.includes('ussd') && (
+                    <View style={styles.ussdInfo}>
+                      <Text style={styles.ussdInfoText}>
+                        Client can access gallery by dialing *384*123*ACCESS_CODE# — no internet needed
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
                 {/* Custom Message */}
@@ -1953,6 +2052,19 @@ const styles = StyleSheet.create({
   },
   customMessageSection: {
     marginBottom: 20,
+  },
+  ussdInfo: {
+    marginTop: 8,
+    padding: 10,
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
+  },
+  ussdInfoText: {
+    fontSize: 12,
+    color: Colors.gold,
+    lineHeight: 16,
   },
   removePhotoBtn: {
     position: 'absolute',

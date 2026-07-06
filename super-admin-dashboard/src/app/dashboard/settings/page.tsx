@@ -24,19 +24,33 @@ type PaymentSettings = {
 
 type PlatformSettings = {
   id: string;
-  // Admin app download links (photographer mobile app)
   admin_app_android_link: string;
   admin_app_ios_link: string;
-  // User app download links (client mobile app)
   user_app_android_link: string;
   user_app_ios_link: string;
-  // Other platform links
   photographer_signup_url: string;
   deep_link_scheme: string;
 };
 
+type ProviderSettings = {
+  ussd_provider: string;
+  ussd_api_key: string;
+  ussd_short_code: string;
+  ussd_callback_url: string;
+  ussd_enabled: boolean;
+  sms_provider: string;
+  sms_api_key: string;
+  sms_username: string;
+  sms_sender_id: string;
+  sms_enabled: boolean;
+  whatsapp_api_token: string;
+  whatsapp_phone_number_id: string;
+  whatsapp_waba_id: string;
+  whatsapp_enabled: boolean;
+};
+
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'payment' | 'pricing' | 'webhooks' | 'links'>('payment');
+  const [activeTab, setActiveTab] = useState<'payment' | 'pricing' | 'webhooks' | 'links' | 'providers'>('payment');
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({
     id: '',
     mpesa_consumer_key: null,
@@ -64,8 +78,25 @@ export default function SettingsPage() {
     photographer_signup_url: '',
     deep_link_scheme: 'epixvisuals',
   });
+  const [providerSettings, setProviderSettings] = useState<ProviderSettings>({
+    ussd_provider: 'hostpinnacle',
+    ussd_api_key: '',
+    ussd_short_code: '*384',
+    ussd_callback_url: '',
+    ussd_enabled: true,
+    sms_api_key: '',
+    sms_username: '',
+    sms_sender_id: '',
+    sms_enabled: false,
+    whatsapp_api_token: '',
+    whatsapp_phone_number_id: '',
+    whatsapp_waba_id: '',
+    whatsapp_enabled: false,
+    sms_provider: 'africastalking',
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -83,7 +114,7 @@ export default function SettingsPage() {
         setPaymentSettings(paymentData);
       }
 
-      // Load platform settings
+      // Load platform settings + provider settings
       const { data: platformData } = await supabase
         .from('platform_settings')
         .select('key, value');
@@ -98,6 +129,22 @@ export default function SettingsPage() {
           user_app_ios_link: kvMap['platform_app_ios_link'] ?? '',
           photographer_signup_url: kvMap['platform_photographer_signup_url'] ?? '',
           deep_link_scheme: kvMap['platform_deep_link_scheme'] ?? 'epixvisuals',
+        });
+        setProviderSettings({
+          ussd_provider: kvMap['ussd_provider'] || 'hostpinnacle',
+          ussd_api_key: kvMap['ussd_api_key'] || '',
+          ussd_short_code: kvMap['ussd_short_code'] || '*384',
+          ussd_callback_url: kvMap['ussd_callback_url'] || '',
+          ussd_enabled: kvMap['ussd_enabled'] === 'true',
+          sms_provider: kvMap['sms_provider'] || 'africastalking',
+          sms_api_key: kvMap['sms_api_key'] || '',
+          sms_username: kvMap['sms_username'] || '',
+          sms_sender_id: kvMap['sms_sender_id'] || '',
+          sms_enabled: kvMap['sms_enabled'] === 'true',
+          whatsapp_api_token: kvMap['whatsapp_api_token'] || '',
+          whatsapp_phone_number_id: kvMap['whatsapp_phone_number_id'] || '',
+          whatsapp_waba_id: kvMap['whatsapp_waba_id'] || '',
+          whatsapp_enabled: kvMap['whatsapp_enabled'] === 'true',
         });
       }
     } catch (e) {
@@ -149,7 +196,6 @@ export default function SettingsPage() {
     if (!platformSettings) return;
     setSaving(true);
     try {
-      // Map UI fields to their platform_settings DB keys
       const keyMap: Record<keyof Omit<PlatformSettings, 'id'>, string> = {
         admin_app_android_link: 'platform_admin_app_android_link',
         admin_app_ios_link: 'platform_admin_app_ios_link',
@@ -158,18 +204,78 @@ export default function SettingsPage() {
         photographer_signup_url: 'platform_photographer_signup_url',
         deep_link_scheme: 'platform_deep_link_scheme',
       };
-      for (const [field, dbKey] of Object.entries(keyMap)) {
-        await supabase.from('platform_settings').upsert(
+      await Promise.all(Object.entries(keyMap).map(([field, dbKey]) =>
+        supabase.from('platform_settings').upsert(
           { key: dbKey, value: String((platformSettings as any)[field] ?? '') },
           { onConflict: 'key' }
-        );
-      }
+        )
+      ));
       alert('Platform settings saved successfully!');
     } catch (e) {
       console.error(e);
       alert('Failed to save platform settings');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveProviderSettings() {
+    setSaving(true);
+    try {
+      const updates = [
+        { key: 'ussd_provider', value: providerSettings.ussd_provider },
+        { key: 'ussd_api_key', value: providerSettings.ussd_api_key },
+        { key: 'ussd_short_code', value: providerSettings.ussd_short_code },
+        { key: 'ussd_callback_url', value: providerSettings.ussd_callback_url },
+        { key: 'ussd_enabled', value: String(providerSettings.ussd_enabled) },
+        { key: 'sms_provider', value: providerSettings.sms_provider },
+        { key: 'sms_api_key', value: providerSettings.sms_api_key },
+        { key: 'sms_username', value: providerSettings.sms_username },
+        { key: 'sms_sender_id', value: providerSettings.sms_sender_id },
+        { key: 'sms_enabled', value: String(providerSettings.sms_enabled) },
+        { key: 'whatsapp_api_token', value: providerSettings.whatsapp_api_token },
+        { key: 'whatsapp_phone_number_id', value: providerSettings.whatsapp_phone_number_id },
+        { key: 'whatsapp_waba_id', value: providerSettings.whatsapp_waba_id },
+        { key: 'whatsapp_enabled', value: String(providerSettings.whatsapp_enabled) },
+      ];
+      const results = await Promise.all(updates.map(update =>
+        supabase
+          .from('platform_settings')
+          .upsert({ key: update.key, value: update.value }, { onConflict: 'key' })
+      ));
+      const dbError = results.find(r => r.error);
+      if (dbError) throw dbError.error;
+      alert('Provider settings saved successfully!');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to save provider settings');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function testProviderConnection(providerType: 'ussd' | 'sms' | 'whatsapp') {
+    setTestingProvider(providerType);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/test-provider`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ provider_type: providerType }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        alert(`${providerType.toUpperCase()} connection successful: ${result.message}`);
+      } else {
+        alert(`${providerType.toUpperCase()} connection failed: ${result.error}`);
+      }
+    } catch (e: any) {
+      alert(`Test failed: ${e.message}`);
+    } finally {
+      setTestingProvider(null);
     }
   }
 
@@ -196,6 +302,7 @@ export default function SettingsPage() {
           { id: 'pricing' as const, label: 'Pricing Tiers', icon: '💰' },
           { id: 'webhooks' as const, label: 'Webhooks', icon: '🔗' },
           { id: 'links' as const, label: 'App Links', icon: '🌐' },
+          { id: 'providers' as const, label: 'Providers', icon: '📡' },
         ].map(tab => (
           <button
             key={tab.id}
@@ -532,6 +639,231 @@ export default function SettingsPage() {
             style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
             {saving ? 'Saving...' : 'Save App Links'}
           </button>
+        </div>
+      )}
+
+      {/* Providers Tab */}
+      {activeTab === 'providers' && (
+        <div className="space-y-6">
+          {/* ── USSD Provider ── */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-xl">USSD Provider</h2>
+                <p className="text-gray-400 text-sm mt-1">Configure USSD short code and API access</p>
+              </div>
+              <button
+                onClick={() => testProviderConnection('ussd')}
+                disabled={testingProvider === 'ussd'}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border border-white/10 hover:bg-white/5 transition-all"
+              >
+                {testingProvider === 'ussd' ? 'Testing...' : 'Test Connection'}
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">Provider</label>
+                  <select
+                    value={providerSettings.ussd_provider}
+                    onChange={e => setProviderSettings({ ...providerSettings, ussd_provider: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white">
+                    <option value="hostpinnacle">HostPinnacle</option>
+                    <option value="africastalking">Africa's Talking</option>
+                    <option value="custom">Custom Provider</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">Short Code</label>
+                  <input
+                    type="text"
+                    value={providerSettings.ussd_short_code}
+                    onChange={e => setProviderSettings({ ...providerSettings, ussd_short_code: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                    placeholder="*384"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">API Key</label>
+                  <input
+                    type="password"
+                    value={providerSettings.ussd_api_key}
+                    onChange={e => setProviderSettings({ ...providerSettings, ussd_api_key: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                    placeholder="Enter API key"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">Callback URL</label>
+                  <input
+                    type="url"
+                    value={providerSettings.ussd_callback_url}
+                    onChange={e => setProviderSettings({ ...providerSettings, ussd_callback_url: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                    placeholder="https://your-domain.com/ussd-callback"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-4 rounded-lg" style={{ background: providerSettings.ussd_enabled ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${providerSettings.ussd_enabled ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                <input
+                  type="checkbox"
+                  checked={providerSettings.ussd_enabled}
+                  onChange={e => setProviderSettings({ ...providerSettings, ussd_enabled: e.target.checked })}
+                  className="w-5 h-5 rounded"
+                />
+                <div>
+                  <p className="font-semibold" style={{ color: providerSettings.ussd_enabled ? '#22c55e' : '#ef4444' }}>USSD Enabled</p>
+                  <p className="text-xs text-gray-400">Toggle USSD service on/off platform-wide</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── SMS Provider ── */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-xl">SMS Provider</h2>
+                <p className="text-gray-400 text-sm mt-1">Configure Africa's Talking SMS gateway</p>
+              </div>
+              <button
+                onClick={() => testProviderConnection('sms')}
+                disabled={testingProvider === 'sms'}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border border-white/10 hover:bg-white/5 transition-all"
+              >
+                {testingProvider === 'sms' ? 'Testing...' : 'Test Connection'}
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">API Key</label>
+                  <input
+                    type="password"
+                    value={providerSettings.sms_api_key}
+                    onChange={e => setProviderSettings({ ...providerSettings, sms_api_key: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                    placeholder="Africa's Talking API key"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">Username</label>
+                  <input
+                    type="text"
+                    value={providerSettings.sms_username}
+                    onChange={e => setProviderSettings({ ...providerSettings, sms_username: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                    placeholder="sandbox or your username"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">Sender ID</label>
+                  <input
+                    type="text"
+                    value={providerSettings.sms_sender_id}
+                    onChange={e => setProviderSettings({ ...providerSettings, sms_sender_id: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                    placeholder="EPXVISUALS"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">Provider</label>
+                  <select
+                    value={providerSettings.sms_provider}
+                    onChange={e => setProviderSettings({ ...providerSettings, sms_provider: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white">
+                    <option value="africastalking">Africa's Talking</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-4 rounded-lg" style={{ background: providerSettings.sms_enabled ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${providerSettings.sms_enabled ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                <input
+                  type="checkbox"
+                  checked={providerSettings.sms_enabled}
+                  onChange={e => setProviderSettings({ ...providerSettings, sms_enabled: e.target.checked })}
+                  className="w-5 h-5 rounded"
+                />
+                <div>
+                  <p className="font-semibold" style={{ color: providerSettings.sms_enabled ? '#22c55e' : '#ef4444' }}>SMS Enabled</p>
+                  <p className="text-xs text-gray-400">Toggle SMS notifications on/off platform-wide</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── WhatsApp Provider ── */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-xl">WhatsApp Business API</h2>
+                <p className="text-gray-400 text-sm mt-1">Configure WhatsApp Business messaging</p>
+              </div>
+              <button
+                onClick={() => testProviderConnection('whatsapp')}
+                disabled={testingProvider === 'whatsapp'}
+                className="px-4 py-2 rounded-lg text-sm font-semibold border border-white/10 hover:bg-white/5 transition-all"
+              >
+                {testingProvider === 'whatsapp' ? 'Testing...' : 'Test Connection'}
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">Business API Token</label>
+                  <input
+                    type="password"
+                    value={providerSettings.whatsapp_api_token}
+                    onChange={e => setProviderSettings({ ...providerSettings, whatsapp_api_token: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                    placeholder="WhatsApp Business API token"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">Phone Number ID</label>
+                  <input
+                    type="text"
+                    value={providerSettings.whatsapp_phone_number_id}
+                    onChange={e => setProviderSettings({ ...providerSettings, whatsapp_phone_number_id: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                    placeholder="Phone number ID from Meta"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-semibold text-gray-400 block mb-2">WABA ID</label>
+                  <input
+                    type="text"
+                    value={providerSettings.whatsapp_waba_id}
+                    onChange={e => setProviderSettings({ ...providerSettings, whatsapp_waba_id: e.target.value })}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                    placeholder="WhatsApp Business Account ID"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-4 rounded-lg" style={{ background: providerSettings.whatsapp_enabled ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)', border: `1px solid ${providerSettings.whatsapp_enabled ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                <input
+                  type="checkbox"
+                  checked={providerSettings.whatsapp_enabled}
+                  onChange={e => setProviderSettings({ ...providerSettings, whatsapp_enabled: e.target.checked })}
+                  className="w-5 h-5 rounded"
+                />
+                <div>
+                  <p className="font-semibold" style={{ color: providerSettings.whatsapp_enabled ? '#22c55e' : '#ef4444' }}>WhatsApp Enabled</p>
+                  <p className="text-xs text-gray-400">Toggle WhatsApp messaging on/off platform-wide</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6">
+            <button
+              onClick={saveProviderSettings}
+              disabled={saving}
+              className="px-6 py-3 rounded-xl font-bold transition-all"
+              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
+              {saving ? 'Saving...' : 'Save Provider Settings'}
+            </button>
+          </div>
         </div>
       )}
     </div>

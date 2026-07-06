@@ -21,43 +21,17 @@ import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { AdminService } from '@/services/admin';
 
-// Temporary mock data until ChatService is implemented
 export type AdminChatThread = {
   id: string;
   clientId: string;
   clientName: string;
-  clientAvatar: string;
+  clientAvatar: string | null;
   lastMessage: string;
   unread: number;
   timestamp: string;
   isOnline: boolean;
-  clientPhone: string;
+  clientPhone: string | null;
 };
-
-const adminChatThreads: AdminChatThread[] = [
-  {
-    id: '1',
-    clientId: 'c1',
-    clientName: 'Sarah Jenkins',
-    clientAvatar: 'https://i.pravatar.cc/150?u=sarah',
-    lastMessage: 'Hi! When will the photos be ready?',
-    unread: 2,
-    timestamp: '10:30 AM',
-    isOnline: true,
-    clientPhone: '+254712345678'
-  },
-  {
-    id: '2',
-    clientId: 'c2',
-    clientName: 'Mike Ross',
-    clientAvatar: 'https://i.pravatar.cc/150?u=mike',
-    lastMessage: 'Thanks for the great shoot!',
-    unread: 0,
-    timestamp: 'Yesterday',
-    isOnline: false,
-    clientPhone: '+254787654321'
-  }
-];
 
 const adminQuickReplies = [
   "Your photos are ready!",

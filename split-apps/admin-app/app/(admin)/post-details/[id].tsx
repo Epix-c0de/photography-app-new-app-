@@ -179,10 +179,10 @@ export default function PostDetailsScreen() {
       // Note: we're using the count from the query above
 
       setStats({
-        views: (post?.views_count || 0) + Math.floor(Math.random() * 10), // Use real views if available, else mock slight increase
+        views: post?.views_count || 0,
         likes: likesRes.status === 'fulfilled' ? (likesRes.value.count ?? 0) : 0,
         comments: commentsRes.status === 'fulfilled' ? (commentsRes.value.count ?? 0) : 0,
-        shares: (post?.shares_count || 0),  // Use real shares if available
+        shares: (post?.shares_count || 0),
         bookmarks: bookmarksRes.status === 'fulfilled' ? (bookmarksRes.value.count ?? 0) : 0,
       });
     } catch (e) {

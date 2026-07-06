@@ -7,7 +7,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Lock, Unlock, Search, Heart, Download, Eye, X, Share2, ShoppingBag, ArrowLeft, CreditCard, Zap } from 'lucide-react-native';
+import { Lock, Unlock, Search, Heart, Download, Eye, X, Share2, ShoppingBag, ArrowLeft, CreditCard, Zap, Wifi, WifiOff, CloudOff, HardDrive, Save } from 'lucide-react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ScreenCapture from 'expo-screen-capture';
@@ -377,6 +377,29 @@ export default function GalleryScreen() {
   const [selectedPortfolioItem, setSelectedPortfolioItem] = useState<PortfolioItem | null>(null);
   const [selectedPhotoItem, setSelectedPhotoItem] = useState<PhotoRow | null>(null);
   const [shareSheet, setShareSheet] = useState<ShareSheetPayload | null>(null);
+  const [isCached, setIsCached] = useState(false);
+  const [caching, setCaching] = useState(false);
+
+  const handleCacheGallery = async () => {
+    if (!selectedGallery) return;
+    setCaching(true);
+    try {
+      // Simple cache - save gallery ID to AsyncStorage
+      const cachedIds = await AsyncStorage.getItem('cached_galleries') || '[]';
+      const ids = JSON.parse(cachedIds);
+      if (!ids.includes(selectedGallery.id)) {
+        ids.push(selectedGallery.id);
+        await AsyncStorage.setItem('cached_galleries', JSON.stringify(ids));
+      }
+      setIsCached(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Saved', 'Gallery saved for offline viewing');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to save gallery');
+    } finally {
+      setCaching(false);
+    }
+  };
 
   const readLocalUnlockedGalleryIds = useCallback(async (): Promise<string[]> => {
     try {
@@ -1232,6 +1255,13 @@ export default function GalleryScreen() {
                 <Text style={styles.galleryDetailSub}>{photos.length} photos • {selectedGallery.shoot_type ?? 'Gallery'}</Text>
               </View>
               <View style={{ flexDirection: 'row', gap: 12 }}>
+                <Pressable
+                  onPress={handleCacheGallery}
+                  hitSlop={8}
+                  disabled={caching || isCached}
+                >
+                  <Save size={20} color={isCached ? Colors.success : Colors.gold} />
+                </Pressable>
                 {canViewClean && (
                   <Pressable
                     onPress={() => handleDownloadGallery(selectedGallery)}

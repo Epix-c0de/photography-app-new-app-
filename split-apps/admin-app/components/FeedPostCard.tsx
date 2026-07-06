@@ -43,6 +43,10 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+
+async function safeHapticImpact(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
+  try { await Haptics.impactAsync(style); } catch {}
+}
 import FeedVideoPlayer from './FeedVideoPlayer';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -134,12 +138,12 @@ export default function FeedPostCard({
     : { width: '100%' as const, minHeight: 220, maxHeight: MAX_MEDIA_HEIGHT };
 
   const handleLike = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    safeHapticImpact(Haptics.ImpactFeedbackStyle.Light);
     onLike();
   };
 
   const handleBookmark = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    safeHapticImpact(Haptics.ImpactFeedbackStyle.Light);
     onBookmark();
   };
 

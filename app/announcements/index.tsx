@@ -90,21 +90,55 @@ export default function AnnouncementsFeedScreen() {
 
       if (error) throw error;
 
+      // Batch: fetch all user likes and bookmarks in 2 queries instead of N*2
+      const announcementIds = (data || []).map(a => a.id);
+      
+      const [allLikes, allBookmarks, allLikesCounts, allCommentsCounts] = await Promise.allSettled([
+        announcementIds.length > 0 ? supabase
+          .from('announcement_likes')
+          .select('announcement_id')
+          .in('announcement_id', announcementIds)
+          .eq('user_id', user?.id ?? '') : Promise.resolve({ data: [] }),
+        announcementIds.length > 0 ? supabase
+          .from('announcement_bookmarks')
+          .select('announcement_id')
+          .in('announcement_id', announcementIds)
+          .eq('user_id', user?.id ?? '') : Promise.resolve({ data: [] }),
+        announcementIds.length > 0 ? supabase
+          .from('announcement_likes')
+          .select('announcement_id', { count: 'exact' })
+          .in('announcement_id', announcementIds) : Promise.resolve({ data: [] }),
+        announcementIds.length > 0 ? supabase
+          .from('announcement_comments')
+          .select('announcement_id', { count: 'exact' })
+          .in('announcement_id', announcementIds) : Promise.resolve({ data: [] }),
+      ]);
+
+      // Build lookup maps
+      const userLikeSet = new Set(
+        (allLikes.status === 'fulfilled' ? allLikes.value.data : [])?.map((r: any) => r.announcement_id) || []
+      );
+      const userBookmarkSet = new Set(
+        (allBookmarks.status === 'fulfilled' ? allBookmarks.value.data : [])?.map((r: any) => r.announcement_id) || []
+      );
+      
+      // Count maps
+      const likesCountMap: Record<string, number> = {};
+      const commentsCountMap: Record<string, number> = {};
+      
+      if (allLikesCounts.status === 'fulfilled' && allLikesCounts.value.data) {
+        // Group by announcement_id — use group-by via reduce
+        const rows = allLikesCounts.value.data as any[];
+        // Since we can't group-by in JS easily with count, we re-fetch counts per announcement
+        // But that's N+1 again. Instead, we'll use the count from the select with group
+        // Actually supabase doesn't support group-by in JS. Let's just use a simpler approach:
+        // fetch counts for each announcement individually (but parallelized)
+      }
+
       const withSocial = await Promise.all(
         (data || []).map(async (ann) => {
-          const [likeRow, bookmarkRow, likesCount, commentsCount] = await Promise.allSettled([
-            supabase
-              .from('announcement_likes')
-              .select('id')
-              .eq('announcement_id', ann.id)
-              .eq('user_id', user?.id ?? '')
-              .maybeSingle(),
-            supabase
-              .from('announcement_bookmarks')
-              .select('id')
-              .eq('announcement_id', ann.id)
-              .eq('user_id', user?.id ?? '')
-              .maybeSingle(),
+          // For counts, we do parallel queries but batch them
+          const [likesCountResult, commentsCountResult] = await Promise.allSettled([
             supabase
               .from('announcement_likes')
               .select('*', { count: 'exact', head: true })
@@ -117,17 +151,16 @@ export default function AnnouncementsFeedScreen() {
 
           return {
             ...ann,
-            isLiked: likeRow.status === 'fulfilled' && !!likeRow.value.data,
+            isLiked: userLikeSet.has(ann.id),
             likesCount:
-              likesCount.status === 'fulfilled'
-                ? (likesCount.value.count ?? 0)
+              likesCountResult.status === 'fulfilled'
+                ? (likesCountResult.value.count ?? 0)
                 : 0,
             commentsCount:
-              commentsCount.status === 'fulfilled'
-                ? (commentsCount.value.count ?? 0)
+              commentsCountResult.status === 'fulfilled'
+                ? (commentsCountResult.value.count ?? 0)
                 : 0,
-            isBookmarked:
-              bookmarkRow.status === 'fulfilled' && !!bookmarkRow.value.data,
+            isBookmarked: userBookmarkSet.has(ann.id),
           } as AnnouncementWithSocial;
         })
       );
@@ -292,9 +325,9 @@ export default function AnnouncementsFeedScreen() {
       );
 
       setCommentText('');
-      fetchComments(commentSheetPost.id);
-      setCommentSheetPost(null);
+      await fetchComments(commentSheetPost.id);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCommentSheetPost(null);
     } catch {
       Alert.alert('Error', 'Failed to post comment');
     } finally {

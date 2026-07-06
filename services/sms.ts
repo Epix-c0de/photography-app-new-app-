@@ -72,16 +72,49 @@ export const SMSService = {
    * Check if SMS is available on the device
    */
   isAvailable: async () => {
-    // DISABLED: Root app not used, moved to split-apps
-    // if (Platform.OS === 'android') {
-    //   try {
-    //     const status = await LocalSmsGateway.getStatus();
-    //     return status.sendSmsPermission === 'granted';
-    //   } catch {
-    //     return await SMS.isAvailableAsync();
-    //   }
-    // }
     return await SMS.isAvailableAsync();
+  },
+
+  /**
+   * Send SMS via cloud (Africa's Talking) - works without native SMS
+   */
+  sendCloud: async (params: SendSMSParams): Promise<'sent' | 'failed'> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('send-sms', {
+        body: {
+          phone_number: params.phoneNumber,
+          message: params.message,
+          client_id: params.clientId,
+        },
+      });
+
+      if (error) throw error;
+      return data?.success ? 'sent' : 'failed';
+    } catch (error) {
+      console.error('Cloud SMS failed:', error);
+      return 'failed';
+    }
+  },
+
+  /**
+   * Send gallery ready notification via cloud SMS
+   */
+  sendGalleryReady: async (params: {
+    phone_number: string;
+    client_name: string;
+    gallery_name: string;
+    access_code: string;
+    deep_link: string;
+    client_id?: string;
+    gallery_id?: string;
+  }): Promise<'sent' | 'failed'> => {
+    const message = `Hi ${params.client_name}, your ${params.gallery_name} photos are ready!\n\nView them here: ${params.deep_link}\n\nUse code: ${params.access_code} to unlock.\n\nThank you!`;
+
+    return SMSService.sendCloud({
+      phoneNumber: params.phone_number,
+      message,
+      clientId: params.client_id,
+    });
   },
 
   /**
@@ -93,8 +126,24 @@ export const SMSService = {
       const msg = message.trim();
       if (!pn || !msg) throw new Error('Missing phone number or message');
 
-      // DISABLED: Root app not used, moved to split-apps - LocalSmsGateway calls removed
-      // Use expo-sms fallback only
+      // Try cloud SMS first (Africa's Talking), fallback to native
+      try {
+        const { data, error } = await supabase.functions.invoke('send-sms', {
+          body: {
+            phone_number: pn,
+            message: msg,
+            client_id: clientId,
+          },
+        });
+
+        if (!error && data?.success) {
+          return 'sent';
+        }
+      } catch (cloudError) {
+        console.warn('Cloud SMS failed, trying native SMS:', cloudError);
+      }
+
+      // Fallback to native SMS
       const isAvailable = await SMS.isAvailableAsync();
       if (!isAvailable) throw new Error('SMS is not available on this device');
       const { result } = await SMS.sendSMSAsync([pn], msg);

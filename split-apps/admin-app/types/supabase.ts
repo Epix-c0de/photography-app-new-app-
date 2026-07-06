@@ -1241,10 +1241,140 @@ export interface Database {
           }
         ]
       },
-
-
-
-
+      payment_gateways: {
+        Row: {
+          id: string
+          client_id: string
+          gateway_type: 'till' | 'paybill'
+          shortcode: string
+          account_reference: string | null
+          consumer_key: string
+          consumer_secret: string
+          passkey: string
+          environment: 'sandbox' | 'production'
+          callback_url: string
+          confirmation_url: string
+          validation_url: string
+          is_active: boolean
+          verified_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          gateway_type: 'till' | 'paybill'
+          shortcode: string
+          account_reference?: string | null
+          consumer_key: string
+          consumer_secret: string
+          passkey: string
+          environment?: 'sandbox' | 'production'
+          callback_url: string
+          confirmation_url: string
+          validation_url: string
+          is_active?: boolean
+          verified_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          gateway_type?: 'till' | 'paybill'
+          shortcode?: string
+          account_reference?: string | null
+          consumer_key?: string
+          consumer_secret?: string
+          passkey?: string
+          environment?: 'sandbox' | 'production'
+          callback_url?: string
+          confirmation_url?: string
+          validation_url?: string
+          is_active?: boolean
+          verified_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_gateways_client_id_fkey"
+            columns: ["client_id"]
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          }
+        ]
+      },
+      transactions: {
+        Row: {
+          id: string
+          client_id: string
+          gateway_id: string | null
+          checkout_request_id: string | null
+          merchant_request_id: string | null
+          trans_id: string | null
+          phone_number: string
+          amount: number
+          status: 'pending' | 'success' | 'failed' | 'cancelled'
+          mpesa_receipt_number: string | null
+          result_code: number | null
+          result_desc: string | null
+          transaction_type: 'stk_push' | 'c2b'
+          account_reference: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          client_id: string
+          gateway_id?: string | null
+          checkout_request_id?: string | null
+          merchant_request_id?: string | null
+          trans_id?: string | null
+          phone_number: string
+          amount: number
+          status?: 'pending' | 'success' | 'failed' | 'cancelled'
+          mpesa_receipt_number?: string | null
+          result_code?: number | null
+          result_desc?: string | null
+          transaction_type?: 'stk_push' | 'c2b'
+          account_reference?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          client_id?: string
+          gateway_id?: string | null
+          checkout_request_id?: string | null
+          merchant_request_id?: string | null
+          trans_id?: string | null
+          phone_number?: string
+          amount?: number
+          status?: 'pending' | 'success' | 'failed' | 'cancelled'
+          mpesa_receipt_number?: string | null
+          result_code?: number | null
+          result_desc?: string | null
+          transaction_type?: 'stk_push' | 'c2b'
+          account_reference?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_client_id_fkey"
+            columns: ["client_id"]
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_gateway_id_fkey"
+            columns: ["gateway_id"]
+            referencedRelation: "payment_gateways"
+            referencedColumns: ["id"]
+          }
+        ]
+      },
     }
     Views: {
       [_ in never]: never
@@ -1258,7 +1388,10 @@ export interface Database {
       }
     }
     Enums: {
-      [_ in never]: never
+      gateway_type: 'till' | 'paybill'
+      gateway_environment: 'sandbox' | 'production'
+      transaction_status: 'pending' | 'success' | 'failed' | 'cancelled'
+      transaction_type: 'stk_push' | 'c2b'
     }
     CompositeTypes: {
       [_ in never]: never

@@ -19,17 +19,21 @@ export default function AllClientsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 100;
 
-  useEffect(() => { loadClients(); }, []);
+  useEffect(() => { loadClients(); }, [page]);
 
   const loadClients = async () => {
     setLoading(true);
     try {
+      const from = page * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
       const { data: clientsData, count } = await supabase
         .from('clients')
         .select('id, name, phone, email, owner_admin_id, created_at', { count: 'exact' })
         .order('created_at', { ascending: false })
-        .limit(200);
+        .range(from, to);
 
       setTotal(count || 0);
 
@@ -82,6 +86,29 @@ export default function AllClientsPage() {
       <input value={search} onChange={e => setSearch(e.target.value)}
         className="w-full max-w-sm bg-[#111118] border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-yellow-500/50"
         placeholder="Search by name, phone, email, or photographer..." />
+
+      {/* Pagination */}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-500">
+          Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total.toLocaleString()}
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-30 transition-all"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)' }}>
+            Previous
+          </button>
+          <button
+            onClick={() => setPage(p => p + 1)}
+            disabled={(page + 1) * PAGE_SIZE >= total}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-30 transition-all"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)' }}>
+            Next
+          </button>
+        </div>
+      </div>
 
       <div className="bg-[#111118] border border-white/5 rounded-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">

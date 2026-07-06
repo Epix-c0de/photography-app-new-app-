@@ -113,7 +113,7 @@ export default function RevenuePage() {
         .select('*', { count: 'only', head: true })
         .eq('role', 'admin')
         .eq('subscription_status', 'active')
-        .lte('subscription_end_date', thirtyDaysFromNow);
+        .lte('subscription_expires_at', thirtyDaysFromNow);
       setExpiringSubscriptions(expiringCount || 0);
 
     } catch (e) {

@@ -93,7 +93,7 @@ export default function SuperAdminChatPage() {
       const { data: photographers } = await supabase
         .from('user_profiles')
         .select('id')
-        .in('role', ['admin', 'super_admin']);
+        .eq('role', 'admin');
       (photographers || []).forEach(p => {
         supabase.channel(`support_presence_${p.id}`).send({
           type: 'broadcast', event: 'ping',
@@ -143,7 +143,7 @@ export default function SuperAdminChatPage() {
       const { data: photographers } = await supabase
         .from('user_profiles')
         .select('id, name, email, phone')
-        .in('role', ['admin', 'super_admin'])
+        .eq('role', 'admin')
         .order('name');
 
       if (!photographers?.length) { setThreads([]); return; }

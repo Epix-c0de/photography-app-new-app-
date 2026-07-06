@@ -4,14 +4,21 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: '◈', exact: true },
   { href: '/dashboard/photographers', label: 'Photographers', icon: '📸' },
   { href: '/dashboard/clients', label: 'All Clients', icon: '👥' },
   { href: '/dashboard/revenue', label: 'Revenue', icon: '💰' },
+  { href: '/dashboard/sms-analytics', label: 'SMS Analytics', icon: '📨' },
+  { href: '/dashboard/referrals', label: 'Referrals', icon: '🔗' },
   { href: '/dashboard/analytics', label: 'Analytics', icon: '📊' },
   { href: '/dashboard/fraud', label: 'Fraud Detection', icon: '🛡️' },
+  { href: '/dashboard/health', label: 'Platform Health', icon: '💓' },
+  { href: '/dashboard/features', label: 'Feature Flags', icon: '🚩' },
+  { href: '/dashboard/bulk-sms', label: 'Bulk SMS', icon: '📲' },
+  { href: '/dashboard/moderation', label: 'Moderation', icon: '👁️' },
   { href: '/dashboard/chat', label: 'Chat', icon: '💬' },
   { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' },
 ];
@@ -113,7 +120,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
             👑 Super Admin
           </span>
         </div>
-        <div className="px-8 py-8">{children}</div>
+        <div className="px-8 py-8"><ErrorBoundary>{children}</ErrorBoundary></div>
       </main>
     </div>
   );

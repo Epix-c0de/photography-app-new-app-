@@ -1303,6 +1303,29 @@ export const AdminService = {
       const revenueToday = payments?.filter(p => p.created_at >= startOfDay).reduce((sum, p) => sum + p.amount, 0) || 0;
       const revenueThisMonth = payments?.filter(p => p.created_at >= startOfMonth).reduce((sum, p) => sum + p.amount, 0) || 0;
 
+      // Weekly breakdown: last 7 days grouped by day of week
+      const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const startOfWeek = new Date(now);
+      const dayOfWeek = startOfWeek.getDay();
+      const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      startOfWeek.setDate(startOfWeek.getDate() + diffToMonday);
+      startOfWeek.setHours(0, 0, 0, 0);
+      const startOfWeekIso = startOfWeek.toISOString();
+
+      const revenueThisWeek = payments?.filter(p => p.created_at >= startOfWeekIso).reduce((sum, p) => sum + p.amount, 0) || 0;
+
+      const weeklyRevenue = dayLabels.map((label, i) => {
+        const dayStart = new Date(startOfWeek);
+        dayStart.setDate(dayStart.getDate() + i);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const amount = payments?.filter(p => {
+          const d = p.created_at;
+          return d >= dayStart.toISOString() && d < dayEnd.toISOString();
+        }).reduce((sum, p) => sum + p.amount, 0) || 0;
+        return { label, amount };
+      });
+
       const result = {
         totalClients: clientCount || 0,
         totalGalleries: galleryCount || 0,
@@ -1310,7 +1333,8 @@ export const AdminService = {
         totalRevenue,
         revenueToday,
         revenueThisMonth,
-        revenueThisWeek: 0,
+        revenueThisWeek,
+        weeklyRevenue,
         smsBalance: smsBalance?.sms_balance || 0,
         conversionRate: galleryCount ? Math.round(((paidGalleryCount || 0) / galleryCount) * 100) : 0,
         repeatClientRate: 0,
@@ -1393,8 +1417,7 @@ export const AdminService = {
     listThreads: async () => {
       if (USE_MOCK) return [];
       const user = await ensureAdminProfile();
-      
-      // Fetch all messages regardless of admin binding, grouped by client
+
       const { data, error } = await supabase
         .from('messages')
         .select(`
@@ -1402,14 +1425,14 @@ export const AdminService = {
           created_at,
           content,
           sender_role,
+          is_read,
           user_profiles:client_id ( id, name, phone, avatar_url )
         `)
-        // .eq('owner_admin_id', user.id) // Removed filter
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      const threads = new Map();
+      const threads = new Map<string, any>();
       data.forEach((msg: any) => {
         if (!threads.has(msg.client_id)) {
           threads.set(msg.client_id, {
@@ -1421,8 +1444,12 @@ export const AdminService = {
             unread: 0,
             timestamp: msg.created_at,
             isOnline: false,
-            clientPhone: msg.user_profiles?.phone
+            clientPhone: msg.user_profiles?.phone,
           });
+        }
+        const thread = threads.get(msg.client_id)!;
+        if (msg.sender_role === 'client' && msg.is_read === false) {
+          thread.unread += 1;
         }
       });
 

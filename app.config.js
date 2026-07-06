@@ -73,6 +73,19 @@ module.exports = {
             'android.intent.category.DEFAULT',
           ],
         },
+        {
+          action: 'android.intent.action.VIEW',
+          data: [
+            {
+              scheme: 'epix-visuals',
+              host: 'join',
+            },
+          ],
+          category: [
+            'android.intent.category.BROWSABLE',
+            'android.intent.category.DEFAULT',
+          ],
+        },
       ],
     },
     androidNavigationBar: {

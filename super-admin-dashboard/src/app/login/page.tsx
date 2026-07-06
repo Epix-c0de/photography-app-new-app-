@@ -74,7 +74,7 @@ export default function SuperAdminLogin() {
             <div>
               <label className="block text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Email</label>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                className="input-premium" placeholder="epixshots002@gmail.com" required />
+                className="input-premium" placeholder="admin@epixvisuals.com" required />
             </div>
 
             <div>

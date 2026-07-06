@@ -712,10 +712,16 @@ export const AdminService = {
 
       // Upload to Supabase Storage with Blob using supabase-js (reliable in Expo RN)
       const blob = await fetch(file.uri).then(res => res.blob());
-      const { error: uploadError } = await supabase
-        .storage
-        .from('client-photos')
-        .upload(storagePath, blob, { contentType, upsert: true });
+      let uploadError: any = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const result = await supabase
+          .storage
+          .from('client-photos')
+          .upload(storagePath, blob, { contentType, upsert: true });
+        if (!result.error) { uploadError = null; break; }
+        uploadError = result.error;
+        if (attempt < 2) await new Promise(r => setTimeout(r, (2 ** attempt) * 1000));
+      }
       if (uploadError) throw uploadError;
 
 
@@ -932,7 +938,6 @@ export const AdminService = {
     },
 
     delete: async (galleryId: string) => {
-      // Skip the Edge Function (401) and perform cascade delete directly in the right order.
       try {
         // 1. Delete storage files first
         const { data: photos } = await supabase
@@ -944,21 +949,23 @@ export const AdminService = {
           await supabase.storage.from('client-photos').remove(paths);
         }
 
-        // 2. Null out/delete referring data first (FK references, must come before gallery delete)
-        try { await supabase.from('payments').update({ gallery_id: null }).eq('gallery_id', galleryId); } catch {}
-        try { await supabase.from('mpesa_transactions').update({ gallery_id: null }).eq('gallery_id', galleryId); } catch {}
+        // 2. Null out FK references before gallery delete
+        await supabase.from('payments').update({ gallery_id: null }).eq('gallery_id', galleryId).then(r => r);
+        await supabase.from('mpesa_transactions').update({ gallery_id: null }).eq('gallery_id', galleryId).then(r => r);
         
-        // 3. Delete from all other referencing tables
-        await supabase.from('notifications').delete().eq('gallery_id', galleryId);
-        await supabase.from('gallery_views').delete().eq('gallery_id', galleryId);
-        try { await supabase.from('gallery_delivery_status').delete().eq('gallery_id', galleryId); } catch {}
-        await supabase.from('unlocked_galleries').delete().eq('gallery_id', galleryId);
-        try { await supabase.from('gallery_shares').delete().eq('gallery_id', galleryId); } catch {}
-        try { await supabase.from('upload_logs').delete().eq('gallery_id', galleryId); } catch {}
-        try { await supabase.from('upload_sessions').delete().eq('gallery_id', galleryId); } catch {}
-        try { await supabase.from('sms_logs').delete().eq('gallery_id', galleryId); } catch {}
-        try { await (supabase as any).from('events').delete().eq('gallery_id', galleryId); } catch {}
-        try { await (supabase as any).from('event_log').delete().eq('gallery_id', galleryId); } catch {}
+        // 3. Delete from referencing tables (resilient — continue on individual failures)
+        const referencingTables = [
+          'notifications', 'gallery_views', 'gallery_delivery_status',
+          'unlocked_galleries', 'gallery_shares', 'upload_logs',
+          'upload_sessions', 'sms_logs', 'events', 'event_log'
+        ];
+        for (const table of referencingTables) {
+          try {
+            await (supabase as any).from(table).delete().eq('gallery_id', galleryId);
+          } catch (e) {
+            console.warn(`[Gallery Delete] Failed to clean ${table}:`, e);
+          }
+        }
 
         // 4. Delete photos then gallery itself
         await supabase.from('gallery_photos').delete().eq('gallery_id', galleryId);
@@ -1244,14 +1251,16 @@ export const AdminService = {
         { count: paidGalleryCount },
         { data: payments },
         { data: smsBalance },
-        { data: btsStats }
+        { data: btsStats },
+        { data: clientGalleries }
       ] = await Promise.all([
         supabase.from('clients').select('*', { count: 'exact', head: true }).eq('owner_admin_id', user.id),
         supabase.from('galleries').select('*', { count: 'exact', head: true }).eq('owner_admin_id', user.id),
         supabase.from('galleries').select('*', { count: 'exact', head: true }).eq('owner_admin_id', user.id).eq('is_paid', true),
         supabase.from('payments').select('amount, created_at').eq('owner_admin_id', user.id).eq('status', 'paid'),
         (supabase as any).from('admin_resources').select('sms_balance').eq('admin_id', user.id).single(),
-        supabase.from('bts_posts').select('views_count, clicks_count, likes_count, comments_count').eq('is_active', true)
+        supabase.from('bts_posts').select('views_count, clicks_count, likes_count, comments_count').eq('admin_id', user.id).eq('is_active', true),
+        supabase.from('galleries').select('client_id').eq('owner_admin_id', user.id)
       ]);
 
       const totalRevenue = payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
@@ -1260,12 +1269,44 @@ export const AdminService = {
       const totalComments = btsStats?.reduce((sum, p) => sum + (p.comments_count || 0), 0) || 0;
       const totalBtsClicks = btsStats?.reduce((sum, p) => sum + (p.clicks_count || 0), 0) || 0;
 
+      // Calculate repeat client rate
+      const galleryClientCounts = new Map<string, number>();
+      (clientGalleries || []).forEach((g: any) => {
+        if (g.client_id) galleryClientCounts.set(g.client_id, (galleryClientCounts.get(g.client_id) || 0) + 1);
+      });
+      const repeatClients = [...galleryClientCounts.values()].filter(c => c > 1).length;
+      const totalClientsWithGalleries = galleryClientCounts.size || 1;
+      const repeatClientRate = Math.round((repeatClients / totalClientsWithGalleries) * 100);
+
       const now = new Date();
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
       const revenueToday = payments?.filter(p => p.created_at >= startOfDay).reduce((sum, p) => sum + p.amount, 0) || 0;
       const revenueThisMonth = payments?.filter(p => p.created_at >= startOfMonth).reduce((sum, p) => sum + p.amount, 0) || 0;
+
+      // Weekly breakdown: last 7 days grouped by day of week
+      const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const startOfWeek = new Date(now);
+      const dayOfWeek = startOfWeek.getDay();
+      const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      startOfWeek.setDate(startOfWeek.getDate() + diffToMonday);
+      startOfWeek.setHours(0, 0, 0, 0);
+      const startOfWeekIso = startOfWeek.toISOString();
+
+      const revenueThisWeek = payments?.filter(p => p.created_at >= startOfWeekIso).reduce((sum, p) => sum + p.amount, 0) || 0;
+
+      const weeklyRevenue = dayLabels.map((label, i) => {
+        const dayStart = new Date(startOfWeek);
+        dayStart.setDate(dayStart.getDate() + i);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const amount = payments?.filter(p => {
+          const d = p.created_at;
+          return d >= dayStart.toISOString() && d < dayEnd.toISOString();
+        }).reduce((sum, p) => sum + p.amount, 0) || 0;
+        return { label, amount };
+      });
 
       const result = {
         totalClients: clientCount || 0,
@@ -1274,10 +1315,11 @@ export const AdminService = {
         totalRevenue,
         revenueToday,
         revenueThisMonth,
-        revenueThisWeek: 0,
+        revenueThisWeek,
+        weeklyRevenue,
         smsBalance: smsBalance?.sms_balance || 0,
         conversionRate: galleryCount ? Math.round(((paidGalleryCount || 0) / galleryCount) * 100) : 0,
-        repeatClientRate: 0,
+        repeatClientRate,
         engagement: {
           views: totalViews,
           likes: totalLikes,
@@ -1357,8 +1399,7 @@ export const AdminService = {
     listThreads: async () => {
       if (USE_MOCK) return [];
       const user = await ensureAdminProfile();
-      
-      // Fetch all messages regardless of admin binding, grouped by client
+
       const { data, error } = await supabase
         .from('messages')
         .select(`
@@ -1366,14 +1407,14 @@ export const AdminService = {
           created_at,
           content,
           sender_role,
+          is_read,
           user_profiles:client_id ( id, name, phone, avatar_url )
         `)
-        // .eq('owner_admin_id', user.id) // Removed filter
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
-      const threads = new Map();
+      const threads = new Map<string, any>();
       data.forEach((msg: any) => {
         if (!threads.has(msg.client_id)) {
           threads.set(msg.client_id, {
@@ -1385,8 +1426,12 @@ export const AdminService = {
             unread: 0,
             timestamp: msg.created_at,
             isOnline: false,
-            clientPhone: msg.user_profiles?.phone
+            clientPhone: msg.user_profiles?.phone,
           });
+        }
+        const thread = threads.get(msg.client_id)!;
+        if (msg.sender_role === 'client' && msg.is_read === false) {
+          thread.unread += 1;
         }
       });
 
@@ -1766,9 +1811,10 @@ export const AdminService = {
         .select(`
           id, date, time, location, notes, status, shoot_type, service_type,
           package_id,
-          packages!left(name, price, shoot_type),
+          packages!left(name, price, shoot_type, admin_id),
           user_profiles!bookings_user_id_fkey(name, phone, avatar_url)
         `)
+        .eq('packages.admin_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;

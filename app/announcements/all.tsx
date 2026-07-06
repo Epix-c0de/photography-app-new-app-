@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, FlatList, TextInput, Alert, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, FlatList, TextInput, Alert, RefreshControl, Share } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
@@ -27,7 +27,7 @@ interface Announcement {
   announcement_comments?: Array<{
     id: string;
     user_id: string;
-    content: string;
+    comment: string;
     created_at: string;
     user_profiles?: {
       id: string;
@@ -55,7 +55,7 @@ function relativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-function AnnouncementCard({ announcement, onPress, onSeeAll }: { announcement: Announcement; onPress: () => void; onSeeAll?: () => void }) {
+function AnnouncementCard({ announcement, onPress, onShare, onSeeAll }: { announcement: Announcement; onPress: () => void; onShare?: () => void; onSeeAll?: () => void }) {
   const { user } = useAuth();
   const [isLiked, setIsLiked] = useState(false);
   const [reactionCount, setReactionCount] = useState(0);
@@ -72,13 +72,19 @@ function AnnouncementCard({ announcement, onPress, onSeeAll }: { announcement: A
 
   const handleReaction = useCallback(async () => {
     setIsLiking(true);
+    const wasLiked = isLiked;
+    const prevCount = reactionCount;
+    // Optimistic update
+    setIsLiked(!wasLiked);
+    setReactionCount(wasLiked ? prevCount - 1 : prevCount + 1);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       await ClientService.announcements.addReaction(announcement.id, '👍');
-      setIsLiked(!isLiked);
-      setReactionCount(isLiked ? reactionCount - 1 : reactionCount + 1);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (e) {
       console.error('Failed to add reaction:', e);
+      // Revert on error
+      setIsLiked(wasLiked);
+      setReactionCount(prevCount);
     } finally {
       setIsLiking(false);
     }
@@ -118,9 +124,9 @@ function AnnouncementCard({ announcement, onPress, onSeeAll }: { announcement: A
         )}
 
         {/* Media */}
-        {announcement.media_urls && announcement.media_urls.length > 0 && (
+        {(announcement.media_urls && announcement.media_urls.length > 0 || announcement.media_url || announcement.image_url) && (
           <Image
-            source={{ uri: announcement.media_urls[0] }}
+            source={{ uri: announcement.media_urls?.[0] || announcement.media_url || announcement.image_url || '' }}
             style={styles.media}
             contentFit="cover"
           />
@@ -162,7 +168,7 @@ function AnnouncementCard({ announcement, onPress, onSeeAll }: { announcement: A
           <Text style={styles.actionText}>Comment</Text>
         </Pressable>
 
-        <Pressable style={styles.actionButton} onPress={onPress}>
+        <Pressable style={styles.actionButton} onPress={onShare || onPress}>
           <Share2 size={18} color={Colors.textMuted} />
           <Text style={styles.actionText}>Share</Text>
         </Pressable>
@@ -180,9 +186,9 @@ export default function AnnouncementsAllScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchAnnouncements = useCallback(async () => {
+  const fetchAnnouncements = useCallback(async (isRefresh = false) => {
     try {
-      setLoading(true);
+      if (!isRefresh) setLoading(true);
       const data = await ClientService.announcements.list();
       setAnnouncements(data as unknown as Announcement[]);
     } catch (e) {
@@ -196,7 +202,7 @@ export default function AnnouncementsAllScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetchAnnouncements();
+      await fetchAnnouncements(true);
     } finally {
       setRefreshing(false);
     }
@@ -208,13 +214,24 @@ export default function AnnouncementsAllScreen() {
 
   useEffect(() => {
     const unsubscribe = ClientService.announcements.subscribeToAnnouncements(() => {
-      fetchAnnouncements();
+      fetchAnnouncements(true);
     });
 
     return () => {
       if (unsubscribe) unsubscribe();
     };
   }, [fetchAnnouncements]);
+
+  const handleShareAnnouncement = useCallback(async (announcement: Announcement) => {
+    try {
+      await Share.share({
+        message: `${announcement.title || 'Check this out!'}\n\n${announcement.description || ''}`,
+        title: announcement.title || 'Announcement',
+      });
+    } catch {
+      // silent
+    }
+  }, []);
 
   if (loading && announcements.length === 0) {
     return (
@@ -243,6 +260,7 @@ export default function AnnouncementsAllScreen() {
           <AnnouncementCard
             announcement={item}
             onPress={() => router.push(`/announcements/${item.id}` as any)}
+            onShare={() => handleShareAnnouncement(item)}
           />
         )}
         contentContainerStyle={styles.feed}

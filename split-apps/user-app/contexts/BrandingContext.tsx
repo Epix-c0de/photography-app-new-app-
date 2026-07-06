@@ -54,13 +54,70 @@ export const DEFAULTS = {
   embedClientName: true,
   embedGalleryCode: true,
   blockScreenshots: true,
-  shareAppLink: 'https://epix-visuals-studios-co.web.app',
+  shareAppLink: '',
   accessCodeLink: 'epix-visuals://gallery?autoUnlock=true&accessCode=',
-  btsShareLink: 'https://epix-visuals-studios-co.web.app/bts',
-  announcementShareLink: 'https://epix-visuals-studios-co.web.app/announcements',
-  galleryShareLink: 'https://epix-visuals-studios-co.web.app/gallery',
-  referralLink: 'https://epix-visuals-studios-co.web.app',
-  whatsappShareLink: 'https://epix-visuals-studios-co.web.app',
+  btsShareLink: '',
+  announcementShareLink: '',
+  galleryShareLink: '',
+  referralLink: '',
+  whatsappShareLink: '',
+};
+
+export const WATERMARK_PRESETS = {
+  center: {
+    label: 'Center',
+    position: 'center' as WatermarkPosition,
+    opacity: 30,
+    rotation: 45,
+    size: 'medium' as WatermarkSize,
+  },
+  bottomRight: {
+    label: 'Bottom Right',
+    position: 'bottom-right' as WatermarkPosition,
+    opacity: 50,
+    rotation: 0,
+    size: 'small' as WatermarkSize,
+  },
+  bottomLeft: {
+    label: 'Bottom Left',
+    position: 'bottom-left' as WatermarkPosition,
+    opacity: 50,
+    rotation: 0,
+    size: 'small' as WatermarkSize,
+  },
+  tiled: {
+    label: 'Tiled',
+    position: 'center' as WatermarkPosition,
+    opacity: 15,
+    rotation: 45,
+    size: 'small' as WatermarkSize,
+  },
+  topRight: {
+    label: 'Top Right',
+    position: 'top-right' as WatermarkPosition,
+    opacity: 50,
+    rotation: 0,
+    size: 'small' as WatermarkSize,
+  },
+};
+
+export const getWatermarkStyles = (preset: keyof typeof WATERMARK_PRESETS) => {
+  const p = WATERMARK_PRESETS[preset];
+  return {
+    opacity: p.opacity / 100,
+    transform: [{ rotate: `${p.rotation}deg` }],
+  };
+};
+
+export const getTiledWatermarkPositions = (count: number = 6) => {
+  const positions = [];
+  for (let i = 0; i < count; i++) {
+    positions.push({
+      top: `${20 + (i * 25)}%`,
+      left: `${10 + (i % 2) * 40}%`,
+    });
+  }
+  return positions;
 };
 
 export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(() => {
@@ -95,6 +152,18 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       if (selectError) throw selectError;
 
       if (row) {
+        // If shareAppLink is not set in brand_settings, fetch from platform_settings
+        if (!row.share_app_link) {
+          const { data: platformData } = await supabase
+            .from('platform_settings')
+            .select('key, value')
+            .in('key', ['platform_app_android_link', 'platform_app_ios_link']);
+          if (platformData && platformData.length > 0) {
+            const pMap: Record<string, string> = {};
+            platformData.forEach((r: any) => { pMap[r.key] = r.value ?? ''; });
+            row.share_app_link = pMap['platform_app_android_link'] || pMap['platform_app_ios_link'] || '';
+          }
+        }
         setSettings(row);
         return;
       }

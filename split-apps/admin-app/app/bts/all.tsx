@@ -29,24 +29,29 @@ export default function BTSAllScreen() {
     async (overrideSearch?: string) => {
       setLoading(true);
       const searchValue = (overrideSearch ?? search).trim();
-      const nowIso = new Date().toISOString();
+      const now = Date.now();
       let query = supabase
         .from('bts_posts')
         .select('*')
-        .eq('is_active', true)
-        .gt('expires_at', nowIso);
+        .eq('is_active', true);
 
       if (filter !== 'All') query = query.eq('category', filter);
       if (searchValue.length > 0) query = query.ilike('title', `%${searchValue}%`);
-      query = query.order('created_at', { ascending: sort === 'oldest' }).limit(80);
+      query = query.order('created_at', { ascending: sort === 'oldest' }).limit(200);
 
-      const { data, error } = await query;
+      const { data: rawData, error } = await query;
 
-      if (error || !data) {
+      if (error || !rawData) {
         setPosts([]);
         setLoading(false);
         return;
       }
+
+      const data = rawData.filter((p: any) => {
+        if (p.expires_at && new Date(p.expires_at).getTime() <= now) return false;
+        if (p.scheduled_for && new Date(p.scheduled_for).getTime() > now) return false;
+        return true;
+      }).slice(0, 80);
 
       setPosts(data);
       setLoading(false);

@@ -1,11 +1,13 @@
-import { useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated, Dimensions } from 'react-native';
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, Animated, Dimensions, Alert, Share } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, Download, Share2, ArrowRight } from 'lucide-react-native';
+import { Check, Download, Share2, ArrowRight, FileText, Loader } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import Colors from '@/constants/colors';
+import { supabase } from '@/lib/supabase';
 
 const { width, height } = Dimensions.get('window');
 
@@ -77,10 +79,26 @@ function ConfettiPiece({ index }: { index: number }) {
 export default function PaymentSuccessScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const params = useLocalSearchParams<{ amount?: string; gallery?: string }>();
+  const params = useLocalSearchParams<{
+    amount?: string;
+    gallery?: string;
+    gallery_id?: string;
+    photographer_id?: string;
+    client_id?: string;
+    transaction_id?: string;
+    phone?: string;
+  }>();
+  
   const checkScale = useRef(new Animated.Value(0)).current;
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const buttonSlide = useRef(new Animated.Value(50)).current;
+  
+  const [generatingReceipt, setGeneratingReceipt] = useState(false);
+  const [receiptData, setReceiptData] = useState<{
+    receipt_number: string;
+    receipt_text: string;
+    receipt_html: string;
+  } | null>(null);
 
   useEffect(() => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -106,6 +124,57 @@ export default function PaymentSuccessScreen() {
       ]),
     ]).start();
   }, [checkScale, contentOpacity, buttonSlide]);
+
+  const generateReceipt = async () => {
+    if (!params.photographer_id || !params.amount) {
+      Alert.alert('Error', 'Missing payment information');
+      return;
+    }
+
+    setGeneratingReceipt(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-receipt', {
+        body: {
+          photographer_id: params.photographer_id,
+          client_id: params.client_id,
+          gallery_id: params.gallery_id,
+          amount: Number(params.amount.replace(/,/g, '')),
+          phone_number: params.phone,
+          transaction_id: params.transaction_id,
+        },
+      });
+
+      if (error) throw error;
+
+      setReceiptData(data);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Receipt Generated', `Receipt number: ${data.receipt_number}`);
+    } catch (error) {
+      console.error('Receipt generation failed:', error);
+      Alert.alert('Error', 'Failed to generate receipt');
+    } finally {
+      setGeneratingReceipt(false);
+    }
+  };
+
+  const copyReceipt = async () => {
+    if (!receiptData) return;
+    await Clipboard.setStringAsync(receiptData.receipt_text);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert('Copied!', 'Receipt copied to clipboard');
+  };
+
+  const shareReceipt = async () => {
+    if (!receiptData) return;
+    try {
+      await Share.share({
+        message: receiptData.receipt_text,
+        title: `Receipt ${receiptData.receipt_number}`,
+      });
+    } catch (error) {
+      console.error('Share failed:', error);
+    }
+  };
 
   const handleViewGallery = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -148,6 +217,11 @@ export default function PaymentSuccessScreen() {
           </Text>
 
           <View style={styles.receiptCard}>
+            <View style={styles.receiptHeader}>
+              <FileText size={20} color={Colors.gold} />
+              <Text style={styles.receiptTitle}>Payment Receipt</Text>
+            </View>
+            
             <View style={styles.receiptRow}>
               <Text style={styles.receiptLabel}>Amount Paid</Text>
               <Text style={styles.receiptValue}>KES {amount}</Text>
@@ -164,7 +238,45 @@ export default function PaymentSuccessScreen() {
                 <Text style={styles.statusChipText}>Unlocked</Text>
               </View>
             </View>
+            
+            {receiptData && (
+              <>
+                <View style={styles.receiptDivider} />
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Receipt No</Text>
+                  <Text style={styles.receiptNumber}>{receiptData.receipt_number}</Text>
+                </View>
+              </>
+            )}
           </View>
+
+          {!receiptData ? (
+            <Pressable 
+              style={[styles.receiptButton, generatingReceipt && styles.receiptButtonDisabled]}
+              onPress={generateReceipt}
+              disabled={generatingReceipt}
+            >
+              {generatingReceipt ? (
+                <Loader size={18} color={Colors.background} />
+              ) : (
+                <FileText size={18} color={Colors.background} />
+              )}
+              <Text style={styles.receiptButtonText}>
+                {generatingReceipt ? 'Generating...' : 'Generate Receipt'}
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.receiptActions}>
+              <Pressable style={styles.receiptActionButton} onPress={copyReceipt}>
+                <FileText size={16} color={Colors.gold} />
+                <Text style={styles.receiptActionText}>Copy</Text>
+              </Pressable>
+              <Pressable style={styles.receiptActionButton} onPress={shareReceipt}>
+                <Share2 size={16} color={Colors.gold} />
+                <Text style={styles.receiptActionText}>Share</Text>
+              </Pressable>
+            </View>
+          )}
 
           <Text style={styles.thankYou}>Thank you for your purchase!</Text>
         </Animated.View>
@@ -245,7 +357,22 @@ const styles = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     borderColor: Colors.border,
-    marginBottom: 20,
+    marginBottom: 16,
+  },
+  receiptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  receiptTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
   },
   receiptRow: {
     flexDirection: 'row' as const,
@@ -267,6 +394,12 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     color: Colors.white,
   },
+  receiptNumber: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.gold,
+    fontFamily: 'monospace',
+  },
   receiptDivider: {
     height: 0.5,
     backgroundColor: Colors.border,
@@ -281,6 +414,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600' as const,
     color: Colors.success,
+  },
+  receiptButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.gold,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    gap: 10,
+    marginBottom: 16,
+    width: '100%',
+  },
+  receiptButtonDisabled: {
+    opacity: 0.6,
+  },
+  receiptButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.background,
+  },
+  receiptActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+    width: '100%',
+  },
+  receiptActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.card,
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  receiptActionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.gold,
   },
   thankYou: {
     fontSize: 14,

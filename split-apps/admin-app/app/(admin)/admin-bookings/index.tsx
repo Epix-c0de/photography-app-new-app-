@@ -470,7 +470,7 @@ export default function AdminBookingsScreen() {
         time: booking.time,
         location: booking.location,
         amount: booking.packages?.price || 0,
-        depositPaid: false, // We'll need to implement payment tracking
+        depositPaid: booking.deposit_paid ?? false,
         status: booking.status as 'pending' | 'confirmed' | 'completed' | 'cancelled',
         notes: booking.notes
       }));

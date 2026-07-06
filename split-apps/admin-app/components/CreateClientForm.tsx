@@ -18,6 +18,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, UserPlus, Phone, Mail, FileText } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
+
+async function safeHapticImpact(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
+  try { await Haptics.impactAsync(style); } catch {}
+}
+async function safeHapticNotification(style: Haptics.NotificationFeedbackType) {
+  try { await Haptics.notificationAsync(style); } catch {}
+}
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 import type { CreateClientInput } from '@/types/assignment';
@@ -150,7 +157,7 @@ export default function CreateClientForm({ onClose, onSuccess }: CreateClientFor
   const handleSubmit = async () => {
     // Validate form
     if (!validateForm()) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      safeHapticNotification(Haptics.NotificationFeedbackType.Error);
       return;
     }
 
@@ -160,7 +167,7 @@ export default function CreateClientForm({ onClose, onSuccess }: CreateClientFor
     }
 
     setSubmitting(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    safeHapticImpact(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
       // Check for duplicate mobile number
@@ -208,7 +215,7 @@ export default function CreateClientForm({ onClose, onSuccess }: CreateClientFor
       }
 
       // Success!
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      safeHapticNotification(Haptics.NotificationFeedbackType.Success);
       Alert.alert(
         'Client Created',
         `${newClient.name} has been added to your clients list.`,

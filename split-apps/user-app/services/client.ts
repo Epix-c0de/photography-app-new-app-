@@ -147,19 +147,21 @@ export const ClientService = {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const { data: client, error: clientError } = await supabase
+      // Fetch ALL client records for this user (multi-admin support)
+      const { data: clients, error: clientError } = await supabase
         .from('clients')
         .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+        .eq('user_id', user.id);
 
       if (clientError) throw clientError;
-      if (!client?.id) return [];
+      if (!clients || clients.length === 0) return [];
+
+      const clientIds = clients.map((c: any) => c.id);
 
       const { data, error } = await supabase
         .from('galleries')
         .select('*')
-        .eq('client_id', client.id)
+        .in('client_id', clientIds)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -247,7 +249,7 @@ export const ClientService = {
         return {
           ...p,
           url: url || '',
-          thumbnailUrl: url || '',
+          thumbnailUrl: url ? `${url}?width=400&quality=60` : '',
           variant: canViewClean ? ('clean' as const) : ('watermarked' as const),
         };
       });
@@ -267,20 +269,6 @@ export const ClientService = {
       const { data, error } = await supabase.rpc('sync_temp_uploads_for_user', { p_access_code: normalizedCode });
       if (error) throw error;
       return data;
-    }
-  },
-
-  /**
-   * 3. PAYMENTS - M-PESA STK PUSH
-   */
-  payment: {
-    initiateStkPush: async (galleryId: string, phoneNumber: string, clientId?: string) => {
-      const { data, error } = await supabase.functions.invoke('stk_push', {
-        body: { galleryId, clientId, phoneNumber }
-      });
-
-      if (error) throw error;
-      return data; // { checkoutRequestId, status }
     }
   },
 
@@ -319,29 +307,8 @@ export const ClientService = {
       }
       const nowIso = new Date().toISOString();
 
-      // Get the current user's linked admin IDs (for admin_only posts)
-      const { data: { user } } = await supabase.auth.getUser();
-      let myAdminIds: string[] = [];
-      if (user) {
-        const { data: myClients } = await supabase
-          .from('clients')
-          .select('owner_admin_id')
-          .eq('user_id', user.id);
-        myAdminIds = (myClients || [])
-          .map((c: any) => c.owner_admin_id)
-          .filter(Boolean);
-      }
-
-      // Build the visibility filter:
-      // Show 'global' posts OR 'admin_only' posts from photographers the client is linked to
-      let visibilityFilter = 'visibility.eq.global';
-      if (myAdminIds.length > 0) {
-        const adminFilter = myAdminIds
-          .map(id => `and(visibility.eq.admin_only,created_by.eq.${id})`)
-          .join(',');
-        visibilityFilter = `${visibilityFilter},${adminFilter}`;
-      }
-
+      // Show all active BTS posts (bts_posts doesn't have a visibility column)
+      // The target_audience array could be used for filtering in the future
       const { data, error } = await supabase
         .from('bts_posts')
         .select(`
@@ -351,8 +318,8 @@ export const ClientService = {
         .eq('is_active', true)
         .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
         .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
-        .or(visibilityFilter)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(50);
 
       if (error) throw error;
       return data;
@@ -600,14 +567,31 @@ export const ClientService = {
       if (await isDemoModeEnabled()) {
         return demoPortfolioItems as PortfolioItem[];
       }
-      const { data, error } = await supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Get linked admin IDs (multi-admin support)
+      const { data: myClients } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user.id);
+      const adminIds = (myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean);
+
+      let query = supabase
         .from('portfolio_items')
         .select(`
           *,
-          user_profiles:admin_id (id, name, avatar_url)
+          user_profiles:created_by (id, name, avatar_url)
         `)
         .eq('is_active', true)
-        .order('created_at', { ascending: false });
+        .eq('is_public', true);
+
+      // If user has linked admins, filter by them; otherwise show all (public portfolio)
+      if (adminIds.length > 0) {
+        query = query.in('created_by', adminIds);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
         
       if (error) throw error;
       return (data || []) as PortfolioItem[];
@@ -617,12 +601,26 @@ export const ClientService = {
       if (await isDemoModeEnabled()) {
         return demoPortfolioItems.filter((item) => item.content_type === contentType) as PortfolioItem[];
       }
-      const { data, error } = await supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data: myClients } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user.id);
+      const adminIds = (myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean);
+
+      let query = supabase
         .from('portfolio_items')
         .select('*')
         .eq('is_active', true)
-        .eq('content_type', contentType)
-        .order('created_at', { ascending: false });
+        .eq('content_type', contentType);
+
+      if (adminIds.length > 0) {
+        query = query.in('created_by', adminIds);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
         
       if (error) throw error;
       return (data || []) as PortfolioItem[];
@@ -632,15 +630,29 @@ export const ClientService = {
       if (await isDemoModeEnabled()) {
         return demoPortfolioItems.filter((item) => item.is_top_rated) as PortfolioItem[];
       }
-      const { data, error } = await supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data: myClients } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user.id);
+      const adminIds = (myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean);
+
+      let query = supabase
         .from('portfolio_items')
         .select(`
           *,
-          user_profiles:admin_id (id, name, avatar_url)
+          user_profiles:created_by (id, name, avatar_url)
         `)
         .eq('is_active', true)
-        .eq('is_top_rated', true)
-        .order('created_at', { ascending: false });
+        .eq('is_top_rated', true);
+
+      if (adminIds.length > 0) {
+        query = query.in('created_by', adminIds);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
         
       if (error) throw error;
       return (data || []) as PortfolioItem[];

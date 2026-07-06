@@ -213,8 +213,7 @@ export default function AdminBtsAnnouncementsScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
-        allowsEditing: true,
-        aspect: [4, 3],
+        allowsEditing: false,
         quality: 0.8,
         videoMaxDuration: 30, // Auto-crop to 30s for BTS videos
       });
@@ -1595,9 +1594,10 @@ const styles = StyleSheet.create({
   },
   mediaPreviewImage: {
     width: '100%',
-    height: 200,
+    height: 250,
     borderRadius: 12,
     backgroundColor: Colors.card,
+    resizeMode: 'contain' as const,
   },
   removeMedia: {
     position: 'absolute',
@@ -1609,7 +1609,7 @@ const styles = StyleSheet.create({
   },
   mediaPlaceholder: {
     width: '100%',
-    height: 200,
+    height: 250,
     borderRadius: 12,
     backgroundColor: Colors.card,
     borderWidth: 2,
