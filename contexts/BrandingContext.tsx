@@ -21,6 +21,7 @@ interface BrandingState {
   update: (updates: BrandSettingsUpdate) => Promise<BrandSettings>;
 
   brandName: string;
+  brandSlug: string;
   tagline: string | null;
   appDisplayName: string;
   logoUrl: string | null;
@@ -34,6 +35,7 @@ interface BrandingState {
   embedClientName: boolean;
   embedGalleryCode: boolean;
   blockScreenshots: boolean;
+  customDomain: string | null;
   shareAppLink: string;
   accessCodeLink: string;
   btsShareLink: string;
@@ -45,6 +47,7 @@ interface BrandingState {
 
 export const DEFAULTS = {
   brandName: 'Epix Visuals Studios.co',
+  brandSlug: 'epix-visuals',
   appDisplayName: 'Epix Visuals Studios.co',
   watermarkText: 'Epix Visuals Studios.co',
   watermarkOpacity: 30,
@@ -54,14 +57,143 @@ export const DEFAULTS = {
   embedClientName: true,
   embedGalleryCode: true,
   blockScreenshots: true,
-  shareAppLink: 'https://rork.app',
+  customDomain: null,
+  shareAppLink: '',
   accessCodeLink: 'epix-visuals://gallery?autoUnlock=true&accessCode=',
-  btsShareLink: 'https://rork.app',
-  announcementShareLink: 'https://rork.app',
-  galleryShareLink: 'https://rork.app',
-  referralLink: 'https://rork.app',
-  whatsappShareLink: 'https://rork.app',
+  btsShareLink: '',
+  announcementShareLink: '',
+  galleryShareLink: '',
+  referralLink: '',
+  whatsappShareLink: '',
 };
+
+// Watermark presets for different use cases
+export const WATERMARK_PRESETS = {
+  center: {
+    position: 'center' as WatermarkPosition,
+    opacity: 30,
+    rotation: 45,
+    size: 'medium' as WatermarkSize,
+    label: 'Center (Classic)',
+    description: 'Diagonal watermark in the center - best for protecting photos',
+  },
+  bottomRight: {
+    position: 'bottomRight' as WatermarkPosition,
+    opacity: 40,
+    rotation: 0,
+    size: 'small' as WatermarkSize,
+    label: 'Bottom Right (Subtle)',
+    description: 'Small corner watermark - less intrusive',
+  },
+  bottomLeft: {
+    position: 'bottomLeft' as WatermarkPosition,
+    opacity: 40,
+    rotation: 0,
+    size: 'small' as WatermarkSize,
+    label: 'Bottom Left',
+    description: 'Left corner watermark',
+  },
+  tiled: {
+    position: 'center' as WatermarkPosition,
+    opacity: 15,
+    rotation: 45,
+    size: 'small' as WatermarkSize,
+    label: 'Tiled (Maximum Protection)',
+    description: 'Multiple watermarks across the image',
+  },
+  topRight: {
+    position: 'topRight' as WatermarkPosition,
+    opacity: 35,
+    rotation: 0,
+    size: 'small' as WatermarkSize,
+    label: 'Top Right',
+    description: 'Upper corner watermark',
+  },
+};
+
+// Get watermark CSS styles based on position
+export function getWatermarkStyles(
+  position: WatermarkPosition,
+  opacity: number,
+  rotation: number
+): React.CSSProperties {
+  const baseStyle: React.CSSProperties = {
+    position: 'absolute',
+    pointerEvents: 'none',
+    userSelect: 'none',
+    opacity: opacity / 100,
+    transform: `rotate(${rotation}deg)`,
+    color: 'white',
+    fontSize: '14px',
+    fontWeight: 'bold',
+    textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+    zIndex: 10,
+  };
+
+  switch (position) {
+    case 'center':
+      return {
+        ...baseStyle,
+        top: '50%',
+        left: '50%',
+        transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+      };
+    case 'bottomRight':
+      return {
+        ...baseStyle,
+        bottom: '20px',
+        right: '20px',
+      };
+    case 'bottomLeft':
+      return {
+        ...baseStyle,
+        bottom: '20px',
+        left: '20px',
+      };
+    case 'topRight':
+      return {
+        ...baseStyle,
+        top: '20px',
+        right: '20px',
+      };
+    case 'topLeft':
+      return {
+        ...baseStyle,
+        top: '20px',
+        left: '20px',
+      };
+    default:
+      return baseStyle;
+  }
+}
+
+// Get tiled watermark positions
+export function getTiledWatermarkPositions(
+  opacity: number,
+  rotation: number
+): React.CSSProperties[] {
+  const positions = [
+    { top: '20%', left: '20%' },
+    { top: '20%', right: '20%' },
+    { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
+    { bottom: '20%', left: '20%' },
+    { bottom: '20%', right: '20%' },
+  ];
+
+  return positions.map((pos) => ({
+    position: 'absolute' as const,
+    pointerEvents: 'none' as const,
+    userSelect: 'none' as const,
+    opacity: opacity / 100,
+    transform: `rotate(${rotation}deg)`,
+    color: 'white',
+    fontSize: '12px',
+    fontWeight: 'bold' as const,
+    textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+    zIndex: 10,
+    ...pos,
+  }));
+}
 
 export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(() => {
   const { user, profile } = useAuth();
@@ -75,6 +207,8 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
     null) as 'admin' | 'client' | 'super_admin' | null;
   const isAdminRole = authRole === 'admin' || authRole === 'super_admin';
   const resolvedAdminId = activeAdminId ?? (isAdminRole ? (user?.id ?? null) : null);
+
+  const [platformDomain, setPlatformDomain] = useState<string>('');
 
   const refresh = useCallback(async () => {
     if (!resolvedAdminId) {
@@ -120,6 +254,19 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       setIsLoading(false);
     }
   }, [isAdminRole, resolvedAdminId, user?.id]);
+
+  // Fetch platform domain from platform_settings for fallback
+  useEffect(() => {
+    supabase
+      .from('platform_settings')
+      .select('value')
+      .eq('key', 'platform_domain')
+      .single()
+      .then(({ data }) => {
+        if (data?.value) setPlatformDomain(data.value);
+      })
+      .catch(() => {});
+  }, []);
 
   const update = useCallback(async (updates: BrandSettingsUpdate) => {
     const adminIdToUse = activeAdminId ?? (isAdminRole ? (user?.id ?? null) : null);
@@ -213,11 +360,16 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
 
   const derived = useMemo(() => {
     const brandName = settings?.brand_name ?? DEFAULTS.brandName;
+    const brandSlug = settings?.brand_slug ?? DEFAULTS.brandSlug;
     const appDisplayName = settings?.app_display_name ?? DEFAULTS.appDisplayName;
     const watermarkText = settings?.watermark_text ?? brandName ?? DEFAULTS.watermarkText;
 
+    // Use platform_domain from DB as the ultimate fallback, never hardcode
+    const domainFallback = platformDomain || '';
+
     return {
       brandName,
+      brandSlug,
       tagline: settings?.tagline ?? null,
       appDisplayName,
       logoUrl: settings?.logo_url ?? null,
@@ -230,15 +382,16 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       embedClientName: settings?.embed_client_name ?? DEFAULTS.embedClientName,
       embedGalleryCode: settings?.embed_gallery_code ?? DEFAULTS.embedGalleryCode,
       blockScreenshots: settings?.block_screenshots ?? DEFAULTS.blockScreenshots,
-      shareAppLink: settings?.share_app_link ?? DEFAULTS.shareAppLink,
+      customDomain: settings?.custom_domain ?? DEFAULTS.customDomain,
+      shareAppLink: settings?.share_app_link || domainFallback,
       accessCodeLink: settings?.access_code_link ?? DEFAULTS.accessCodeLink,
-      btsShareLink: settings?.bts_share_link ?? settings?.share_app_link ?? DEFAULTS.btsShareLink,
-      announcementShareLink: settings?.announcement_share_link ?? settings?.share_app_link ?? DEFAULTS.announcementShareLink,
-      galleryShareLink: settings?.gallery_share_link ?? settings?.share_app_link ?? DEFAULTS.galleryShareLink,
-      referralLink: settings?.referral_link ?? settings?.share_app_link ?? DEFAULTS.referralLink,
-      whatsappShareLink: settings?.whatsapp_share_link ?? settings?.share_app_link ?? DEFAULTS.whatsappShareLink,
+      btsShareLink: settings?.bts_share_link || settings?.share_app_link || domainFallback,
+      announcementShareLink: settings?.announcement_share_link || settings?.share_app_link || domainFallback,
+      galleryShareLink: settings?.gallery_share_link || settings?.share_app_link || domainFallback,
+      referralLink: settings?.referral_link || settings?.share_app_link || domainFallback,
+      whatsappShareLink: settings?.whatsapp_share_link || settings?.share_app_link || domainFallback,
     };
-  }, [settings]);
+  }, [settings, platformDomain]);
 
   return {
     activeAdminId,

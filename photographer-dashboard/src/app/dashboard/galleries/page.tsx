@@ -129,7 +129,7 @@ export default function GalleriesPage() {
     if (!user) return;
     const { data: profile } = await supabase.from('user_profiles').select('brand_name, business_name').eq('id', user.id).single();
     const brandName = profile?.brand_name || profile?.business_name || 'Studio';
-    const link = generateAccessCodeLink(code, { brand_name: brandName, brand_slug: brandName.toLowerCase().replace(/\s+/g, '-') });
+    const link = await generateAccessCodeLink(code, { brand_name: brandName, brand_slug: brandName.toLowerCase().replace(/\s+/g, '-') });
     navigator.clipboard.writeText(link);
     showToast('Share link copied!');
   };

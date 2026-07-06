@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Dimensions, ActivityIndicator, Keyboard, Share, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, KeyboardAvoidingView, Platform, Dimensions, ActivityIndicator, Keyboard, Share, Modal, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -10,7 +10,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import { useBranding } from '@/contexts/BrandingContext';
+import { getAnnouncementShareUrl, getAppLinks } from '@/lib/platform-config';
 import { demoAnnouncementComments, demoAnnouncements } from '@/lib/demo';
 import type { Database } from '@/types/supabase';
 
@@ -50,7 +50,6 @@ export default function AnnouncementViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, profile, isDemoMode } = useAuth();
-  const { announcementShareLink } = useBranding();
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
@@ -58,12 +57,15 @@ export default function AnnouncementViewerScreen() {
   const [fullScreenMedia, setFullScreenMedia] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [reactionCount, setReactionCount] = useState(0);
+  const [isMuted, setIsMuted] = useState(true);
+  const [videoProgress, setVideoProgress] = useState(0);
   
   const [comments, setComments] = useState<AnnouncementComment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [showCommentInput, setShowCommentInput] = useState(false);
+  const [appLinks, setAppLinks] = useState<{ androidLink: string; iosLink: string; appName: string } | null>(null);
 
   const quickReplies = [
     'Love this!',
@@ -71,6 +73,10 @@ export default function AnnouncementViewerScreen() {
     'Interested in this.',
     'How do I book?'
   ];
+
+  useEffect(() => {
+    getAppLinks().then(setAppLinks);
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -241,14 +247,22 @@ export default function AnnouncementViewerScreen() {
   const handleShare = async () => {
     if (!announcement) return;
     try {
-      const baseLink = announcementShareLink?.trim() || 'https://rork.app';
-      const link = baseLink.includes('{id}')
-        ? baseLink.replace('{id}', announcement.id)
-        : `${baseLink}${baseLink.endsWith('/') ? '' : '/'}${announcement.id}`;
+      // Fetch the admin's shareable URL from DB
+      const link = await getAnnouncementShareUrl(announcement.id, announcement.admin_id);
+      
+      // Build share text with app download prompt
+      let shareText = `Check out this announcement: ${announcement.title}\n${link}`;
+      
+      // If app is not installed, add download prompt
+      if (appLinks) {
+        shareText += `\n\nDownload ${appLinks.appName} for the full experience:`;
+        shareText += `\nAndroid: ${appLinks.androidLink}`;
+        shareText += `\niOS: ${appLinks.iosLink}`;
+      }
       
       await Share.share({
         title: announcement.title,
-        message: `Check out this announcement: ${announcement.title}\n${link}`,
+        message: shareText,
         url: link,
       });
     } catch (error) {
@@ -390,32 +404,43 @@ export default function AnnouncementViewerScreen() {
                 {(announcement.media_url || announcement.image_url) && (
                     <View style={styles.fbMediaContainer}>
                         {announcement.media_type === 'video' ? (
-                            <Pressable 
-                                style={styles.fbVideoContainer}
-                                onPress={() => setFullScreenMedia(true)}
-                            >
-                                <Video
-                                    source={{ uri: announcement.media_url || announcement.image_url || '' }}
-                                    style={styles.fbVideo}
-                                    resizeMode={ResizeMode.COVER}
-                                    useNativeControls={false}
-                                    isLooping
-                                    shouldPlay
-                                    isMuted={true}
-                                />
+                            <View style={styles.fbVideoContainer}>
+                                <Pressable onPress={() => setIsMuted(!isMuted)}>
+                                    <Video
+                                        source={{ uri: announcement.media_url || announcement.image_url || '' }}
+                                        style={styles.fbVideo}
+                                        resizeMode={ResizeMode.COVER}
+                                        useNativeControls={false}
+                                        isLooping
+                                        shouldPlay
+                                        isMuted={isMuted}
+                                        onPlaybackStatusUpdate={(status) => {
+                                            if (status.isLoaded && status.durationMillis) {
+                                                setVideoProgress((status.positionMillis / status.durationMillis) * 100);
+                                            }
+                                        }}
+                                    />
+                                </Pressable>
                                 {/* Video Controls Overlay */}
-                                <View style={styles.videoControlsOverlay}>
-                                    <View style={styles.playPauseBtn}>
-                                        <Play size={32} color={Colors.textPrimary} fill={Colors.textPrimary} />
-                                    </View>
+                                <View style={styles.videoControlsOverlay} pointerEvents="none">
+                                    {/* Mute indicator */}
+                                    {isMuted && (
+                                        <View style={styles.muteIndicator}>
+                                            <Text style={styles.muteIndicatorText}>🔇 Tap to unmute</Text>
+                                        </View>
+                                    )}
                                 </View>
-                                {/* Video Duration / Indicator */}
+                                {/* Top-right video badge */}
                                 <View style={styles.videoIndicator}>
                                     <View style={styles.videoIndicatorBg}>
-                                        <Text style={styles.videoIndicatorText}>VIDEO</Text>
+                                        <Text style={styles.videoIndicatorText}>▶ VIDEO</Text>
                                     </View>
                                 </View>
-                            </Pressable>
+                                {/* Bottom progress bar */}
+                                <View style={styles.videoProgressContainer}>
+                                    <View style={[styles.videoProgressBar, { width: `${videoProgress}%` }]} />
+                                </View>
+                            </View>
                         ) : (
                             <Pressable 
                                 onPress={() => {
@@ -508,6 +533,24 @@ export default function AnnouncementViewerScreen() {
                                 <ExternalLink size={18} color="#000" />
                             </LinearGradient>
                         </Pressable>
+                    </View>
+                )}
+
+                {/* Download App Banner */}
+                {appLinks && (
+                    <View style={styles.downloadBanner}>
+                        <View style={styles.downloadBannerContent}>
+                            <Text style={styles.downloadBannerTitle}>Get the full experience</Text>
+                            <Text style={styles.downloadBannerDesc}>Download {appLinks.appName} to view galleries, chat, and more</Text>
+                            <View style={styles.downloadBannerButtons}>
+                                <Pressable style={styles.downloadBtn} onPress={() => Linking.openURL(appLinks.androidLink)}>
+                                    <Text style={styles.downloadBtnText}>Android</Text>
+                                </Pressable>
+                                <Pressable style={styles.downloadBtn} onPress={() => Linking.openURL(appLinks.iosLink)}>
+                                    <Text style={styles.downloadBtnText}>iOS</Text>
+                                </Pressable>
+                            </View>
+                        </View>
                     </View>
                 )}
 
@@ -760,6 +803,8 @@ const styles = StyleSheet.create({
     aspectRatio: 16/9,
     position: 'relative',
     backgroundColor: '#000',
+    borderRadius: 0,
+    overflow: 'hidden',
   },
   fbVideo: {
     width: '100%',
@@ -769,32 +814,50 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.2)',
   },
-  playPauseBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
+  muteIndicator: {
+    position: 'absolute',
+    bottom: 20,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  muteIndicatorText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   videoIndicator: {
     position: 'absolute',
     top: 12,
-    left: 12,
+    right: 12,
   },
   videoIndicatorBg: {
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 4,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
   videoIndicatorText: {
-    color: Colors.textPrimary,
-    fontSize: 10,
+    color: '#fff',
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  videoProgressContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  videoProgressBar: {
+    height: '100%',
+    backgroundColor: Colors.gold,
+    borderRadius: 2,
   },
   imageCountBadge: {
     position: 'absolute',
@@ -894,6 +957,47 @@ const styles = StyleSheet.create({
     color: '#000',
     fontSize: 15,
     fontWeight: '700',
+  },
+
+  // Download App Banner
+  downloadBanner: {
+    marginHorizontal: 16,
+    marginVertical: 12,
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.15)',
+    padding: 16,
+  },
+  downloadBannerContent: {
+    alignItems: 'center',
+  },
+  downloadBannerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.gold,
+    marginBottom: 4,
+  },
+  downloadBannerDesc: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  downloadBannerButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  downloadBtn: {
+    backgroundColor: Colors.gold,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  downloadBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#080810',
   },
 
   // Facebook-Style Comments Header
