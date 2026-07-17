@@ -200,7 +200,6 @@ export default function ProfileScreen() {
               .select('id', { count: 'exact', head: true })
               .eq('user_id', user.id);
             setSessionCount(bookingsCount ?? 0);
-          }
       } catch (e) {
         console.error('Error loading profile data:', e);
       } finally {
