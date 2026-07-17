@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ChevronLeft, Search, Play } from 'lucide-react-native';
+import { ChevronLeft, Search, Play, AlertTriangle, RefreshCw } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { demoBtsPosts } from '@/lib/demo';
@@ -25,12 +25,16 @@ export default function BTSAllScreen() {
   const [sort, setSort] = useState<'newest' | 'oldest'>('newest');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [posts, setPosts] = useState<BTSPost[]>([]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchPosts = useCallback(
-    async (overrideSearch?: string) => {
-      setLoading(true);
+    async (overrideSearch?: string, isRefresh = false) => {
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+      setError(null);
       if (isDemoMode) {
         const searchValue = (overrideSearch ?? search).trim().toLowerCase();
         const filtered = demoBtsPosts
@@ -38,6 +42,7 @@ export default function BTSAllScreen() {
           .filter((post) => searchValue.length === 0 || String(post.title ?? '').toLowerCase().includes(searchValue));
         setPosts(filtered);
         setLoading(false);
+        setRefreshing(false);
         return;
       }
 
@@ -54,16 +59,19 @@ export default function BTSAllScreen() {
       if (searchValue.length > 0) query = query.ilike('title', `%${searchValue}%`);
       query = query.order('created_at', { ascending: sort === 'oldest' }).limit(80);
 
-      const { data, error } = await query;
+      const { data, error: fetchError } = await query;
 
-      if (error || !data) {
+      if (fetchError || !data) {
         setPosts([]);
+        setError('Failed to load posts. Please try again.');
         setLoading(false);
+        setRefreshing(false);
         return;
       }
 
       setPosts(data);
       setLoading(false);
+      setRefreshing(false);
     },
     [filter, isDemoMode, search, sort]
   );
@@ -80,14 +88,14 @@ export default function BTSAllScreen() {
   useEffect(() => {
     if (isDemoMode) return;
     const channel = supabase
-      .channel(`bts_posts_all_${Date.now()}`)
+      .channel('bts_posts_all_realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bts_posts' }, () => fetchPosts())
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [fetchPosts, isDemoMode]);
+  }, [isDemoMode]);
 
   return (
     <View style={styles.container}>
@@ -136,6 +144,15 @@ export default function BTSAllScreen() {
         <View style={styles.loading}>
           <ActivityIndicator color={Colors.gold} />
         </View>
+      ) : error ? (
+        <View style={styles.empty}>
+          <AlertTriangle size={40} color={Colors.error} />
+          <Text style={styles.emptyTitle}>{error}</Text>
+          <Pressable onPress={() => fetchPosts(undefined, true)} style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.card, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 }}>
+            <RefreshCw size={16} color={Colors.gold} />
+            <Text style={{ color: Colors.gold, fontSize: 14, fontWeight: '600' }}>Retry</Text>
+          </Pressable>
+        </View>
       ) : posts.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyIcon}>📸</Text>
@@ -148,6 +165,9 @@ export default function BTSAllScreen() {
           numColumns={2}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.grid}
+          estimatedItemSize={250}
+          refreshing={refreshing}
+          onRefresh={() => fetchPosts(undefined, true)}
           renderItem={({ item }) => (
             <Pressable style={styles.card} onPress={() => router.push(`/bts/${item.id}` as any)}>
               <Image source={{ uri: item.media_url }} style={styles.cardImage} contentFit="cover" />

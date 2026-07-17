@@ -23,11 +23,16 @@ import {
   MessageCircle,
   Share2,
   Calendar,
+  Bookmark,
+  BookmarkCheck,
   X,
   Send,
   ChevronLeft,
   Volume2,
   VolumeX,
+  RefreshCw,
+  AlertTriangle,
+  Eye,
 } from 'lucide-react-native';
 import { Image } from 'expo-image';
 import { Video, ResizeMode, Audio, AVPlaybackStatus } from 'expo-av';
@@ -37,6 +42,7 @@ import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useBranding } from '@/contexts/BrandingContext';
+import { getBtsShareUrl } from '@/lib/platform-config';
 import { demoBtsComments, demoBtsPosts } from '@/lib/demo';
 import type { Database } from '@/types/supabase';
 
@@ -69,6 +75,7 @@ export default function BTSViewerScreen() {
   const [posts, setPosts] = useState<BTSWithSocial[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -172,6 +179,7 @@ export default function BTSViewerScreen() {
       }
     } catch (err) {
       console.error('[BTS] Fetch error:', err);
+      setError('Failed to load posts. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -304,6 +312,34 @@ export default function BTSViewerScreen() {
     }
   };
 
+  const handleBookmark = async (post: BTSWithSocial) => {
+    if (!user) {
+      Alert.alert('Login Required', 'Please login to bookmark posts');
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    setPosts(prev => prev.map(p => p.id === post.id ? {
+      ...p,
+      isBookmarked: !p.isBookmarked,
+    } : p));
+
+    if (isDemoMode) return;
+
+    try {
+      if (post.isBookmarked) {
+        const { error } = await supabase.from('bts_bookmarks').delete().match({ bts_id: post.id, user_id: user.id });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('bts_bookmarks').insert({ bts_id: post.id, user_id: user.id });
+        if (error && (error as any)?.code !== '23505') throw error;
+      }
+    } catch (error) {
+      console.error('[BTS] Bookmark toggle failed:', error);
+      setPosts(prev => prev.map(p => p.id === post.id ? post : p));
+    }
+  };
+
   const submitComment = async () => {
     if (!user || !showComments || !commentText.trim()) return;
     setPostingComment(true);
@@ -335,6 +371,10 @@ export default function BTSViewerScreen() {
       
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch {
+      setPosts(prev => prev.map(p => p.id === showComments.id ? {
+        ...p,
+        commentsCount: p.commentsCount - 1,
+      } : p));
       Alert.alert('Error', 'Failed to post comment');
     } finally {
       setPostingComment(false);
@@ -344,8 +384,14 @@ export default function BTSViewerScreen() {
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     if (viewableItems.length > 0 && viewableItems[0].item?.id) {
       const idx = viewableItems[0].index ?? 0;
+      const postId = viewableItems[0].item.id;
       setActiveIndex(idx);
-      setActivePostId(viewableItems[0].item.id);
+      setActivePostId(postId);
+      // Track view
+      if (!isDemoMode && user) {
+        supabase.rpc('increment_views_count', { post_id: postId }).catch(() => {});
+        setPosts(prev => prev.map(p => p.id === postId ? { ...p, views_count: (p.views_count ?? 0) + 1 } : p));
+      }
     }
   }).current;
 
@@ -361,16 +407,18 @@ export default function BTSViewerScreen() {
         isMuted={isMuted}
         setIsMuted={setIsMuted}
         onLike={() => handleLike(item)}
+        onBookmark={() => handleBookmark(item)}
         onComment={() => {
           setShowComments(item);
           fetchComments(item.id);
         }}
-        onShare={() => {
-          const baseLink = btsShareLink?.trim() || 'https://rork.app';
-          const link = baseLink.includes('{id}')
-            ? baseLink.replace('{id}', item.id)
-            : `${baseLink}${baseLink.endsWith('/') ? '' : '/'}${item.id}`;
-          Share.share({ message: `Check out this BTS: ${item.title}\n${link}`, url: link });
+        onShare={async () => {
+          try {
+            const link = await getBtsShareUrl(item.id, item.created_by || item.admin_id);
+            Share.share({ message: `Check out this BTS: ${item.title}\n${link}`, url: link });
+          } catch (error) {
+            console.error('Share error:', error);
+          }
         }}
         onBack={() => router.back()}
         insets={insets}
@@ -387,13 +435,26 @@ export default function BTSViewerScreen() {
     );
   }
 
-  if (posts.length === 0) {
+  if (posts.length === 0 && !loading) {
     return (
       <View style={styles.centered}>
-        <Text style={{ color: Colors.textMuted, fontSize: 16 }}>No posts available</Text>
-        <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
-          <Text style={{ color: Colors.gold, fontSize: 14 }}>Go Back</Text>
-        </Pressable>
+        {error ? (
+          <>
+            <AlertTriangle size={40} color={Colors.error} />
+            <Text style={{ color: Colors.textMuted, fontSize: 16, marginTop: 12 }}>{error}</Text>
+            <Pressable onPress={() => { setError(null); fetchPosts(); }} style={{ marginTop: 16, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.card, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 }}>
+              <RefreshCw size={16} color={Colors.gold} />
+              <Text style={{ color: Colors.gold, fontSize: 14, fontWeight: '600' }}>Retry</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={{ color: Colors.textMuted, fontSize: 16 }}>No posts available</Text>
+            <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
+              <Text style={{ color: Colors.gold, fontSize: 14 }}>Go Back</Text>
+            </Pressable>
+          </>
+        )}
       </View>
     );
   }
@@ -410,6 +471,8 @@ export default function BTSViewerScreen() {
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         initialScrollIndex={activeIndex}
+        refreshing={refreshing}
+        onRefresh={() => { setError(null); fetchPosts(true); }}
         getItemLayout={(_, index) => ({
           length: height,
           offset: height * index,
@@ -577,6 +640,30 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     fontSize: 12,
   },
+  photographerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    gap: 8,
+  },
+  photographerAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photographerAvatarText: {
+    color: '#080810',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  photographerName: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
 
   // Modal
   modalContainer: { flex: 1, justifyContent: 'flex-end' },
@@ -645,9 +732,10 @@ const styles = StyleSheet.create({
   },
 });
 
-function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onComment, onShare, onBack, insets, router }: any) {
+function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onBookmark, onComment, onShare, onBack, insets, router }: any) {
   const isVideo = item.media_type === 'video';
   const [progress, setProgress] = useState(0);
+  const [videoError, setVideoError] = useState(false);
 
   const handleStatusUpdate = (status: AVPlaybackStatus) => {
     if (status.isLoaded && status.positionMillis !== undefined && status.durationMillis !== undefined) {
@@ -658,17 +746,25 @@ function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onComment,
   return (
     <View style={{ width, height, backgroundColor: 'black' }}>
       {isVideo ? (
-        <Video
-          source={{ uri: item.media_url }}
-          style={StyleSheet.absoluteFill}
-          resizeMode={ResizeMode.COVER}
-          shouldPlay={isActive}
-          isLooping
-          isMuted={isMuted}
-          posterSource={(item as any).video_thumbnail_url ? { uri: (item as any).video_thumbnail_url } : undefined}
-          usePoster={!!(item as any).video_thumbnail_url}
-          onPlaybackStatusUpdate={handleStatusUpdate}
-        />
+        videoError ? (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' }]}>
+            <AlertTriangle size={40} color={Colors.textMuted} />
+            <Text style={{ color: Colors.textMuted, marginTop: 12, fontSize: 14 }}>Unable to load video</Text>
+          </View>
+        ) : (
+          <Video
+            source={{ uri: item.media_url }}
+            style={StyleSheet.absoluteFill}
+            resizeMode={ResizeMode.COVER}
+            shouldPlay={isActive}
+            isLooping
+            isMuted={isMuted}
+            posterSource={(item as any).video_thumbnail_url ? { uri: (item as any).video_thumbnail_url } : undefined}
+            usePoster={!!(item as any).video_thumbnail_url}
+            onPlaybackStatusUpdate={handleStatusUpdate}
+            onError={() => setVideoError(true)}
+          />
+        )
       ) : (
         <Image
           source={{ uri: item.media_url }}
@@ -704,6 +800,15 @@ function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onComment,
           <Text style={styles.actionCount}>{item.commentsCount}</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity style={styles.actionBtn} onPress={onBookmark}>
+          {item.isBookmarked ? (
+            <BookmarkCheck size={34} color={Colors.gold} fill={Colors.gold} />
+          ) : (
+            <Bookmark size={34} color="white" />
+          )}
+          <Text style={styles.actionCount}>Save</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.actionBtn} onPress={onShare}>
           <Share2 size={34} color="white" />
           <Text style={styles.actionCount}>Share</Text>
@@ -718,6 +823,11 @@ function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onComment,
           </View>
           <Text style={styles.actionCount}>Book</Text>
         </TouchableOpacity>
+
+        <View style={styles.actionBtn}>
+          <Eye size={28} color="rgba(255,255,255,0.7)" />
+          <Text style={styles.actionCount}>{item.views_count ?? 0}</Text>
+        </View>
         
         <TouchableOpacity style={styles.actionBtn} onPress={() => setIsMuted(!isMuted)}>
            {isMuted ? <VolumeX size={28} color="white" /> : <Volume2 size={28} color="white" />}
@@ -731,6 +841,12 @@ function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onComment,
           </View>
         )}
         <Text style={styles.postTitle} numberOfLines={2}>{item.title}</Text>
+        <View style={styles.photographerRow}>
+          <View style={styles.photographerAvatar}>
+            <Text style={styles.photographerAvatarText}>{(item.created_by || 'E').charAt(0).toUpperCase()}</Text>
+          </View>
+          <Text style={styles.photographerName}>Epix Visuals</Text>
+        </View>
         {(item as any).caption && (
           <Text style={styles.postCaption} numberOfLines={3}>{(item as any).caption}</Text>
         )}

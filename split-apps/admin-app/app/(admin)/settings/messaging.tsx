@@ -47,6 +47,15 @@ import {
   Star,
   TrendingUp,
   Filter,
+  CreditCard,
+  Package,
+  Gift,
+  Shield,
+  TrendingDown,
+  Phone,
+  Check,
+  CircleDollarSign,
+  Wallet,
 } from 'lucide-react-native'
 import Colors from '@/constants/colors'
 import { supabase } from '@/lib/supabase'
@@ -61,34 +70,44 @@ try {
 
 const TABS = [
   { key: 'compose', label: 'Compose', icon: MessageSquare },
+  { key: 'credits', label: 'Credits', icon: Wallet },
   { key: 'templates', label: 'Templates', icon: FileText },
   { key: 'history', label: 'History', icon: Clock },
-  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
 ]
 
-const AMOUNT_CHIPS = [100, 250, 500]
+const SUPER_ADMIN_TABS = [
+  { key: 'overview', label: 'Overview', icon: BarChart3 },
+  { key: 'gateway', label: 'Gateway', icon: Settings },
+  { key: 'packages', label: 'Packages', icon: Package },
+  { key: 'balances', label: 'Balances', icon: Users },
+  { key: 'revenue', label: 'Revenue', icon: DollarSign },
+]
 
 const STATUS_CONFIG: Record<string, { color: string; icon: any }> = {
-  sent: { color: '#10B981', icon: CheckCircle },
-  delivered: { color: '#10B981', icon: CheckCircle },
-  failed: { color: '#EF4444', icon: XCircle },
-  pending: { color: '#F59E0B', icon: AlertCircle },
-  queued: { color: '#6366F1', icon: Clock },
+  sent: { color: '#2ECC71', icon: CheckCircle },
+  delivered: { color: '#2ECC71', icon: CheckCircle },
+  failed: { color: '#E74C3C', icon: XCircle },
+  pending: { color: '#F39C12', icon: AlertCircle },
+  queued: { color: '#9B59B6', icon: Clock },
+  completed: { color: '#2ECC71', icon: CheckCircle },
 }
 
 export default function MessagingScreen() {
   const insets = useSafeAreaInsets()
-  const { user } = useAuth()
-  const [activeTab, setActiveTab] = useState('compose')
+  const { user, profile } = useAuth()
+  const isSuperAdmin = profile?.role === 'super_admin'
+
+  const [activeTab, setActiveTab] = useState(isSuperAdmin ? 'overview' : 'compose')
   const [refreshing, setRefreshing] = useState(false)
   const [loading, setLoading] = useState(true)
 
+  const [smsBalance, setSmsBalance] = useState(0)
   const [gatewayStatus, setGatewayStatus] = useState<any>(null)
-  const [balance, setBalance] = useState(0)
-  const [signature, setSignature] = useState('')
   const [templates, setTemplates] = useState<any[]>([])
   const [smsLogs, setSmsLogs] = useState<any[]>([])
   const [clients, setClients] = useState<any[]>([])
+  const [packages, setPackages] = useState<any[]>([])
+  const [purchaseHistory, setPurchaseHistory] = useState<any[]>([])
 
   const [recipientModalVisible, setRecipientModalVisible] = useState(false)
   const [templateModalVisible, setTemplateModalVisible] = useState(false)
@@ -101,36 +120,115 @@ export default function MessagingScreen() {
   const [phoneNumber, setPhoneNumber] = useState('')
   const [messageText, setMessageText] = useState('')
   const [sending, setSending] = useState(false)
-  const [buyModalVisible, setBuyModalVisible] = useState(false)
-  const [buyPhoneNumber, setBuyPhoneNumber] = useState('')
-  const [buyAmount, setBuyAmount] = useState(100)
-  const [buyCustomAmount, setBuyCustomAmount] = useState('')
+  const [signature, setSignature] = useState('')
+
+  const [storeModalVisible, setStoreModalVisible] = useState(false)
+  const [selectedPackage, setSelectedPackage] = useState<any>(null)
   const [buying, setBuying] = useState(false)
-  const [scheduleModalVisible, setScheduleModalVisible] = useState(false)
-  const [scheduleDate, setScheduleDate] = useState('')
-  const [scheduleTime, setScheduleTime] = useState('')
-  const [analyticsData, setAnalyticsData] = useState<any>(null)
+  const [mpesaPhone, setMpesaPhone] = useState('')
+  const [processingPayment, setProcessingPayment] = useState(false)
+
+  const [adminBalances, setAdminBalances] = useState<any[]>([])
+  const [revenueData, setRevenueData] = useState<any>(null)
+  const [editingPackage, setEditingPackage] = useState<any>(null)
+  const [packageModalVisible, setPackageModalVisible] = useState(false)
+  const [packageName, setPackageName] = useState('')
+  const [packageSmsCount, setPackageSmsCount] = useState('')
+  const [packagePrice, setPackagePrice] = useState('')
+  const [packageDescription, setPackageDescription] = useState('')
+  const [packageBonusSms, setPackageBonusSms] = useState('')
+
+  const [adjustmentModalVisible, setAdjustmentModalVisible] = useState(false)
+  const [selectedAdmin, setSelectedAdmin] = useState<any>(null)
+  const [adjustmentAmount, setAdjustmentAmount] = useState('')
+  const [adjustmentReason, setAdjustmentReason] = useState('')
+
+  // Gateway config state
+  const [gatewayApiKey, setGatewayApiKey] = useState('')
+  const [gatewayUsername, setGatewayUsername] = useState('epixvisuals')
+  const [gatewaySenderId, setGatewaySenderId] = useState('')
+  const [savingGateway, setSavingGateway] = useState(false)
+
+  // Commission state
+  const [commissionPercent, setCommissionPercent] = useState('5')
+  const [savingCommission, setSavingCommission] = useState(false)
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true)
-      const [templatesRes, logsRes, clientsRes] = await Promise.all([
+
+      const [templatesRes, logsRes, clientsRes, packagesRes, purchaseRes] = await Promise.all([
         supabase.from('sms_templates').select('*').order('created_at', { ascending: false }),
         supabase.from('sms_logs').select('*').order('created_at', { ascending: false }).limit(100),
         AdminService.getClients(),
+        supabase.from('sms_credit_packages').select('*').eq('is_active', true).order('sort_order'),
+        supabase.from('sms_purchase_transactions').select('*').order('created_at', { ascending: false }).limit(50),
       ])
+
       setTemplates(templatesRes.data || [])
       setSmsLogs(logsRes.data || [])
       setClients(clientsRes || [])
+      setPackages(packagesRes.data || [])
+      setPurchaseHistory(purchaseRes.data || [])
+
+      const { data: resourceData } = await supabase
+        .from('admin_resources')
+        .select('sms_balance')
+        .eq('admin_id', user?.id)
+        .single()
+
+      setSmsBalance(resourceData?.sms_balance || 0)
 
       if (LocalSmsGateway) {
         try {
           const status = await LocalSmsGateway.getStatus()
           setGatewayStatus(status)
-          setBalance(status.balance || 0)
         } catch {
-          setGatewayStatus({ online: false, balance: 0 })
+          setGatewayStatus({ online: false })
         }
+      }
+
+      if (isSuperAdmin) {
+        const { data: adminsData } = await supabase
+          .from('admin_resources')
+          .select(`
+            *,
+            user_profiles!inner(id, name, email, role)
+          `)
+          .order('sms_balance', { ascending: false })
+
+        setAdminBalances(adminsData || [])
+
+        // Load gateway config from platform_settings
+        const { data: gwSettings } = await supabase
+          .from('platform_settings')
+          .select('key, value')
+          .in('key', ['africastalking_api_key', 'africastalking_username', 'sms_sender_id', 'sms_commission_percent'])
+
+        if (gwSettings) {
+          const config = Object.fromEntries(gwSettings.map((s: any) => [s.key, s.value]))
+          setGatewayApiKey(config.africastalking_api_key || '')
+          setGatewayUsername(config.africastalking_username || 'epixvisuals')
+          setGatewaySenderId(config.sms_sender_id || '')
+          setCommissionPercent(config.sms_commission_percent || '5')
+        }
+
+        const totalRevenue = purchaseRes.data?.reduce((sum: number, t: any) => {
+          if (t.status === 'completed') return sum + (t.amount || 0)
+          return sum
+        }, 0) || 0
+
+        const totalSmsSold = purchaseRes.data?.reduce((sum: number, t: any) => {
+          if (t.status === 'completed') return sum + (t.total_sms || 0)
+          return sum
+        }, 0) || 0
+
+        setRevenueData({
+          totalRevenue,
+          totalSmsSold,
+          totalTransactions: purchaseRes.data?.length || 0,
+          completedTransactions: purchaseRes.data?.filter((t: any) => t.status === 'completed').length || 0,
+        })
       }
 
       const defaultSig = templates.find((t: any) => t.is_default)
@@ -140,17 +238,11 @@ export default function MessagingScreen() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [user?.id, isSuperAdmin])
 
   useEffect(() => {
     loadData()
   }, [loadData])
-
-  useEffect(() => {
-    if (activeTab === 'analytics') {
-      computeAnalytics()
-    }
-  }, [activeTab, smsLogs, gatewayStatus])
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -158,45 +250,17 @@ export default function MessagingScreen() {
     setRefreshing(false)
   }, [loadData])
 
-  const computeAnalytics = () => {
-    const today = new Date().toISOString().split('T')[0]
-    const todayLogs = smsLogs.filter((l: any) => l.created_at?.startsWith(today))
-    const sentToday = todayLogs.filter((l: any) => l.status === 'sent' || l.status === 'delivered').length
-    const failedToday = todayLogs.filter((l: any) => l.status === 'failed').length
-    const queued = smsLogs.filter((l: any) => l.status === 'queued' || l.status === 'pending').length
-    const total = smsLogs.length
-    const successCount = smsLogs.filter((l: any) => l.status === 'sent' || l.status === 'delivered').length
-    const successRate = total > 0 ? ((successCount / total) * 100).toFixed(1) : '0.0'
-
-    const last7Days: { date: string; count: number }[] = []
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      const dateStr = d.toISOString().split('T')[0]
-      const count = smsLogs.filter((l: any) => l.created_at?.startsWith(dateStr)).length
-      last7Days.push({ date: dateStr, count })
-    }
-
-    const clientCounts: Record<string, number> = {}
-    smsLogs.forEach((l: any) => {
-      const key = l.client_name || l.phone_number || 'Unknown'
-      clientCounts[key] = (clientCounts[key] || 0) + 1
-    })
-    const topClients = Object.entries(clientCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, count]) => ({ name, count }))
-
-    setAnalyticsData({ sentToday, failedToday, queued, successRate, last7Days, topClients, balance })
-  }
-
-  const sendSMS = async (bulk = false) => {
+  const sendSMS = async () => {
     if (!messageText.trim()) {
       Alert.alert('Error', 'Please enter a message')
       return
     }
     if (!phoneNumber.trim() && !selectedClient) {
       Alert.alert('Error', 'Please select a recipient')
+      return
+    }
+    if (smsBalance <= 0) {
+      Alert.alert('Insufficient Credits', 'Please buy SMS credits to send messages.')
       return
     }
 
@@ -206,6 +270,13 @@ export default function MessagingScreen() {
 
       const recipient = selectedClient?.phone || phoneNumber
       const recipientName = selectedClient?.name || 'Direct'
+
+      const { error: deductError } = await supabase.rpc('decrement_sms_balance', {
+        p_admin_id: user?.id,
+        p_amount: 1,
+      })
+
+      if (deductError) throw deductError
 
       await SMSService.send({
         phoneNumber: recipient,
@@ -221,10 +292,12 @@ export default function MessagingScreen() {
         signature,
         status: 'sent',
         provider: 'local_gateway',
-        cost: 0,
+        cost: 1,
         user_id: user?.id,
+        owner_admin_id: user?.id,
       })
 
+      setSmsBalance(prev => Math.max(0, prev - 1))
       Alert.alert('Success', 'SMS sent successfully')
       setMessageText('')
       setSelectedClient(null)
@@ -237,34 +310,167 @@ export default function MessagingScreen() {
     }
   }
 
-  const buyBundle = async () => {
-    const amount = buyCustomAmount ? parseInt(buyCustomAmount) : buyAmount
-    if (!buyPhoneNumber.trim()) {
-      Alert.alert('Error', 'Enter a phone number')
-      return
-    }
-    if (amount < 1) {
-      Alert.alert('Error', 'Enter a valid amount')
+  const initiatePurchase = (pkg: any) => {
+    setSelectedPackage(pkg)
+    setMpesaPhone('')
+    setStoreModalVisible(true)
+  }
+
+  const processMpesaPayment = async () => {
+    if (!mpesaPhone.trim()) {
+      Alert.alert('Error', 'Enter your M-Pesa phone number')
       return
     }
 
     try {
-      setBuying(true)
+      setProcessingPayment(true)
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-      if (LocalSmsGateway) {
-        await LocalSmsGateway.buyBundle({ phone: buyPhoneNumber, amount })
+
+      const totalSms = (selectedPackage.sms_count || 0) + (selectedPackage.bonus_sms || 0)
+
+      const { data: txData, error: txError } = await supabase
+        .from('sms_purchase_transactions')
+        .insert({
+          admin_id: user?.id,
+          package_id: selectedPackage.id,
+          sms_amount: selectedPackage.sms_count,
+          bonus_sms: selectedPackage.bonus_sms || 0,
+          total_sms: totalSms,
+          amount: selectedPackage.price,
+          currency: selectedPackage.currency || 'KES',
+          payment_method: 'mpesa',
+          status: 'pending',
+        })
+        .select()
+        .single()
+
+      if (txError) throw txError
+
+      const { data: mpesaData, error: mpesaError } = await supabase.functions.invoke('mpesa-stk-push', {
+        body: {
+          phone_number: mpesaPhone,
+          amount: selectedPackage.price,
+          account_reference: `SMS-${txData.id.slice(0, 8)}`,
+          transaction_desc: `Purchase ${totalSms} SMS credits`,
+        },
+      })
+
+      if (mpesaError) throw mpesaError
+
+      if (mpesaData?.success) {
+        await supabase
+          .from('sms_purchase_transactions')
+          .update({
+            checkout_request_id: mpesaData.checkout_request_id,
+            status: 'processing',
+          })
+          .eq('id', txData.id)
+
+        Alert.alert(
+          'STK Push Sent',
+          `Check your phone (${mpesaPhone}) for the M-Pesa payment prompt. Enter your PIN to complete.`,
+        )
+
+        pollTransactionStatus(txData.id)
+      } else {
+        throw new Error(mpesaData?.error || 'Failed to initiate M-Pesa payment')
       }
-      Alert.alert('Success', `Purchased ${amount} SMS credits`)
-      setBuyModalVisible(false)
-      setBuyPhoneNumber('')
-      setBuyAmount(100)
-      setBuyCustomAmount('')
-      await loadData()
+
+      setStoreModalVisible(false)
+      setSelectedPackage(null)
+      setMpesaPhone('')
     } catch (err: any) {
-      Alert.alert('Failed', err.message || 'Failed to buy bundle')
+      Alert.alert('Payment Failed', err.message || 'Failed to process payment')
     } finally {
-      setBuying(false)
+      setProcessingPayment(false)
     }
+  }
+
+  const pollTransactionStatus = async (transactionId: string) => {
+    let attempts = 0
+    const maxAttempts = 30
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) return
+
+      const { data } = await supabase
+        .from('sms_purchase_transactions')
+        .select('status')
+        .eq('id', transactionId)
+        .single()
+
+      if (data?.status === 'completed') {
+        // Apply super admin commission
+        try {
+          const { data: txData } = await supabase
+            .from('sms_purchase_transactions')
+            .select('amount, admin_id')
+            .eq('id', transactionId)
+            .single()
+
+          if (txData?.amount) {
+            const { data: settings } = await supabase
+              .from('platform_settings')
+              .select('value')
+              .eq('key', 'sms_commission_percent')
+              .single()
+
+            const commissionPct = parseFloat(settings?.value || '5')
+            if (commissionPct > 0) {
+              const commissionAmount = Math.ceil(txData.amount * commissionPct / 100)
+              // Deduct commission from photographer's SMS balance
+              await supabase.rpc('decrement_sms_balance', {
+                p_admin_id: txData.admin_id,
+                p_amount: commissionAmount,
+              })
+              // Credit commission to super admin's till account
+              const { data: superAdmin } = await supabase
+                .from('user_profiles')
+                .select('id')
+                .eq('role', 'super_admin')
+                .limit(1)
+                .single()
+              if (superAdmin?.id) {
+                await supabase.rpc('increment_sms_balance', {
+                  p_admin_id: superAdmin.id,
+                  p_amount: commissionAmount,
+                })
+                // Log commission transaction
+                await supabase.from('sms_purchase_transactions').insert({
+                  admin_id: superAdmin.id,
+                  sms_amount: 0,
+                  bonus_sms: 0,
+                  total_sms: 0,
+                  amount: commissionAmount,
+                  currency: 'KES',
+                  payment_method: 'commission',
+                  status: 'completed',
+                  package_id: null,
+                } as any)
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[Commission] Failed:', e)
+        }
+
+        await loadData()
+        Alert.alert('Payment Confirmed', 'SMS credits have been added to your balance!')
+        return
+      }
+
+      if (data?.status === 'failed') {
+        Alert.alert('Payment Failed', 'The payment was not completed. Please try again.')
+        return
+      }
+
+      attempts++
+      if (attempts < maxAttempts) {
+        setTimeout(poll, 3000)
+      }
+    }
+
+    setTimeout(poll, 5000)
   }
 
   const saveTemplate = async () => {
@@ -282,7 +488,7 @@ export default function MessagingScreen() {
         name: templateName,
         body: templateBody,
         is_default: isDefaultTemplate,
-        user_id: user?.id,
+        owner_admin_id: user?.id,
       }
 
       if (editingTemplate) {
@@ -339,6 +545,151 @@ export default function MessagingScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
   }
 
+  const savePackage = async () => {
+    if (!packageName.trim() || !packageSmsCount.trim() || !packagePrice.trim()) {
+      Alert.alert('Error', 'Name, SMS count, and price are required')
+      return
+    }
+
+    try {
+      const payload = {
+        name: packageName,
+        sms_count: parseInt(packageSmsCount),
+        price: parseFloat(packagePrice),
+        description: packageDescription || `${packageSmsCount} SMS credits`,
+        bonus_sms: parseInt(packageBonusSms || '0'),
+        is_active: true,
+      }
+
+      if (editingPackage) {
+        await supabase.from('sms_credit_packages').update(payload).eq('id', editingPackage.id)
+      } else {
+        await supabase.from('sms_credit_packages').insert(payload)
+      }
+
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      setPackageModalVisible(false)
+      resetPackageForm()
+      await loadData()
+    } catch (err: any) {
+      Alert.alert('Failed', err.message || 'Failed to save package')
+    }
+  }
+
+  const deletePackage = async (id: string) => {
+    Alert.alert('Delete Package', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await supabase.from('sms_credit_packages').delete().eq('id', id)
+          await loadData()
+        },
+      },
+    ])
+  }
+
+  const resetPackageForm = () => {
+    setPackageName('')
+    setPackageSmsCount('')
+    setPackagePrice('')
+    setPackageDescription('')
+    setPackageBonusSms('')
+    setEditingPackage(null)
+  }
+
+  const openPackageEditor = (pkg?: any) => {
+    if (pkg) {
+      setEditingPackage(pkg)
+      setPackageName(pkg.name)
+      setPackageSmsCount(String(pkg.sms_count))
+      setPackagePrice(String(pkg.price))
+      setPackageDescription(pkg.description || '')
+      setPackageBonusSms(String(pkg.bonus_sms || ''))
+    } else {
+      resetPackageForm()
+    }
+    setPackageModalVisible(true)
+  }
+
+  const processAdjustment = async () => {
+    if (!selectedAdmin || !adjustmentAmount.trim()) {
+      Alert.alert('Error', 'Select an admin and enter amount')
+      return
+    }
+
+    const amount = parseInt(adjustmentAmount)
+    if (isNaN(amount) || amount === 0) {
+      Alert.alert('Error', 'Enter a valid amount')
+      return
+    }
+
+    try {
+      const fn = amount > 0 ? 'increment_sms_balance' : 'decrement_sms_balance'
+      const absAmount = Math.abs(amount)
+
+      const { error } = await supabase.rpc(fn, {
+        p_admin_id: selectedAdmin.admin_id,
+        p_amount: absAmount,
+      })
+
+      if (error) throw error
+
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      Alert.alert('Success', `${amount > 0 ? 'Added' : 'Deducted'} ${absAmount} credits`)
+      setAdjustmentModalVisible(false)
+      setSelectedAdmin(null)
+      setAdjustmentAmount('')
+      setAdjustmentReason('')
+      await loadData()
+    } catch (err: any) {
+      Alert.alert('Failed', err.message || 'Failed to adjust credits')
+    }
+  }
+
+  const saveGatewayConfig = async () => {
+    if (!gatewayApiKey.trim()) {
+      Alert.alert('Error', 'Africa\'s Talking API key is required')
+      return
+    }
+    try {
+      setSavingGateway(true)
+      const updates = [
+        supabase.from('platform_settings').upsert({ key: 'africastalking_api_key', value: gatewayApiKey.trim() }),
+        supabase.from('platform_settings').upsert({ key: 'africastalking_username', value: gatewayUsername.trim() || 'epixvisuals' }),
+        supabase.from('platform_settings').upsert({ key: 'sms_sender_id', value: gatewaySenderId.trim() }),
+      ]
+      const results = await Promise.all(updates)
+      const hasError = results.some(r => r.error)
+      if (hasError) throw new Error('Failed to save one or more settings')
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      Alert.alert('Success', 'SMS gateway configuration saved')
+    } catch (err: any) {
+      Alert.alert('Failed', err.message || 'Failed to save gateway config')
+    } finally {
+      setSavingGateway(false)
+    }
+  }
+
+  const saveCommissionConfig = async () => {
+    const pct = parseFloat(commissionPercent)
+    if (isNaN(pct) || pct < 0 || pct > 50) {
+      Alert.alert('Error', 'Commission must be between 0% and 50%')
+      return
+    }
+    try {
+      setSavingCommission(true)
+      await supabase.from('platform_settings').upsert({ key: 'sms_commission_percent', value: String(pct) })
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      Alert.alert('Success', `Commission set to ${pct}% on SMS refills`)
+    } catch (err: any) {
+      Alert.alert('Failed', err.message || 'Failed to save commission')
+    } finally {
+      setSavingCommission(false)
+    }
+  }
+
   const filteredClients = useMemo(() => {
     if (!searchQuery) return clients
     const q = searchQuery.toLowerCase()
@@ -353,48 +704,36 @@ export default function MessagingScreen() {
   const charCount = messageText.length + (signature ? signature.length + 2 : 0)
   const maxChars = 160
 
-  const renderGatewayStatus = () => {
-    if (!gatewayStatus) return null
-    return (
-      <View style={styles.gatewayCard}>
-        <View style={styles.gatewayHeader}>
-          <View style={[styles.statusDot, { backgroundColor: gatewayStatus.online ? '#10B981' : '#EF4444' }]} />
-          <Text style={styles.gatewayTitle}>Gateway {gatewayStatus.online ? 'Online' : 'Offline'}</Text>
-          <TouchableOpacity onPress={() => LocalSmsGateway?.refresh?.()} style={styles.refreshBtn}>
-            <RefreshCw size={16} color={Colors.primary} />
-          </TouchableOpacity>
+  const renderCreditsBalance = () => (
+    <View style={styles.balanceCard}>
+      <View style={styles.balanceHeader}>
+        <View style={styles.balanceIconContainer}>
+          <Wallet size={24} color={Colors.gold} />
         </View>
-        <View style={styles.gatewayStats}>
-          <View style={styles.gatewayStat}>
-            <Text style={styles.gatewayStatValue}>{balance}</Text>
-            <Text style={styles.gatewayStatLabel}>Balance</Text>
-          </View>
-          <View style={styles.gatewayStat}>
-            <Text style={styles.gatewayStatValue}>{gatewayStatus.queue || 0}</Text>
-            <Text style={styles.gatewayStatLabel}>Queued</Text>
-          </View>
-          <View style={styles.gatewayStat}>
-            <Text style={styles.gatewayStatValue}>{gatewayStatus.sentToday || 0}</Text>
-            <Text style={styles.gatewayStatLabel}>Sent Today</Text>
-          </View>
-          <View style={styles.gatewayStat}>
-            <Text style={styles.gatewayStatValue}>{gatewayStatus.failedToday || 0}</Text>
-            <Text style={styles.gatewayStatLabel}>Failed</Text>
-          </View>
+        <View style={styles.balanceInfo}>
+          <Text style={styles.balanceLabel}>SMS Credits</Text>
+          <Text style={styles.balanceValue}>{smsBalance.toLocaleString()}</Text>
         </View>
-        {gatewayStatus.simStatus && (
-          <View style={styles.simRow}>
-            <Smartphone size={14} color={Colors.textSecondary} />
-            <Text style={styles.simText}>SIM: {gatewayStatus.simStatus}</Text>
-          </View>
-        )}
+        <TouchableOpacity
+          style={styles.buyCreditsBtn}
+          onPress={() => setStoreModalVisible(true)}
+        >
+          <Plus size={16} color="#fff" />
+          <Text style={styles.buyCreditsBtnText}>Buy</Text>
+        </TouchableOpacity>
       </View>
-    )
-  }
+      {smsBalance <= 10 && (
+        <View style={styles.lowBalanceWarning}>
+          <AlertCircle size={14} color="#F39C12" />
+          <Text style={styles.lowBalanceText}>Low balance! Buy more credits to continue sending.</Text>
+        </View>
+      )}
+    </View>
+  )
 
   const renderComposeTab = () => (
     <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-      {renderGatewayStatus()}
+      {renderCreditsBalance()}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>SMS Signature</Text>
@@ -403,18 +742,8 @@ export default function MessagingScreen() {
           value={signature}
           onChangeText={setSignature}
           placeholder="Your signature..."
-          placeholderTextColor={Colors.textSecondary}
+          placeholderTextColor={Colors.textMuted}
         />
-      </View>
-
-      <View style={styles.section}>
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Buy SMS Bundle</Text>
-          <TouchableOpacity onPress={() => setBuyModalVisible(true)} style={styles.buyBtn}>
-            <Zap size={14} color={Colors.primary} />
-            <Text style={styles.buyBtnText}>Buy Credits</Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       <View style={styles.section}>
@@ -422,20 +751,20 @@ export default function MessagingScreen() {
         <TouchableOpacity style={styles.recipientSelector} onPress={() => setRecipientModalVisible(true)}>
           {selectedClient ? (
             <View style={styles.selectedRecipient}>
-              <Users size={18} color={Colors.primary} />
+              <Users size={18} color={Colors.gold} />
               <View style={styles.recipientInfo}>
                 <Text style={styles.recipientName}>{selectedClient.name}</Text>
                 <Text style={styles.recipientPhone}>{selectedClient.phone}</Text>
               </View>
               <TouchableOpacity onPress={() => setSelectedClient(null)}>
-                <X size={18} color={Colors.textSecondary} />
+                <X size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
           ) : (
             <>
-              <Users size={18} color={Colors.textSecondary} />
+              <Users size={18} color={Colors.textMuted} />
               <Text style={styles.recipientPlaceholder}>Select a client or enter phone number</Text>
-              <ChevronDown size={18} color={Colors.textSecondary} />
+              <ChevronDown size={18} color={Colors.textMuted} />
             </>
           )}
         </TouchableOpacity>
@@ -446,8 +775,8 @@ export default function MessagingScreen() {
               style={[styles.input, styles.phoneInput]}
               value={phoneNumber}
               onChangeText={setPhoneNumber}
-              placeholder="+1 (555) 000-0000"
-              placeholderTextColor={Colors.textSecondary}
+              placeholder="+254 7XX XXX XXX"
+              placeholderTextColor={Colors.textMuted}
               keyboardType="phone-pad"
             />
           </View>
@@ -466,7 +795,7 @@ export default function MessagingScreen() {
           value={messageText}
           onChangeText={setMessageText}
           placeholder="Type your message..."
-          placeholderTextColor={Colors.textSecondary}
+          placeholderTextColor={Colors.textMuted}
           multiline
           textAlignVertical="top"
         />
@@ -479,33 +808,75 @@ export default function MessagingScreen() {
 
       <View style={styles.actionButtons}>
         <TouchableOpacity
-          style={[styles.sendBtn, sending && styles.sendBtnDisabled]}
-          onPress={() => sendSMS(false)}
-          disabled={sending}
+          style={[styles.sendBtn, (sending || smsBalance <= 0) && styles.sendBtnDisabled]}
+          onPress={sendSMS}
+          disabled={sending || smsBalance <= 0}
         >
           {sending ? (
             <ActivityIndicator size="small" color="#fff" />
           ) : (
             <Send size={18} color="#fff" />
           )}
-          <Text style={styles.sendBtnText}>Send SMS</Text>
+          <Text style={styles.sendBtnText}>Send SMS (1 Credit)</Text>
         </TouchableOpacity>
+      </View>
 
-        <TouchableOpacity
-          style={[styles.bulkBtn, sending && styles.sendBtnDisabled]}
-          onPress={() => sendSMS(true)}
-          disabled={sending}
-        >
-          <Users size={18} color={Colors.primary} />
-          <Text style={styles.bulkBtnText}>Bulk Send</Text>
-        </TouchableOpacity>
+      <View style={{ height: 40 }} />
+    </ScrollView>
+  )
 
+  const renderCreditsTab = () => (
+    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.creditsHeader}>
+        <View style={styles.creditsBalanceLarge}>
+          <Wallet size={32} color={Colors.gold} />
+          <Text style={styles.creditsBalanceValue}>{smsBalance.toLocaleString()}</Text>
+          <Text style={styles.creditsBalanceLabel}>SMS Credits Available</Text>
+        </View>
         <TouchableOpacity
-          style={styles.scheduleBtn}
-          onPress={() => setScheduleModalVisible(true)}
+          style={styles.buyCreditsLargeBtn}
+          onPress={() => setStoreModalVisible(true)}
         >
-          <Calendar size={18} color={Colors.textSecondary} />
+          <CreditCard size={20} color="#fff" />
+          <Text style={styles.buyCreditsLargeBtnText}>Buy More Credits</Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Recent Purchases</Text>
+        {purchaseHistory.length === 0 ? (
+          <View style={styles.emptyStateSmall}>
+            <Text style={styles.emptySubtitle}>No purchases yet</Text>
+          </View>
+        ) : (
+          purchaseHistory.slice(0, 5).map((purchase: any) => (
+            <View key={purchase.id} style={styles.purchaseCard}>
+              <View style={styles.purchaseLeft}>
+                <View style={[styles.purchaseStatusIcon, { backgroundColor: STATUS_CONFIG[purchase.status]?.color + '20' }]}>
+                  {purchase.status === 'completed' ? (
+                    <CheckCircle size={16} color={STATUS_CONFIG[purchase.status]?.color} />
+                  ) : purchase.status === 'failed' ? (
+                    <XCircle size={16} color={STATUS_CONFIG[purchase.status]?.color} />
+                  ) : (
+                    <Clock size={16} color={STATUS_CONFIG[purchase.status]?.color} />
+                  )}
+                </View>
+                <View style={styles.purchaseInfo}>
+                  <Text style={styles.purchaseAmount}>{purchase.total_sms} SMS Credits</Text>
+                  <Text style={styles.purchaseDate}>
+                    {new Date(purchase.created_at).toLocaleDateString()} {new Date(purchase.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.purchaseRight}>
+                <Text style={styles.purchasePrice}>KES {purchase.amount}</Text>
+                <Text style={[styles.purchaseStatus, { color: STATUS_CONFIG[purchase.status]?.color }]}>
+                  {purchase.status}
+                </Text>
+              </View>
+            </View>
+          ))
+        )}
       </View>
 
       <View style={{ height: 40 }} />
@@ -524,7 +895,7 @@ export default function MessagingScreen() {
 
       {templates.length === 0 ? (
         <View style={styles.emptyState}>
-          <FileText size={48} color={Colors.textSecondary} />
+          <FileText size={48} color={Colors.textMuted} />
           <Text style={styles.emptyTitle}>No Templates</Text>
           <Text style={styles.emptySubtitle}>Create templates to speed up messaging</Text>
         </View>
@@ -540,17 +911,17 @@ export default function MessagingScreen() {
                 <Text style={styles.templateName}>{template.name}</Text>
                 {template.is_default && (
                   <View style={styles.defaultBadge}>
-                    <Star size={10} color={Colors.primary} />
+                    <Star size={10} color={Colors.gold} />
                     <Text style={styles.defaultBadgeText}>Default</Text>
                   </View>
                 )}
               </View>
               <View style={styles.templateActions}>
                 <TouchableOpacity onPress={() => openTemplateEditor(template)} style={styles.templateActionBtn}>
-                  <Edit3 size={14} color={Colors.primary} />
+                  <Edit3 size={14} color={Colors.gold} />
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => deleteTemplate(template.id)} style={styles.templateActionBtn}>
-                  <Trash2 size={14} color="#EF4444" />
+                  <Trash2 size={14} color="#E74C3C" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -574,10 +945,10 @@ export default function MessagingScreen() {
       keyExtractor={(item: any) => item.id}
       style={styles.tabContent}
       contentContainerStyle={styles.listContent}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
       ListEmptyComponent={
         <View style={styles.emptyState}>
-          <Clock size={48} color={Colors.textSecondary} />
+          <Clock size={48} color={Colors.textMuted} />
           <Text style={styles.emptyTitle}>No SMS History</Text>
           <Text style={styles.emptySubtitle}>Sent messages will appear here</Text>
         </View>
@@ -601,8 +972,7 @@ export default function MessagingScreen() {
             </View>
             <View style={styles.logRight}>
               <Text style={[styles.logStatus, { color: statusConf.color }]}>{item.status}</Text>
-              <Text style={styles.logProvider}>{item.provider}</Text>
-              {item.cost > 0 && <Text style={styles.logCost}>${item.cost.toFixed(2)}</Text>}
+              {item.cost > 0 && <Text style={styles.logCost}>-{item.cost} credit</Text>}
             </View>
           </View>
         )
@@ -610,124 +980,466 @@ export default function MessagingScreen() {
     />
   )
 
-  const renderAnalyticsTab = () => {
-    if (!analyticsData) {
-      return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+  const renderSuperAdminOverview = () => (
+    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.metricsGrid}>
+        <View style={styles.metricCard}>
+          <View style={[styles.metricIcon, { backgroundColor: Colors.gold + '20' }]}>
+            <DollarSign size={18} color={Colors.gold} />
+          </View>
+          <Text style={styles.metricValue}>KES {revenueData?.totalRevenue?.toLocaleString() || '0'}</Text>
+          <Text style={styles.metricLabel}>Total Revenue</Text>
         </View>
-      )
-    }
-
-    const maxChartValue = Math.max(...analyticsData.last7Days.map((d: any) => d.count), 1)
-
-    return (
-      <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.metricsGrid}>
-          <View style={styles.metricCard}>
-            <View style={[styles.metricIcon, { backgroundColor: '#10B98120' }]}>
-              <DollarSign size={18} color="#10B981" />
-            </View>
-            <Text style={styles.metricValue}>{analyticsData.balance}</Text>
-            <Text style={styles.metricLabel}>Balance</Text>
+        <View style={styles.metricCard}>
+          <View style={[styles.metricIcon, { backgroundColor: '#2ECC7120' }]}>
+            <MessageSquare size={18} color="#2ECC71" />
           </View>
-          <View style={styles.metricCard}>
-            <View style={[styles.metricIcon, { backgroundColor: '#6366F120' }]}>
-              <ArrowUpRight size={18} color="#6366F1" />
-            </View>
-            <Text style={styles.metricValue}>{analyticsData.sentToday}</Text>
-            <Text style={styles.metricLabel}>Sent Today</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <View style={[styles.metricIcon, { backgroundColor: '#EF444420' }]}>
-              <ArrowDownRight size={18} color="#EF4444" />
-            </View>
-            <Text style={styles.metricValue}>{analyticsData.failedToday}</Text>
-            <Text style={styles.metricLabel}>Failed Today</Text>
-          </View>
-          <View style={styles.metricCard}>
-            <View style={[styles.metricIcon, { backgroundColor: '#F59E0B20' }]}>
-              <Clock size={18} color="#F59E0B" />
-            </View>
-            <Text style={styles.metricValue}>{analyticsData.queued}</Text>
-            <Text style={styles.metricLabel}>Queued</Text>
-          </View>
+          <Text style={styles.metricValue}>{revenueData?.totalSmsSold?.toLocaleString() || '0'}</Text>
+          <Text style={styles.metricLabel}>SMS Credits Sold</Text>
         </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Success Rate</Text>
-          <View style={styles.successRateCard}>
-            <View style={styles.successRateHeader}>
-              <Text style={styles.successRateValue}>{analyticsData.successRate}%</Text>
-              <TrendingUp size={16} color="#10B981" />
-            </View>
-            <View style={styles.progressBarBg}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  { width: `${Math.min(parseFloat(analyticsData.successRate), 100)}%` },
-                ]}
-              />
-            </View>
+        <View style={styles.metricCard}>
+          <View style={[styles.metricIcon, { backgroundColor: '#3498DB20' }]}>
+            <CheckCircle size={18} color="#3498DB" />
           </View>
+          <Text style={styles.metricValue}>{revenueData?.completedTransactions || '0'}</Text>
+          <Text style={styles.metricLabel}>Completed</Text>
         </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Last 7 Days</Text>
-          <View style={styles.chartCard}>
-            <View style={styles.chartBars}>
-              {analyticsData.last7Days.map((day: any, i: number) => (
-                <View key={i} style={styles.chartBarWrapper}>
-                  <View style={styles.chartBarContainer}>
-                    <View
-                      style={[
-                        styles.chartBar,
-                        {
-                          height: `${(day.count / maxChartValue) * 100}%`,
-                          backgroundColor: Colors.primary,
-                        },
-                      ]}
-                    />
-                  </View>
-                  <Text style={styles.chartBarLabel}>
-                    {new Date(day.date).toLocaleDateString('en', { weekday: 'short' }).charAt(0)}
-                  </Text>
-                  <Text style={styles.chartBarValue}>{day.count}</Text>
-                </View>
-              ))}
-            </View>
+        <View style={styles.metricCard}>
+          <View style={[styles.metricIcon, { backgroundColor: '#F39C1220' }]}>
+            <Users size={18} color="#F39C12" />
           </View>
+          <Text style={styles.metricValue}>{adminBalances.length}</Text>
+          <Text style={styles.metricLabel}>Active Admins</Text>
         </View>
+      </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Top Clients</Text>
-          {analyticsData.topClients.length === 0 ? (
-            <View style={styles.emptyStateSmall}>
-              <Text style={styles.emptySubtitle}>No data yet</Text>
-            </View>
-          ) : (
-            analyticsData.topClients.map((client: any, i: number) => (
-              <View key={i} style={styles.topClientRow}>
-                <View style={styles.topClientRank}>
-                  <Text style={styles.topClientRankText}>{i + 1}</Text>
-                </View>
-                <Text style={styles.topClientName}>{client.name}</Text>
-                <Text style={styles.topClientCount}>{client.count} SMS</Text>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Admin Balances</Text>
+        {adminBalances.slice(0, 5).map((admin: any) => (
+          <View key={admin.admin_id} style={styles.adminBalanceCard}>
+            <View style={styles.adminLeft}>
+              <View style={styles.adminAvatar}>
+                <Text style={styles.adminAvatarText}>{admin.user_profiles?.name?.charAt(0) || '?'}</Text>
               </View>
-            ))
-          )}
+              <View style={styles.adminInfo}>
+                <Text style={styles.adminName}>{admin.user_profiles?.name || 'Unknown'}</Text>
+                <Text style={styles.adminEmail}>{admin.user_profiles?.email}</Text>
+              </View>
+            </View>
+            <View style={styles.adminRight}>
+              <Text style={styles.adminBalance}>{admin.sms_balance || 0}</Text>
+              <Text style={styles.adminBalanceLabel}>credits</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={{ height: 40 }} />
+    </ScrollView>
+  )
+
+  const renderSuperAdminPackages = () => (
+    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Credit Packages</Text>
+        <TouchableOpacity style={styles.addBtn} onPress={() => openPackageEditor()}>
+          <Plus size={16} color="#fff" />
+          <Text style={styles.addBtnText}>Add Package</Text>
+        </TouchableOpacity>
+      </View>
+
+      {packages.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Package size={48} color={Colors.textMuted} />
+          <Text style={styles.emptyTitle}>No Packages</Text>
+          <Text style={styles.emptySubtitle}>Create packages for admins to purchase</Text>
+        </View>
+      ) : (
+        packages.map((pkg: any) => (
+          <View key={pkg.id} style={styles.packageCard}>
+            <View style={styles.packageHeader}>
+              <View style={styles.packageNameRow}>
+                <Text style={styles.packageName}>{pkg.name}</Text>
+                {pkg.bonus_sms > 0 && (
+                  <View style={styles.bonusBadge}>
+                    <Gift size={10} color={Colors.gold} />
+                    <Text style={styles.bonusBadgeText}>+{pkg.bonus_sms} bonus</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.packageActions}>
+                <TouchableOpacity onPress={() => openPackageEditor(pkg)} style={styles.packageActionBtn}>
+                  <Edit3 size={14} color={Colors.gold} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => deletePackage(pkg.id)} style={styles.packageActionBtn}>
+                  <Trash2 size={14} color="#E74C3C" />
+                </TouchableOpacity>
+              </View>
+            </View>
+            <View style={styles.packageDetails}>
+              <View style={styles.packageDetailItem}>
+                <Text style={styles.packageDetailValue}>{pkg.sms_count + (pkg.bonus_sms || 0)}</Text>
+                <Text style={styles.packageDetailLabel}>Total SMS</Text>
+              </View>
+              <View style={styles.packageDetailItem}>
+                <Text style={styles.packageDetailValue}>KES {pkg.price}</Text>
+                <Text style={styles.packageDetailLabel}>Price</Text>
+              </View>
+              <View style={styles.packageDetailItem}>
+                <Text style={styles.packageDetailValue}>KES {(pkg.price / (pkg.sms_count + (pkg.bonus_sms || 0))).toFixed(2)}</Text>
+                <Text style={styles.packageDetailLabel}>Per SMS</Text>
+              </View>
+            </View>
+            {pkg.description && (
+              <Text style={styles.packageDescription}>{pkg.description}</Text>
+            )}
+          </View>
+        ))
+      )}
+
+      <View style={{ height: 40 }} />
+    </ScrollView>
+  )
+
+  const renderSuperAdminBalances = () => (
+    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>All Admin Balances</Text>
+      </View>
+
+      {adminBalances.map((admin: any) => (
+        <View key={admin.admin_id} style={styles.adminBalanceCard}>
+          <View style={styles.adminLeft}>
+            <View style={styles.adminAvatar}>
+              <Text style={styles.adminAvatarText}>{admin.user_profiles?.name?.charAt(0) || '?'}</Text>
+            </View>
+            <View style={styles.adminInfo}>
+              <Text style={styles.adminName}>{admin.user_profiles?.name || 'Unknown'}</Text>
+              <Text style={styles.adminEmail}>{admin.user_profiles?.email}</Text>
+            </View>
+          </View>
+          <View style={styles.adminRight}>
+            <Text style={styles.adminBalance}>{admin.sms_balance || 0}</Text>
+            <Text style={styles.adminBalanceLabel}>credits</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.adjustBtn}
+            onPress={() => {
+              setSelectedAdmin(admin)
+              setAdjustmentAmount('')
+              setAdjustmentReason('')
+              setAdjustmentModalVisible(true)
+            }}
+          >
+            <Settings size={14} color={Colors.gold} />
+          </TouchableOpacity>
+        </View>
+      ))}
+
+      <View style={{ height: 40 }} />
+    </ScrollView>
+  )
+
+  const renderSuperAdminRevenue = () => (
+    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Purchase History</Text>
+        {purchaseHistory.length === 0 ? (
+          <View style={styles.emptyStateSmall}>
+            <Text style={styles.emptySubtitle}>No transactions yet</Text>
+          </View>
+        ) : (
+          purchaseHistory.map((purchase: any) => (
+            <View key={purchase.id} style={styles.purchaseCard}>
+              <View style={styles.purchaseLeft}>
+                <View style={[styles.purchaseStatusIcon, { backgroundColor: STATUS_CONFIG[purchase.status]?.color + '20' }]}>
+                  {purchase.status === 'completed' ? (
+                    <CheckCircle size={16} color={STATUS_CONFIG[purchase.status]?.color} />
+                  ) : purchase.status === 'failed' ? (
+                    <XCircle size={16} color={STATUS_CONFIG[purchase.status]?.color} />
+                  ) : (
+                    <Clock size={16} color={STATUS_CONFIG[purchase.status]?.color} />
+                  )}
+                </View>
+                <View style={styles.purchaseInfo}>
+                  <Text style={styles.purchaseAmount}>{purchase.total_sms} SMS Credits</Text>
+                  <Text style={styles.purchaseDate}>
+                    {new Date(purchase.created_at).toLocaleDateString()} {new Date(purchase.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.purchaseRight}>
+                <Text style={styles.purchasePrice}>KES {purchase.amount}</Text>
+                <Text style={[styles.purchaseStatus, { color: STATUS_CONFIG[purchase.status]?.color }]}>
+                  {purchase.status}
+                </Text>
+              </View>
+            </View>
+          ))
+        )}
+      </View>
+
+      <View style={{ height: 40 }} />
+    </ScrollView>
+  )
+
+  const renderSuperAdminGateway = () => (
+    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
+      {/* Africa's Talking Config */}
+      <View style={styles.section}>
+        <View style={styles.sectionTitleRow}>
+          <Smartphone size={18} color={Colors.gold} />
+          <Text style={styles.sectionTitle}>Africa's Talking SMS Gateway</Text>
+        </View>
+        <Text style={[styles.emptySubtitle, { marginBottom: 16, textAlign: 'left' }]}>
+          Configure your Africa's Talking API credentials. These are used to send SMS to clients when galleries are published.
+        </Text>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>API Key *</Text>
+          <TextInput
+            style={styles.input}
+            value={gatewayApiKey}
+            onChangeText={setGatewayApiKey}
+            placeholder="Enter your Africa's Talking API key"
+            placeholderTextColor={Colors.textMuted}
+            secureTextEntry
+            autoCapitalize="none"
+          />
         </View>
 
-        <View style={{ height: 40 }} />
-      </ScrollView>
-    )
-  }
+        <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>Username</Text>
+          <TextInput
+            style={styles.input}
+            value={gatewayUsername}
+            onChangeText={setGatewayUsername}
+            placeholder="epixvisuals"
+            placeholderTextColor={Colors.textMuted}
+            autoCapitalize="none"
+          />
+        </View>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>Sender ID (optional)</Text>
+          <TextInput
+            style={styles.input}
+            value={gatewaySenderId}
+            onChangeText={setGatewaySenderId}
+            placeholder="e.g. EPIX"
+            placeholderTextColor={Colors.textMuted}
+            autoCapitalize="characters"
+          />
+        </View>
+
+        <TouchableOpacity
+          style={[styles.sendBtn, savingGateway && styles.sendBtnDisabled]}
+          onPress={saveGatewayConfig}
+          disabled={savingGateway}
+        >
+          {savingGateway ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Settings size={18} color="#fff" />
+          )}
+          <Text style={styles.sendBtnText}>Save Gateway Config</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Commission Settings */}
+      <View style={[styles.section, { marginTop: 24 }]}>
+        <View style={styles.sectionTitleRow}>
+          <CircleDollarSign size={18} color={Colors.gold} />
+          <Text style={styles.sectionTitle}>Super Admin Commission</Text>
+        </View>
+        <Text style={[styles.emptySubtitle, { marginBottom: 16, textAlign: 'left' }]}>
+          Set the percentage fee that goes to the super admin's till account when photographers purchase SMS credits.
+        </Text>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>Commission Percentage (%)</Text>
+          <TextInput
+            style={styles.input}
+            value={commissionPercent}
+            onChangeText={setCommissionPercent}
+            placeholder="5"
+            placeholderTextColor={Colors.textMuted}
+            keyboardType="numeric"
+          />
+        </View>
+
+        <TouchableOpacity
+          style={[styles.sendBtn, savingCommission && styles.sendBtnDisabled]}
+          onPress={saveCommissionConfig}
+          disabled={savingCommission}
+        >
+          {savingCommission ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <CircleDollarSign size={18} color="#fff" />
+          )}
+          <Text style={styles.sendBtnText}>Save Commission Rate</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={{ height: 40 }} />
+    </ScrollView>
+  )
+
+  const renderStoreModal = () => (
+    <Modal visible={storeModalVisible} animationType="slide" transparent>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalHeaderLeft}>
+              <CreditCard size={20} color={Colors.gold} />
+              <Text style={styles.modalTitle}>Buy SMS Credits</Text>
+            </View>
+            <TouchableOpacity onPress={() => setStoreModalVisible(false)}>
+              <X size={22} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalBody}>
+            <View style={styles.storeBalanceCard}>
+              <Text style={styles.storeBalanceLabel}>Current Balance</Text>
+              <Text style={styles.storeBalanceValue}>{smsBalance.toLocaleString()} credits</Text>
+            </View>
+
+            <Text style={styles.fieldLabel}>Select a Package</Text>
+            {packages.map((pkg: any) => {
+              const totalSms = pkg.sms_count + (pkg.bonus_sms || 0)
+              const isSelected = selectedPackage?.id === pkg.id
+              return (
+                <TouchableOpacity
+                  key={pkg.id}
+                  style={[styles.packageSelectCard, isSelected && styles.packageSelectCardActive]}
+                  onPress={() => setSelectedPackage(pkg)}
+                >
+                  <View style={styles.packageSelectLeft}>
+                    <View style={[styles.packageRadio, isSelected && styles.packageRadioActive]}>
+                      {isSelected && <Check size={12} color="#fff" />}
+                    </View>
+                    <View>
+                      <Text style={styles.packageSelectName}>{pkg.name}</Text>
+                      <Text style={styles.packageSelectSms}>{totalSms} SMS{pkg.bonus_sms > 0 ? ` (+${pkg.bonus_sms} bonus)` : ''}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.packageSelectPrice}>KES {pkg.price}</Text>
+                </TouchableOpacity>
+              )
+            })}
+
+            {selectedPackage && (
+              <View style={styles.mpesaSection}>
+                <Text style={styles.fieldLabel}>M-Pesa Phone Number</Text>
+                <TextInput
+                  style={styles.input}
+                  value={mpesaPhone}
+                  onChangeText={setMpesaPhone}
+                  placeholder="07XX XXX XXX"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="phone-pad"
+                />
+
+                <View style={styles.paymentSummary}>
+                  <View style={styles.paymentSummaryRow}>
+                    <Text style={styles.paymentSummaryLabel}>Package:</Text>
+                    <Text style={styles.paymentSummaryValue}>{selectedPackage.name}</Text>
+                  </View>
+                  <View style={styles.paymentSummaryRow}>
+                    <Text style={styles.paymentSummaryLabel}>Credits:</Text>
+                    <Text style={styles.paymentSummaryValue}>{selectedPackage.sms_count + (selectedPackage.bonus_sms || 0)} SMS</Text>
+                  </View>
+                  <View style={styles.paymentSummaryRow}>
+                    <Text style={styles.paymentSummaryLabel}>Amount:</Text>
+                    <Text style={styles.paymentSummaryValueLarge}>KES {selectedPackage.price}</Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.payBtn, processingPayment && styles.payBtnDisabled]}
+                  onPress={processMpesaPayment}
+                  disabled={processingPayment}
+                >
+                  {processingPayment ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Smartphone size={18} color="#fff" />
+                      <Text style={styles.payBtnText}>Pay via M-Pesa</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  )
+
+  const renderAdjustmentModal = () => (
+    <Modal visible={adjustmentModalVisible} animationType="slide" transparent>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.modalOverlay}
+      >
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalHeaderLeft}>
+              <Settings size={20} color={Colors.gold} />
+              <Text style={styles.modalTitle}>Adjust Credits</Text>
+            </View>
+            <TouchableOpacity onPress={() => setAdjustmentModalVisible(false)}>
+              <X size={22} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalBody}>
+            {selectedAdmin && (
+              <View style={styles.adjustmentAdminCard}>
+                <Text style={styles.adjustmentAdminName}>{selectedAdmin.user_profiles?.name}</Text>
+                <Text style={styles.adjustmentAdminBalance}>Current: {selectedAdmin.sms_balance || 0} credits</Text>
+              </View>
+            )}
+
+            <Text style={styles.fieldLabel}>Amount (use negative to deduct)</Text>
+            <TextInput
+              style={styles.input}
+              value={adjustmentAmount}
+              onChangeText={setAdjustmentAmount}
+              placeholder="+100 or -50"
+              placeholderTextColor={Colors.textMuted}
+              keyboardType="numeric"
+            />
+
+            <Text style={styles.fieldLabel}>Reason (Optional)</Text>
+            <TextInput
+              style={styles.input}
+              value={adjustmentReason}
+              onChangeText={setAdjustmentReason}
+              placeholder="e.g. Manual refill, correction"
+              placeholderTextColor={Colors.textMuted}
+            />
+
+            <TouchableOpacity style={styles.adjustmentBtn} onPress={processAdjustment}>
+              <CreditCard size={18} color="#fff" />
+              <Text style={styles.adjustmentBtnText}>Apply Adjustment</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  )
+
+  const tabs = isSuperAdmin ? SUPER_ADMIN_TABS : TABS
 
   return (
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          title: 'Messaging',
+          title: isSuperAdmin ? 'SMS Management' : 'Messaging',
           headerStyle: { backgroundColor: Colors.background },
           headerTintColor: Colors.text,
           headerShadowVisible: false,
@@ -735,7 +1447,7 @@ export default function MessagingScreen() {
       />
 
       <View style={styles.tabBar}>
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.key
           return (
@@ -747,7 +1459,7 @@ export default function MessagingScreen() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
               }}
             >
-              <Icon size={16} color={isActive ? Colors.primary : Colors.textSecondary} />
+              <Icon size={16} color={isActive ? Colors.gold : Colors.textMuted} />
               <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
             </TouchableOpacity>
           )
@@ -756,14 +1468,20 @@ export default function MessagingScreen() {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
+          <ActivityIndicator size="large" color={Colors.gold} />
         </View>
       ) : (
         <>
-          {activeTab === 'compose' && renderComposeTab()}
-          {activeTab === 'templates' && renderTemplatesTab()}
-          {activeTab === 'history' && renderHistoryTab()}
-          {activeTab === 'analytics' && renderAnalyticsTab()}
+          {!isSuperAdmin && activeTab === 'compose' && renderComposeTab()}
+          {!isSuperAdmin && activeTab === 'credits' && renderCreditsTab()}
+          {!isSuperAdmin && activeTab === 'templates' && renderTemplatesTab()}
+          {!isSuperAdmin && activeTab === 'history' && renderHistoryTab()}
+
+          {isSuperAdmin && activeTab === 'overview' && renderSuperAdminOverview()}
+          {isSuperAdmin && activeTab === 'gateway' && renderSuperAdminGateway()}
+          {isSuperAdmin && activeTab === 'packages' && renderSuperAdminPackages()}
+          {isSuperAdmin && activeTab === 'balances' && renderSuperAdminBalances()}
+          {isSuperAdmin && activeTab === 'revenue' && renderSuperAdminRevenue()}
         </>
       )}
 
@@ -777,13 +1495,13 @@ export default function MessagingScreen() {
               </TouchableOpacity>
             </View>
             <View style={styles.searchContainer}>
-              <Search size={16} color={Colors.textSecondary} />
+              <Search size={16} color={Colors.textMuted} />
               <TextInput
                 style={styles.searchInput}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholder="Search clients..."
-                placeholderTextColor={Colors.textSecondary}
+                placeholderTextColor={Colors.textMuted}
               />
             </View>
             <FlatList
@@ -838,7 +1556,7 @@ export default function MessagingScreen() {
                   value={templateName}
                   onChangeText={setTemplateName}
                   placeholder="e.g. Welcome Message"
-                  placeholderTextColor={Colors.textSecondary}
+                  placeholderTextColor={Colors.textMuted}
                 />
                 <Text style={styles.fieldLabel}>Message Body</Text>
                 <TextInput
@@ -846,7 +1564,7 @@ export default function MessagingScreen() {
                   value={templateBody}
                   onChangeText={setTemplateBody}
                   placeholder="Type your template..."
-                  placeholderTextColor={Colors.textSecondary}
+                  placeholderTextColor={Colors.textMuted}
                   multiline
                   textAlignVertical="top"
                 />
@@ -878,7 +1596,7 @@ export default function MessagingScreen() {
                 style={styles.modalBody}
                 ListEmptyComponent={
                   <View style={styles.emptyState}>
-                    <FileText size={36} color={Colors.textSecondary} />
+                    <FileText size={36} color={Colors.textMuted} />
                     <Text style={styles.emptyTitle}>No Templates</Text>
                   </View>
                 }
@@ -890,7 +1608,7 @@ export default function MessagingScreen() {
                     <View style={styles.templateHeader}>
                       <View style={styles.templateNameRow}>
                         <Text style={styles.templateName}>{item.name}</Text>
-                        {item.is_default && <View style={styles.defaultBadge}><Star size={10} color={Colors.primary} /><Text style={styles.defaultBadgeText}>Default</Text></View>}
+                        {item.is_default && <View style={styles.defaultBadge}><Star size={10} color={Colors.gold} /><Text style={styles.defaultBadgeText}>Default</Text></View>}
                       </View>
                     </View>
                     <Text style={styles.templatePreview} numberOfLines={2}>{item.body}</Text>
@@ -902,108 +1620,75 @@ export default function MessagingScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={buyModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Buy SMS Credits</Text>
-              <TouchableOpacity onPress={() => setBuyModalVisible(false)}>
-                <X size={22} color={Colors.text} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.modalBody}>
-              <Text style={styles.fieldLabel}>Phone Number</Text>
-              <TextInput
-                style={styles.input}
-                value={buyPhoneNumber}
-                onChangeText={setBuyPhoneNumber}
-                placeholder="+1 (555) 000-0000"
-                placeholderTextColor={Colors.textSecondary}
-                keyboardType="phone-pad"
-              />
-              <Text style={styles.fieldLabel}>Amount</Text>
-              <View style={styles.chipsRow}>
-                {AMOUNT_CHIPS.map((amt) => (
-                  <TouchableOpacity
-                    key={amt}
-                    style={[styles.chip, buyAmount === amt && !buyCustomAmount && styles.chipActive]}
-                    onPress={() => { setBuyAmount(amt); setBuyCustomAmount('') }}
-                  >
-                    <Text style={[styles.chipText, buyAmount === amt && !buyCustomAmount && styles.chipTextActive]}>{amt}</Text>
-                  </TouchableOpacity>
-                ))}
+      {renderStoreModal()}
+      {renderAdjustmentModal()}
+
+      {isSuperAdmin && (
+        <Modal visible={packageModalVisible} animationType="slide" transparent>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalOverlay}
+          >
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>{editingPackage ? 'Edit Package' : 'Add Package'}</Text>
+                <TouchableOpacity onPress={() => { setPackageModalVisible(false); resetPackageForm() }}>
+                  <X size={22} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalBody}>
+                <Text style={styles.fieldLabel}>Package Name</Text>
                 <TextInput
-                  style={[styles.input, styles.customChipInput]}
-                  value={buyCustomAmount}
-                  onChangeText={setBuyCustomAmount}
-                  placeholder="Custom"
-                  placeholderTextColor={Colors.textSecondary}
+                  style={styles.input}
+                  value={packageName}
+                  onChangeText={setPackageName}
+                  placeholder="e.g. Starter"
+                  placeholderTextColor={Colors.textMuted}
+                />
+                <Text style={styles.fieldLabel}>SMS Count</Text>
+                <TextInput
+                  style={styles.input}
+                  value={packageSmsCount}
+                  onChangeText={setPackageSmsCount}
+                  placeholder="100"
+                  placeholderTextColor={Colors.textMuted}
                   keyboardType="numeric"
                 />
-              </View>
-              <TouchableOpacity
-                style={[styles.sendBtn, buying && styles.sendBtnDisabled]}
-                onPress={buyBundle}
-                disabled={buying}
-              >
-                {buying ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Zap size={18} color="#fff" />
-                )}
-                <Text style={styles.sendBtnText}>Purchase</Text>
-              </TouchableOpacity>
+                <Text style={styles.fieldLabel}>Bonus SMS (Optional)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={packageBonusSms}
+                  onChangeText={setPackageBonusSms}
+                  placeholder="10"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="numeric"
+                />
+                <Text style={styles.fieldLabel}>Price (KES)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={packagePrice}
+                  onChangeText={setPackagePrice}
+                  placeholder="200"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="numeric"
+                />
+                <Text style={styles.fieldLabel}>Description</Text>
+                <TextInput
+                  style={styles.input}
+                  value={packageDescription}
+                  onChangeText={setPackageDescription}
+                  placeholder="100 SMS credits"
+                  placeholderTextColor={Colors.textMuted}
+                />
+                <TouchableOpacity style={styles.saveTemplateBtn} onPress={savePackage}>
+                  <Text style={styles.saveTemplateBtnText}>{editingPackage ? 'Update Package' : 'Create Package'}</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={scheduleModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Schedule SMS</Text>
-              <TouchableOpacity onPress={() => setScheduleModalVisible(false)}>
-                <X size={22} color={Colors.text} />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.modalBody}>
-              <Text style={styles.fieldLabel}>Date (YYYY-MM-DD)</Text>
-              <TextInput
-                style={styles.input}
-                value={scheduleDate}
-                onChangeText={setScheduleDate}
-                placeholder="2024-01-15"
-                placeholderTextColor={Colors.textSecondary}
-              />
-              <Text style={styles.fieldLabel}>Time (HH:MM)</Text>
-              <TextInput
-                style={styles.input}
-                value={scheduleTime}
-                onChangeText={setScheduleTime}
-                placeholder="09:00"
-                placeholderTextColor={Colors.textSecondary}
-              />
-              <TouchableOpacity
-                style={styles.sendBtn}
-                onPress={() => {
-                  if (!scheduleDate || !scheduleTime) {
-                    Alert.alert('Error', 'Enter date and time')
-                    return
-                  }
-                  Alert.alert('Scheduled', `SMS scheduled for ${scheduleDate} at ${scheduleTime}`)
-                  setScheduleModalVisible(false)
-                  setScheduleDate('')
-                  setScheduleTime('')
-                }}
-              >
-                <Calendar size={18} color="#fff" />
-                <Text style={styles.sendBtnText}>Schedule</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+          </KeyboardAvoidingView>
+        </Modal>
+      )}
     </View>
   )
 }
@@ -1018,7 +1703,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
   },
   tabItem: {
     flex: 1,
@@ -1031,15 +1716,15 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
   },
   tabItemActive: {
-    borderBottomColor: Colors.primary,
+    borderBottomColor: Colors.gold,
   },
   tabLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
   tabLabelActive: {
-    color: Colors.primary,
+    color: Colors.gold,
   },
   tabContent: {
     flex: 1,
@@ -1049,64 +1734,108 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  gatewayCard: {
+  balanceCard: {
     backgroundColor: Colors.card,
     margin: 16,
     marginBottom: 8,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  gatewayHeader: {
+  balanceHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
+  balanceIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.gold + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
-  gatewayTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.text,
+  balanceInfo: {
     flex: 1,
   },
-  refreshBtn: {
-    padding: 4,
+  balanceLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 2,
   },
-  gatewayStats: {
+  balanceValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: Colors.gold,
+  },
+  buyCreditsBtn: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  gatewayStat: {
     alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.gold,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
   },
-  gatewayStatValue: {
-    fontSize: 18,
+  buyCreditsBtnText: {
+    color: '#fff',
+    fontSize: 14,
     fontWeight: '700',
-    color: Colors.text,
   },
-  gatewayStatLabel: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
-  simRow: {
+  lowBalanceWarning: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 10,
-    paddingTop: 10,
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
-  simText: {
+  lowBalanceText: {
+    flex: 1,
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: '#F39C12',
+  },
+  creditsHeader: {
+    backgroundColor: Colors.card,
+    margin: 16,
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+  },
+  creditsBalanceLarge: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  creditsBalanceValue: {
+    fontSize: 48,
+    fontWeight: '800',
+    color: Colors.gold,
+    marginTop: 12,
+  },
+  creditsBalanceLabel: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginTop: 4,
+  },
+  buyCreditsLargeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.gold,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    width: '100%',
+    justifyContent: 'center',
+  },
+  buyCreditsLargeBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
   section: {
     paddingHorizontal: 16,
@@ -1143,10 +1872,10 @@ const styles = StyleSheet.create({
   },
   charCount: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
   charCountOver: {
-    color: '#EF4444',
+    color: '#E74C3C',
   },
   recipientSelector: {
     backgroundColor: Colors.card,
@@ -1175,12 +1904,12 @@ const styles = StyleSheet.create({
   },
   recipientPhone: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
   recipientPlaceholder: {
     flex: 1,
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
   phoneInputRow: {
     marginTop: 8,
@@ -1190,7 +1919,7 @@ const styles = StyleSheet.create({
   },
   applyTemplateText: {
     fontSize: 13,
-    color: Colors.primary,
+    color: Colors.gold,
     fontWeight: '600',
   },
   actionButtons: {
@@ -1201,7 +1930,7 @@ const styles = StyleSheet.create({
   },
   sendBtn: {
     flex: 1,
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.gold,
     borderRadius: 10,
     paddingVertical: 14,
     flexDirection: 'row',
@@ -1217,35 +1946,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  bulkBtn: {
-    flex: 1,
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-    borderRadius: 10,
-    paddingVertical: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  bulkBtnText: {
-    color: Colors.primary,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  scheduleBtn: {
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   addBtn: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.gold,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
@@ -1288,7 +1990,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: Colors.primary + '15',
+    backgroundColor: Colors.gold + '15',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -1296,7 +1998,7 @@ const styles = StyleSheet.create({
   defaultBadgeText: {
     fontSize: 10,
     fontWeight: '700',
-    color: Colors.primary,
+    color: Colors.gold,
   },
   templateActions: {
     flexDirection: 'row',
@@ -1307,7 +2009,7 @@ const styles = StyleSheet.create({
   },
   templatePreview: {
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
     lineHeight: 18,
   },
   templateHintRow: {
@@ -1318,7 +2020,7 @@ const styles = StyleSheet.create({
   },
   variableHint: {
     fontSize: 11,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
   logCard: {
     flexDirection: 'row',
@@ -1353,12 +2055,12 @@ const styles = StyleSheet.create({
   },
   logMessage: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
     marginTop: 2,
   },
   logTimestamp: {
     fontSize: 11,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
     marginTop: 4,
   },
   logRight: {
@@ -1370,13 +2072,59 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
   },
-  logProvider: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-  },
   logCost: {
     fontSize: 11,
-    color: Colors.textSecondary,
+    color: Colors.gold,
+  },
+  purchaseCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 8,
+  },
+  purchaseLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 10,
+  },
+  purchaseStatusIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  purchaseInfo: {
+    flex: 1,
+  },
+  purchaseAmount: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  purchaseDate: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  purchaseRight: {
+    alignItems: 'flex-end',
+  },
+  purchasePrice: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  purchaseStatus: {
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
   },
   metricsGrid: {
     flexDirection: 'row',
@@ -1402,129 +2150,145 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   metricValue: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: Colors.text,
   },
   metricLabel: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
     marginTop: 2,
   },
-  successRateCard: {
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 12,
-    padding: 16,
-  },
-  successRateHeader: {
+  adminBalanceCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
-  },
-  successRateValue: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: Colors.text,
-  },
-  progressBarBg: {
-    height: 8,
-    backgroundColor: Colors.border,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#10B981',
-    borderRadius: 4,
-  },
-  chartCard: {
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 12,
-    padding: 16,
+    padding: 14,
+    marginTop: 8,
   },
-  chartBars: {
+  adminLeft: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    height: 140,
-  },
-  chartBarWrapper: {
+    alignItems: 'center',
     flex: 1,
-    alignItems: 'center',
+    gap: 10,
   },
-  chartBarContainer: {
-    height: 100,
-    width: 20,
-    justifyContent: 'flex-end',
-  },
-  chartBar: {
-    width: '100%',
-    borderRadius: 4,
-    minHeight: 4,
-  },
-  chartBarLabel: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-    marginTop: 6,
-  },
-  chartBarValue: {
-    fontSize: 10,
-    color: Colors.text,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  topClientRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 6,
-  },
-  topClientRank: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Colors.primary + '20',
+  adminAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.gold + '20',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
   },
-  topClientRankText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: Colors.primary,
+  adminAvatarText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.gold,
   },
-  topClientName: {
+  adminInfo: {
     flex: 1,
-    fontSize: 13,
+  },
+  adminName: {
+    fontSize: 14,
     fontWeight: '600',
     color: Colors.text,
   },
-  topClientCount: {
+  adminEmail: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
-  buyBtn: {
+  adminRight: {
+    alignItems: 'flex-end',
+    marginRight: 10,
+  },
+  adminBalance: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.gold,
+  },
+  adminBalanceLabel: {
+    fontSize: 11,
+    color: Colors.textMuted,
+  },
+  adjustBtn: {
+    padding: 8,
+    backgroundColor: Colors.cardHover,
+    borderRadius: 8,
+  },
+  packageCard: {
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    padding: 14,
+    marginHorizontal: 16,
+    marginTop: 8,
+  },
+  packageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  packageNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.primary + '15',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    gap: 8,
+    flex: 1,
+  },
+  packageName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  bonusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: Colors.gold + '15',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 6,
   },
-  buyBtnText: {
-    fontSize: 12,
+  bonusBadgeText: {
+    fontSize: 11,
     fontWeight: '700',
-    color: Colors.primary,
+    color: Colors.gold,
+  },
+  packageActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  packageActionBtn: {
+    padding: 4,
+  },
+  packageDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.cardDark,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  packageDetailItem: {
+    alignItems: 'center',
+  },
+  packageDetailValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  packageDetailLabel: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  packageDescription: {
+    fontSize: 12,
+    color: Colors.textMuted,
   },
   emptyState: {
     alignItems: 'center',
@@ -1543,21 +2307,21 @@ const styles = StyleSheet.create({
   },
   emptySubtitle: {
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
   listContent: {
     paddingBottom: 40,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: Colors.overlay,
     justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: Colors.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '85%',
+    maxHeight: '90%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1567,6 +2331,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  modalHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   modalTitle: {
     fontSize: 16,
     fontWeight: '700',
@@ -1574,6 +2343,121 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     padding: 16,
+  },
+  storeBalanceCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+  },
+  storeBalanceLabel: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 4,
+  },
+  storeBalanceValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.gold,
+  },
+  packageSelectCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+  },
+  packageSelectCardActive: {
+    borderColor: Colors.gold,
+    backgroundColor: Colors.gold + '10',
+  },
+  packageSelectLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  packageRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  packageRadioActive: {
+    borderColor: Colors.gold,
+    backgroundColor: Colors.gold,
+  },
+  packageSelectName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  packageSelectSms: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  packageSelectPrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  mpesaSection: {
+    marginTop: 20,
+  },
+  paymentSummary: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  paymentSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  paymentSummaryLabel: {
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  paymentSummaryValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  paymentSummaryValueLarge: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  payBtn: {
+    backgroundColor: Colors.gold,
+    borderRadius: 12,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  payBtnDisabled: {
+    opacity: 0.6,
+  },
+  payBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -1606,14 +2490,14 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: Colors.primary + '20',
+    backgroundColor: Colors.gold + '20',
     alignItems: 'center',
     justifyContent: 'center',
   },
   clientAvatarText: {
     fontSize: 14,
     fontWeight: '700',
-    color: Colors.primary,
+    color: Colors.gold,
   },
   clientInfo: {
     flex: 1,
@@ -1625,11 +2509,11 @@ const styles = StyleSheet.create({
   },
   clientPhone: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
   },
   emptyListText: {
     textAlign: 'center',
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
     paddingVertical: 30,
     fontSize: 14,
   },
@@ -1638,6 +2522,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.text,
     marginBottom: 6,
+  },
+  fieldGroup: {
+    marginBottom: 16,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
   },
   templateBodyInput: {
     height: 140,
@@ -1658,7 +2551,7 @@ const styles = StyleSheet.create({
   },
   variableHintItem: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
     marginTop: 2,
   },
   defaultToggle: {
@@ -1682,11 +2575,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   toggleActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: Colors.gold,
+    borderColor: Colors.gold,
   },
   saveTemplateBtn: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.gold,
     borderRadius: 10,
     paddingVertical: 14,
     alignItems: 'center',
@@ -1696,33 +2589,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  chipsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  chip: {
+  adjustmentAdminCard: {
     backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
   },
-  chipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  chipText: {
-    fontSize: 14,
-    fontWeight: '600',
+  adjustmentAdminName: {
+    fontSize: 16,
+    fontWeight: '700',
     color: Colors.text,
+    marginBottom: 4,
   },
-  chipTextActive: {
+  adjustmentAdminBalance: {
+    fontSize: 14,
+    color: Colors.gold,
+    fontWeight: '600',
+  },
+  adjustmentBtn: {
+    backgroundColor: Colors.gold,
+    borderRadius: 12,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  adjustmentBtnText: {
     color: '#fff',
-  },
-  customChipInput: {
-    width: 80,
-    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '700',
   },
 })

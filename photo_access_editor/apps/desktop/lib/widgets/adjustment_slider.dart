@@ -66,7 +66,7 @@ class AdjustmentSlider extends StatelessWidget {
               activeTrackColor: isModified ? AppTheme.gold : AppTheme.textTertiary,
               inactiveTrackColor: AppTheme.border,
               thumbColor: isModified ? AppTheme.gold : AppTheme.textTertiary,
-              overlayColor: AppTheme.gold.withValues(alpha:0.1),
+              overlayColor: AppTheme.gold.withOpacity(0.1),
               trackHeight: 2,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),

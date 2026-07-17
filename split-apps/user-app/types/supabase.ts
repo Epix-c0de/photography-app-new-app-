@@ -311,7 +311,7 @@ export interface Database {
           {
             foreignKeyName: "messages_client_id_fkey"
             columns: ["client_id"]
-            referencedRelation: "clients"
+            referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           },
           {
@@ -1216,7 +1216,8 @@ export interface Database {
       notifications: {
         Row: {
           id: string
-          user_id: string
+          user_id: string | null
+          client_id: string | null
           type: string
           title: string
           body: string
@@ -1226,7 +1227,8 @@ export interface Database {
         }
         Insert: {
           id?: string
-          user_id: string
+          user_id?: string | null
+          client_id?: string | null
           type: string
           title: string
           body: string
@@ -1236,7 +1238,8 @@ export interface Database {
         }
         Update: {
           id?: string
-          user_id?: string
+          user_id?: string | null
+          client_id?: string | null
           type?: string
           title?: string
           body?: string

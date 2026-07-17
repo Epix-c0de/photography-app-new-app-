@@ -1,8 +1,15 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated as RNAnimated, Dimensions, Alert, Share, ActivityIndicator, Platform, Linking, Modal, AppState, AppStateStatus } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated as RNAnimated, Dimensions, Alert, Share, ActivityIndicator, Platform, Linking, Modal, AppState, AppStateStatus, RefreshControl } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import * as FileSystem from 'expo-file-system/legacy';
+let FileSystem: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    FileSystem = require('expo-file-system');
+  } catch (e) {
+    // FileSystem not available
+  }
+}
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -137,6 +144,7 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
           style={[styles.photoImage, { height: imageHeight, backgroundColor: Colors.cardLight }, isBlurred && { opacity: 0.7 }, isSelected && { opacity: 0.6 }]}
           contentFit="contain"
           cachePolicy="memory-disk"
+          transition={300}
           priority={index < 10 ? "high" : "low" }
           blurRadius={isBlurred ? 15 : 0}
         />
@@ -355,9 +363,15 @@ export default function GalleryScreen() {
   const galleriesRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSharingRef = useRef(false);
   const [clientIds, setClientIds] = useState<string[]>([]);
+  // Keep a stable ref so fetchGalleries can read clientIds without being in its dep array
+  const clientIdsRef = useRef<string[]>([]);
+  // Stable refs for callbacks to break dependency chains
+  const fetchGalleriesRef = useRef<any>(null);
+  const fetchAllClientIdsRef = useRef<any>(null);
   const [galleries, setGalleries] = useState<GalleryRowWithCounts[]>([]);
   const [galleriesLoading, setGalleriesLoading] = useState(true);
   const [galleriesError, setGalleriesError] = useState<string | null>(null);
+  const [realUnpaidGalleries, setRealUnpaidGalleries] = useState<GalleryRow[]>([]);
   const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);
   const [adminNames, setAdminNames] = useState<Record<string, string>>({});
   const [photos, setPhotos] = useState<PhotoRow[]>([]);
@@ -372,6 +386,7 @@ export default function GalleryScreen() {
   const [selectedPortfolioItem, setSelectedPortfolioItem] = useState<PortfolioItem | null>(null);
   const [selectedPhotoItem, setSelectedPhotoItem] = useState<PhotoRow | null>(null);
   const [shareSheet, setShareSheet] = useState<ShareSheetPayload | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Phase 3 additions:
   const [selectMode, setSelectMode] = useState(false);
@@ -649,9 +664,17 @@ export default function GalleryScreen() {
   const fetchAllClientIds = useCallback(async () => {
     if (isDemoMode) {
       setClientIds(['demo-client']);
+      clientIdsRef.current = ['demo-client'];
       return ['demo-client'];
     }
-    const { data: { user } } = await supabase.auth.getUser();
+    let user: any = null;
+    try {
+      const result = await supabase.auth.getUser();
+      user = result.data?.user;
+    } catch {
+      setClientIds([]);
+      return [];
+    }
     if (!user) {
       setClientIds([]);
       return [];
@@ -669,6 +692,7 @@ export default function GalleryScreen() {
 
     const ids = (data || []).map((r: any) => r.id).filter(Boolean);
     setClientIds(ids);
+    clientIdsRef.current = ids;
 
     // Build admin name map for filter dropdown
     const nameMap: Record<string, string> = {};
@@ -689,6 +713,27 @@ export default function GalleryScreen() {
     }
 
     if (isDemoMode) {
+      // Still query real DB for unpaid galleries (for payment banner)
+      if (user?.id) {
+        try {
+          const { data: clientRows } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('user_id', user.id);
+          const realClientIds = (clientRows || []).map((r: any) => r.id).filter(Boolean);
+          if (realClientIds.length > 0) {
+            const { data: unpaidData } = await supabase
+              .from('galleries')
+              .select('*')
+              .in('client_id', realClientIds);
+            setRealUnpaidGalleries(
+              (unpaidData || []).filter((g: any) => g.is_locked && !g.is_paid && (g.price ?? 0) > 0)
+            );
+          }
+        } catch (e) {
+          console.error('[Gallery] Error fetching real unpaid galleries:', e);
+        }
+      }
       setGalleries(demoGalleries);
       setGalleriesLoading(false);
       return;
@@ -701,18 +746,15 @@ export default function GalleryScreen() {
       return;
     }
 
-    const activeClientIds = clientIds.length > 0 ? clientIds : (await fetchAllClientIds());
-    if (activeClientIds.length === 0) {
-      setGalleries([]);
-      setGalleriesLoading(false);
-      return;
-    }
+    const activeClientIds = clientIdsRef.current.length > 0 ? clientIdsRef.current : (await fetchAllClientIds());
 
     // Fetch galleries where client_id matches ANY of the user's client records (multi-admin)
-    const { data: clientGalleries, error: clientError } = await supabase
-      .from('galleries')
-      .select('*')
-      .in('client_id', activeClientIds);
+    const { data: clientGalleries, error: clientError } = activeClientIds.length > 0
+      ? await supabase
+          .from('galleries')
+          .select('*')
+          .in('client_id', activeClientIds)
+      : { data: [], error: null };
 
     // Fetch galleries from unlocked_galleries — only when user?.id is available
     const { data: unlockedGalleries, error: unlockedError } = user?.id
@@ -760,27 +802,46 @@ export default function GalleryScreen() {
 
     const extractStoragePath = (url: string): string | null => {
       if (!url) return null;
-      if (!url.startsWith('http')) return url;
+      if (!url.startsWith('http')) {
+        // Raw storage path like "client-photos/filename.jpg" — strip bucket prefix
+        const parts = url.split('/');
+        if (parts.length > 1) return parts.slice(1).join('/');
+        return url;
+      }
       const match = url.match(/\/object\/(?:public|sign|authenticated)\/[^/]+\/(.+?)(?:\?|$)/);
       return match ? decodeURIComponent(match[1]) : null;
     };
 
     const galleryIds = uniqueGalleries.map((g) => g.id);
     const galleryThumbnailMap = new Map<string, string>();
+    const photoCountMap = new Map<string, number>();
     if (galleryIds.length > 0) {
-      const { data: thumbRows, error: thumbError } = await supabase
-        .from('gallery_photos')
-        .select('gallery_id, photo_url, created_at')
-        .in('gallery_id', galleryIds)
-        .not('photo_url', 'is', null)
-        .order('created_at', { ascending: false });
-      if (thumbError) {
-        console.error('Error loading gallery thumbnails:', thumbError);
+      const [thumbResult, countResult] = await Promise.all([
+        supabase
+          .from('gallery_photos')
+          .select('gallery_id, photo_url, created_at')
+          .in('gallery_id', galleryIds)
+          .not('photo_url', 'is', null)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('gallery_photos')
+          .select('gallery_id')
+          .in('gallery_id', galleryIds),
+      ]);
+
+      if (thumbResult.error) {
+        console.error('Error loading gallery thumbnails:', thumbResult.error);
       } else {
-        (thumbRows || []).forEach((row: any) => {
+        (thumbResult.data || []).forEach((row: any) => {
           if (!galleryThumbnailMap.has(row.gallery_id) && row.photo_url) {
             galleryThumbnailMap.set(row.gallery_id, row.photo_url);
           }
+        });
+      }
+
+      if (!countResult.error && countResult.data) {
+        (countResult.data as any[]).forEach((row: any) => {
+          photoCountMap.set(row.gallery_id, (photoCountMap.get(row.gallery_id) || 0) + 1);
         });
       }
     }
@@ -811,24 +872,47 @@ export default function GalleryScreen() {
 
     const galleriesWithCovers = uniqueGalleries.map((gallery) => {
       const preferredCover = galleryThumbnailMap.get(gallery.id) || gallery.cover_photo_url || '';
-      if (!preferredCover) return gallery;
-      const path = extractStoragePath(preferredCover);
-      if (path && signedCoverMap.has(path)) {
-        return { ...gallery, cover_photo_url: signedCoverMap.get(path)! };
+      let coverUrl = preferredCover;
+      if (preferredCover) {
+        const path = extractStoragePath(preferredCover);
+        if (path && signedCoverMap.has(path)) {
+          coverUrl = signedCoverMap.get(path)!;
+        } else if (!preferredCover.startsWith('http')) {
+          const { data } = supabase.storage.from('client-photos').getPublicUrl(preferredCover);
+          if (data?.publicUrl) coverUrl = data.publicUrl;
+        }
       }
-      return { ...gallery, cover_photo_url: preferredCover };
+      return { ...gallery, cover_photo_url: coverUrl, photo_count: photoCountMap.get(gallery.id) ?? 0 };
     });
 
     setGalleries(galleriesWithCovers);
     setGalleriesLoading(false);
-  }, [clientIds, fetchAllClientIds, isDemoMode, readLocalUnlockedGalleryIds, user?.id]);
+  }, [isDemoMode, readLocalUnlockedGalleryIds, user?.id]);
+
+  // Keep refs current so effects can call without depending on identity
+  fetchGalleriesRef.current = fetchGalleries;
+  fetchAllClientIdsRef.current = fetchAllClientIds;
+
+  const trackGalleryView = useCallback(async (galleryId: string, clientId: string) => {
+    if (isDemoMode || !user?.id) return;
+    try {
+      await supabase.from('gallery_views').upsert({
+        gallery_id: galleryId,
+        user_id: user.id,
+      }, { onConflict: 'gallery_id,user_id' });
+      await supabase.rpc('update_delivery_status', {
+        p_gallery_id: galleryId, p_client_id: clientId, p_field: 'gallery_viewed', p_value: true
+      });
+    } catch (e) {
+      console.warn('Failed to track gallery view:', e);
+    }
+  }, [isDemoMode, user?.id]);
 
   useEffect(() => {
     if (!pathname.includes('/gallery')) return;
-    // Don't fire until we have a resolved user state
     if (!isDemoMode && !user?.id) return;
-    fetchGalleries({ silent: true });
-  }, [pathname, fetchGalleries, isDemoMode, user?.id]);
+    fetchGalleriesRef.current?.({ silent: true });
+  }, [pathname, isDemoMode, user?.id]);
 
   // Sync selectedGallery when galleries update
   useEffect(() => {
@@ -1210,41 +1294,38 @@ export default function GalleryScreen() {
   }, [brandName, openAdvancedShare, resolveGalleryLink, selectedGallery]);
 
   useEffect(() => {
-    // Skip all data fetches for unassigned non-demo users — they see the empty state
-    if (!isDemoMode && !isAssigned) return;
-    fetchAllClientIds().then(() => fetchGalleries());
-  }, [fetchAllClientIds, fetchGalleries, isDemoMode, isAssigned]);
+    if (!isDemoMode && !user?.id) return;
+    fetchAllClientIdsRef.current?.().then(() => fetchGalleriesRef.current?.());
+  }, [isDemoMode, user?.id]);
 
   // Fix 12: Refresh signed URLs when app returns to foreground (they expire after 1 hour)
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (nextState === 'active') {
-        fetchGalleries({ silent: true });
+        fetchGalleriesRef.current?.({ silent: true });
       }
     });
     return () => subscription.remove();
-  }, [fetchGalleries]);
+  }, []);
 
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null;
     let cancelled = false;
 
     (async () => {
-      const activeClientIds = clientIds.length > 0 ? clientIds : (await fetchAllClientIds());
-      if (activeClientIds.length === 0 || cancelled) return;
+      const activeClientIds = clientIdsRef.current.length > 0 ? clientIdsRef.current : (await fetchAllClientIdsRef.current?.());
+      if (!activeClientIds || activeClientIds.length === 0 || cancelled) return;
 
-      // Subscribe to gallery changes for ALL client records (multi-admin)
       channel = supabase
         .channel(`client-galleries-multi-${Date.now()}`)
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'galleries' },
           (payload: any) => {
-            // Only refresh if the new gallery belongs to one of our client IDs
             if (activeClientIds.includes(payload.new?.client_id)) {
               if (galleriesRefreshTimerRef.current) clearTimeout(galleriesRefreshTimerRef.current);
               galleriesRefreshTimerRef.current = setTimeout(() => {
-                fetchGalleries({ silent: true });
+                fetchGalleriesRef.current?.({ silent: true });
               }, 1500);
             }
           }
@@ -1256,7 +1337,7 @@ export default function GalleryScreen() {
             if (activeClientIds.includes(payload.new?.client_id)) {
               if (galleriesRefreshTimerRef.current) clearTimeout(galleriesRefreshTimerRef.current);
               galleriesRefreshTimerRef.current = setTimeout(() => {
-                fetchGalleries({ silent: true });
+                fetchGalleriesRef.current?.({ silent: true });
               }, 1500);
             }
           }
@@ -1272,7 +1353,7 @@ export default function GalleryScreen() {
       }
       if (channel) supabase.removeChannel(channel);
     };
-  }, [clientIds, fetchAllClientIds, fetchGalleries]);
+  }, []);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -1285,7 +1366,7 @@ export default function GalleryScreen() {
         () => {
           if (galleriesRefreshTimerRef.current) clearTimeout(galleriesRefreshTimerRef.current);
           galleriesRefreshTimerRef.current = setTimeout(() => {
-            fetchGalleries({ silent: true });
+            fetchGalleriesRef.current?.({ silent: true });
           }, 1500);
         }
       )
@@ -1298,7 +1379,7 @@ export default function GalleryScreen() {
       }
       supabase.removeChannel(channel);
     };
-  }, [fetchGalleries, isDemoMode, user?.id]);
+  }, [isDemoMode, user?.id]);
 
   useEffect(() => {
     setActiveAdminId(selectedGallery?.owner_admin_id ?? null);
@@ -1371,8 +1452,10 @@ export default function GalleryScreen() {
   }, [galleries, searchQuery, selectedAdminId]);
 
   const pendingPaymentGalleries = useMemo(
-    () => galleries.filter((g) => g.is_locked && !g.is_paid && (g.price ?? 0) > 0),
-    [galleries]
+    () => isDemoMode
+      ? realUnpaidGalleries
+      : galleries.filter((g) => g.is_locked && !g.is_paid && (g.price ?? 0) > 0),
+    [galleries, isDemoMode, realUnpaidGalleries]
   );
 
   const hasPendingPayments = pendingPaymentGalleries.length > 0;
@@ -1431,19 +1514,18 @@ export default function GalleryScreen() {
     }
   }, [selectedPhotoIds, photos, selectedGallery, downloadOnWeb]);
 
-  // Show unassigned empty state for non-demo users without a photographer.
-  // Show it immediately when loading (before any data fetch) so the screen
-  // never runs expensive queries for unassigned users.
-  if (!isDemoMode && (assignmentLoading || !isAssigned)) {
-    // While loading, show a minimal spinner so there's no flash
-    if (assignmentLoading) {
-      return (
-        <View style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color={Colors.gold} />
-        </View>
-      );
-    }
+  // Show unassigned empty state for non-demo users without a photographer —
+  // but only if they have no galleries (e.g. from unlocked_galleries).
+  if (!isDemoMode && !assignmentLoading && !isAssigned && galleries.length === 0) {
     return <UnassignedEmptyState featureName="your galleries" />;
+  }
+
+  if (!isDemoMode && assignmentLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={Colors.gold} />
+      </View>
+    );
   }
 
   return (
@@ -1470,7 +1552,28 @@ export default function GalleryScreen() {
           </>
         </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 120, 160) }} stickyHeaderIndices={!selectedGallery ? [0] : []}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 120, 160) }}
+        stickyHeaderIndices={!selectedGallery ? [0] : []}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              try {
+                await Promise.all([
+                  fetchGalleriesRef.current?.(),
+                  fetchAllClientIdsRef.current?.(),
+                ]);
+              } catch {}
+              setRefreshing(false);
+            }}
+            tintColor={Colors.gold}
+            colors={[Colors.gold]}
+          />
+        }
+      >
 
         {!selectedGallery && (
           <BlurView intensity={80} tint="dark" style={styles.tabsBlurContainer}>
@@ -1708,11 +1811,12 @@ export default function GalleryScreen() {
                     style={[styles.galleryTile, isHero && { aspectRatio: 16/9, marginBottom: 12 }]}
                     onPress={() => {
                       setSelectedGallery(gallery);
+                      trackGalleryView(gallery.id, gallery.client_id);
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     }}
                   >
                     {gallery.cover_photo_url ? (
-                      <Image source={{ uri: gallery.cover_photo_url }} style={styles.galleryTileImage} contentFit="cover" />
+                      <Image source={{ uri: gallery.cover_photo_url }} style={styles.galleryTileImage} contentFit="cover" transition={300} placeholder={{ blurhash: 'L6Pj0^i_.AyE_3t7t7R**0o#DgR4' }} cachePolicy="memory-disk" />
                     ) : (
                       <LinearGradient colors={[Colors.card, Colors.cardLight]} style={styles.galleryTileImage} />
                     )}
@@ -1873,22 +1977,46 @@ export default function GalleryScreen() {
               )}
             </SafeAreaView>
           </BlurView>
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+          <View style={{ flex: 1 }}>
             {photosLoading ? (
               <View style={styles.stateContainer}>
                 <ActivityIndicator color={Colors.gold} />
+                <Text style={[styles.stateText, { marginTop: 12 }]}>Loading photos...</Text>
               </View>
             ) : photosError ? (
               <View style={styles.stateContainer}>
                 <Text style={styles.stateText}>{photosError}</Text>
+                <Pressable
+                  style={{ marginTop: 16, backgroundColor: 'rgba(212,175,55,0.15)', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(212,175,55,0.3)' }}
+                  onPress={() => {
+                    if (selectedGallery) {
+                      setPhotosLoading(true);
+                      setPhotosError(null);
+                      // Re-fetch photos
+                      import('@/services/client').then(({ ClientService }) => {
+                        ClientService.gallery.getPhotos(selectedGallery.id)
+                          .then((data) => {
+                            setPhotos(data as any[]);
+                            setPhotosLoading(false);
+                          })
+                          .catch((e) => {
+                            setPhotosError(e?.message || 'Failed to load photos');
+                            setPhotosLoading(false);
+                          });
+                      });
+                    }
+                  }}
+                >
+                  <Text style={{ color: Colors.gold, fontWeight: '600' }}>Retry</Text>
+                </Pressable>
               </View>
             ) : (
-              <View style={{ flex: 1, minHeight: Dimensions.get('window').height * 0.8 }}>
+              <View style={{ flex: 1 }}>
                 <FlashList
                   data={photos}
                   numColumns={2}
                   {...{ estimatedItemSize: 250 }}
-                  contentContainerStyle={{ paddingHorizontal: PADDING }}
+                  contentContainerStyle={{ paddingHorizontal: PADDING, paddingBottom: 24 }}
                   renderItem={({ item, index }: { item: PhotoRow; index: number }) => (
                     <View style={{ padding: COL_GAP / 2 }}>
                       <PhotoCard
@@ -1936,7 +2064,7 @@ export default function GalleryScreen() {
                 />
               </View>
             )}
-          </ScrollView>
+          </View>
           
           {selectMode && selectedPhotoIds.size > 0 && (
             <RNAnimated.View style={[styles.batchActionBar, { bottom: insets.bottom + 20 }]}>

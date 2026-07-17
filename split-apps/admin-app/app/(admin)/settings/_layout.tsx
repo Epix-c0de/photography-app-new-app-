@@ -17,8 +17,9 @@ export default function AdminSettingsLayout() {
       <Stack.Screen name="branding" options={{ title: 'Branding' }} />
       <Stack.Screen name="delivery" options={{ title: 'Delivery Gateways' }} />
       <Stack.Screen name="package-editor" options={{ title: 'Service Packages' }} />
-      <Stack.Screen name="watermark" options={{ title: 'Watermark' }} />
       <Stack.Screen name="receipt-settings" options={{ title: 'Receipt Settings' }} />
+      <Stack.Screen name="security" options={{ title: 'Account & Security' }} />
+      <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
       <Stack.Screen name="ussd-settings/page" options={{ title: 'USSD Settings' }} />
       <Stack.Screen name="mpesa-transactions" options={{ title: 'Transactions' }} />
       <Stack.Screen name="../reviews" options={{ title: 'Reviews' }} />

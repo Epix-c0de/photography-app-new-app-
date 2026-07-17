@@ -87,6 +87,9 @@ export default function LoginScreen() {
       const { error } = await supabase.auth.resend({
         type: 'signup',
         email: emailToResend,
+        options: {
+          emailRedirectTo: 'epix-visuals://auth/callback',
+        },
       });
       if (error) throw error;
       Alert.alert('Email Sent', 'Confirmation email has been resent. Please check your inbox and spam folder.');

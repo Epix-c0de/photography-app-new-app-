@@ -100,6 +100,16 @@ export default function UnifiedPaymentsScreen() {
   const [paybillNumber, setPaybillNumber] = useState('');
   const [businessShortcode, setBusinessShortcode] = useState('');
 
+  const [darajaShortcode, setDarajaShortcode] = useState('');
+  const [darajaConsumerKey, setDarajaConsumerKey] = useState('');
+  const [darajaConsumerSecret, setDarajaConsumerSecret] = useState('');
+  const [darajaPasskey, setDarajaPasskey] = useState('');
+  const [darajaCallbackUrl, setDarajaCallbackUrl] = useState('');
+  const [darajaEnvironment, setDarajaEnvironment] = useState<'sandbox' | 'production'>('sandbox');
+  const [darajaActive, setDarajaActive] = useState(true);
+  const [darajaId, setDarajaId] = useState<string | null>(null);
+  const [savingDaraja, setSavingDaraja] = useState(false);
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
 
   const [manualPayments, setManualPayments] = useState<ManualPayment[]>([]);
@@ -130,6 +140,29 @@ export default function UnifiedPaymentsScreen() {
       }
     } catch (e) {
       console.error('Failed to load simple settings:', e);
+    }
+  }, [user?.id]);
+
+  const loadDarajaSettings = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const { data } = await supabase
+        .from('payment_settings')
+        .select('*')
+        .eq('admin_id', user.id)
+        .maybeSingle();
+      if (data) {
+        setDarajaId(data.id);
+        setDarajaShortcode(data.mpesa_shortcode || data.shortcode || '');
+        setDarajaConsumerKey(data.mpesa_consumer_key || data.consumer_key || '');
+        setDarajaConsumerSecret(data.mpesa_consumer_secret || data.consumer_secret || '');
+        setDarajaPasskey(data.mpesa_passkey || data.passkey || '');
+        setDarajaCallbackUrl(data.callback_url || '');
+        setDarajaEnvironment(data.environment || 'sandbox');
+        setDarajaActive(data.is_active !== false);
+      }
+    } catch (e) {
+      console.error('Failed to load Daraja settings:', e);
     }
   }, [user?.id]);
 
@@ -207,12 +240,13 @@ export default function UnifiedPaymentsScreen() {
     setLoading(true);
     await Promise.all([
       loadSimpleSettings(),
+      loadDarajaSettings(),
       loadTransactions(),
       loadManualPayments(),
       loadMpesaMessages()
     ]);
     setLoading(false);
-  }, [loadSimpleSettings, loadTransactions, loadManualPayments, loadMpesaMessages]);
+  }, [loadSimpleSettings, loadDarajaSettings, loadTransactions, loadManualPayments, loadMpesaMessages]);
 
   useEffect(() => {
     loadAll();
@@ -311,6 +345,27 @@ export default function UnifiedPaymentsScreen() {
         }, { onConflict: 'admin_id' });
 
       if (simpleError) throw simpleError;
+
+      if (darajaShortcode && darajaConsumerKey && darajaConsumerSecret && darajaPasskey) {
+        const darajaPayload: any = {
+          admin_id: user.id,
+          mpesa_shortcode: darajaShortcode,
+          mpesa_consumer_key: darajaConsumerKey,
+          mpesa_consumer_secret: darajaConsumerSecret,
+          mpesa_passkey: darajaPasskey,
+          callback_url: darajaCallbackUrl || null,
+          environment: darajaEnvironment,
+          is_active: darajaActive,
+          updated_at: new Date().toISOString(),
+        };
+        if (darajaId) {
+          darajaPayload.id = darajaId;
+        }
+        const { error: darajaError } = await supabase
+          .from('payment_settings')
+          .upsert(darajaPayload, { onConflict: 'admin_id' });
+        if (darajaError) throw darajaError;
+      }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Success', 'Payment settings saved successfully.');
@@ -577,6 +632,15 @@ export default function UnifiedPaymentsScreen() {
           </View>
         </View>
         <View style={styles.infoItem}>
+          <Smartphone size={18} color={darajaShortcode ? Colors.success : Colors.textMuted} />
+          <Text style={styles.infoLabel}>STK Push</Text>
+          <View style={[styles.modeBadge, { backgroundColor: (darajaShortcode ? Colors.success : Colors.textMuted) + '20' }]}>
+            <Text style={[styles.modeBadgeText, { color: darajaShortcode ? Colors.success : Colors.textMuted }]}>
+              {darajaShortcode ? 'CONFIGURED' : 'NOT SET'}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.infoItem}>
           <Building size={18} color={Colors.gold} />
           <Text style={styles.infoLabel}>Business</Text>
           <Text style={styles.infoValue}>{businessName || '—'}</Text>
@@ -805,6 +869,146 @@ export default function UnifiedPaymentsScreen() {
             <View style={[styles.toggleKnob, autoVerification && styles.toggleKnobActive]} />
           </Pressable>
         </View>
+
+        <Text style={styles.sectionLabel}>STK PUSH CREDENTIALS</Text>
+
+        <View style={styles.infoBanner}>
+          <HelpCircle size={22} color={Colors.gold} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.infoBannerTitle}>Daraja API Setup</Text>
+            <Text style={styles.infoBannerDesc}>
+              Required for automatic STK Push payments. Get these from the Safaricom Developer Portal.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleInfo}>
+            <Smartphone size={18} color={Colors.gold} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.toggleLabel}>Enable STK Push</Text>
+              <Text style={styles.toggleSublabel}>
+                {darajaActive ? 'STK Push is active for this account' : 'Clients will use manual payment'}
+              </Text>
+            </View>
+          </View>
+          <Pressable
+            style={[styles.toggleBtn, darajaActive && styles.toggleBtnActive]}
+            onPress={() => {
+              setDarajaActive(!darajaActive);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            }}
+          >
+            <View style={[styles.toggleKnob, darajaActive && styles.toggleKnobActive]} />
+          </Pressable>
+        </View>
+
+        {darajaActive && (
+          <>
+            <View style={styles.row}>
+              <View style={[styles.inputGroup, { flex: 1, marginRight: 12 }]}>
+                <Text style={styles.label}>Environment</Text>
+                <View style={styles.inputWrapper}>
+                  <Text style={{ color: darajaEnvironment === 'sandbox' ? Colors.gold : Colors.success, fontWeight: '700', fontSize: 13 }}>
+                    {darajaEnvironment === 'sandbox' ? 'SANDBOX' : 'PRODUCTION'}
+                  </Text>
+                </View>
+              </View>
+              <View style={[styles.inputGroup, { width: 100 }]}>
+                <Text style={styles.label}>Switch</Text>
+                <Pressable
+                  style={[styles.inputWrapper, { justifyContent: 'center', backgroundColor: darajaEnvironment === 'sandbox' ? '#111' : 'rgba(34,197,94,0.1)', borderColor: darajaEnvironment === 'sandbox' ? '#222' : 'rgba(34,197,94,0.3)' }]}
+                  onPress={() => setDarajaEnvironment(darajaEnvironment === 'sandbox' ? 'production' : 'sandbox')}
+                >
+                  <Text style={{ color: Colors.gold, fontSize: 12, fontWeight: '600' }}>
+                    {darajaEnvironment === 'sandbox' ? 'Go Live' : 'Test Mode'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>M-Pesa Shortcode</Text>
+              <View style={styles.inputWrapper}>
+                <Hash size={18} color={Colors.textMuted} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. 174379"
+                  placeholderTextColor="#666"
+                  keyboardType="number-pad"
+                  value={darajaShortcode}
+                  onChangeText={setDarajaShortcode}
+                />
+              </View>
+              <Text style={styles.hint}>Paybill or Till Number shortcode from Safaricom</Text>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Consumer Key</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. abc123..."
+                  placeholderTextColor="#666"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={darajaConsumerKey}
+                  onChangeText={setDarajaConsumerKey}
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Consumer Secret</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. xyz789..."
+                  placeholderTextColor="#666"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry
+                  value={darajaConsumerSecret}
+                  onChangeText={setDarajaConsumerSecret}
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Passkey</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919"
+                  placeholderTextColor="#666"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry
+                  value={darajaPasskey}
+                  onChangeText={setDarajaPasskey}
+                />
+              </View>
+              <Text style={styles.hint}>Found in the Safaricom Developer Portal under your app</Text>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Callback URL (optional)</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="https://your-domain.com/callback"
+                  placeholderTextColor="#666"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  value={darajaCallbackUrl}
+                  onChangeText={setDarajaCallbackUrl}
+                />
+              </View>
+              <Text style={styles.hint}>Leave empty to use the default Supabase callback</Text>
+            </View>
+          </>
+        )}
 
         <Pressable
           style={[styles.saveBtn, saving && { opacity: 0.5 }]}

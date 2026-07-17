@@ -226,7 +226,7 @@ export const ClientService = {
       // Fix 13: Batch sign all storage paths in a single API call instead of N individual calls
       const thumbnailsOnly = options?.thumbnailsOnly === true;
       const storagePaths = photos
-        .filter(p => !p.photo_url.startsWith('http'))
+        .filter(p => p.photo_url && !p.photo_url.startsWith('http'))
         .map(p => p.photo_url);
 
       const { data: signedUrlResults } = storagePaths.length > 0
@@ -240,7 +240,7 @@ export const ClientService = {
       );
 
       const photosWithUrls = photos.map((p) => {
-        const isUrl = p.photo_url.startsWith('http');
+        const isUrl = (p.photo_url ?? '').startsWith('http');
         const url = isUrl
           ? p.photo_url
           : signedUrlMap.get(p.photo_url)
@@ -249,7 +249,7 @@ export const ClientService = {
         return {
           ...p,
           url: url || '',
-          thumbnailUrl: url ? `${url}?width=400&quality=60` : '',
+          thumbnailUrl: url ? `${url}${url.includes('?') ? '&' : '?'}width=400&quality=60` : '',
           variant: canViewClean ? ('clean' as const) : ('watermarked' as const),
         };
       });
@@ -307,14 +307,9 @@ export const ClientService = {
       }
       const nowIso = new Date().toISOString();
 
-      // Show all active BTS posts (bts_posts doesn't have a visibility column)
-      // The target_audience array could be used for filtering in the future
       const { data, error } = await supabase
         .from('bts_posts')
-        .select(`
-          *,
-          user_profiles:created_by (id, name, avatar_url)
-        `)
+        .select('*')
         .eq('is_active', true)
         .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
         .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
@@ -331,10 +326,12 @@ export const ClientService = {
    */
   messaging: {
     list: async (clientId: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const messageClientId = user?.id ?? clientId;
       const { data, error } = await supabase
         .from('messages')
         .select('*')
-        .eq('client_id', clientId)
+        .eq('client_id', messageClientId)
         .order('created_at', { ascending: true });
         
       if (error) throw error;
@@ -342,10 +339,12 @@ export const ClientService = {
     },
 
     send: async (clientId: string, ownerAdminId: string, content: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const messageClientId = user?.id ?? clientId;
       const { data, error } = await supabase
         .from('messages')
         .insert({
-          client_id: clientId,
+          client_id: messageClientId,
           owner_admin_id: ownerAdminId,
           sender_role: 'client',
           content: content,

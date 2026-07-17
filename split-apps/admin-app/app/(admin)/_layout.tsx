@@ -5,7 +5,8 @@ import {
   Images,
   Users,
   CalendarDays,
-  Settings,
+  MessageSquare,
+  MoreHorizontal,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '@/constants/colors';
@@ -35,9 +36,9 @@ export default function AdminLayout() {
           }),
         },
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 9,
           fontWeight: '600',
-          letterSpacing: 0.3,
+          letterSpacing: 0.2,
           marginTop: 2,
         },
         tabBarIconStyle: {
@@ -45,6 +46,7 @@ export default function AdminLayout() {
         },
       }}
     >
+      {/* ── Main Tabs ─────────────────────────────────── */}
       <Tabs.Screen
         name="dashboard"
         options={{
@@ -82,14 +84,36 @@ export default function AdminLayout() {
         }}
       />
       <Tabs.Screen
-        name="settings"
+        name="inbox"
         options={{
-          title: 'Settings',
+          title: 'Inbox',
           tabBarIcon: ({ color, size }) => (
-            <Settings size={size} color={color} strokeWidth={2} />
+            <MessageSquare size={size} color={color} strokeWidth={2} />
           ),
         }}
       />
+      <Tabs.Screen
+        name="more"
+        options={{
+          title: 'More',
+          tabBarIcon: ({ color, size }) => (
+            <MoreHorizontal size={size} color={color} strokeWidth={2} />
+          ),
+        }}
+      />
+
+      {/* ── Hidden Screens (accessible from More, not in tab bar) ── */}
+      <Tabs.Screen name="settings" options={{ href: null }} />
+      <Tabs.Screen name="social" options={{ href: null }} />
+      <Tabs.Screen name="reviews" options={{ href: null }} />
+      <Tabs.Screen name="support" options={{ href: null }} />
+      <Tabs.Screen name="portfolio" options={{ href: null }} />
+      <Tabs.Screen name="referrals" options={{ href: null }} />
+      <Tabs.Screen name="sms-history" options={{ href: null }} />
+      <Tabs.Screen name="admin-management" options={{ href: null }} />
+      <Tabs.Screen name="bts-announcements" options={{ href: null }} />
+      <Tabs.Screen name="admin-bookings" options={{ href: null }} />
+      <Tabs.Screen name="post-details" options={{ href: null }} />
     </Tabs>
   );
 }

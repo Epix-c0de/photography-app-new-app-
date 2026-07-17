@@ -24,7 +24,24 @@ import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
-import type { BTSPost, Announcement } from '@/types/content';
+type BTSPost = {
+  id: string;
+  title?: string;
+  caption?: string;
+  media_url?: string;
+  media_type?: string;
+  type?: string;
+  created_at?: string;
+};
+
+type Announcement = {
+  id: string;
+  title?: string;
+  body?: string;
+  media_url?: string;
+  type?: string;
+  created_at?: string;
+};
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 48;
@@ -77,36 +94,58 @@ export default function RoadblockScreen() {
       const [btsRes, annRes] = await Promise.all([
         supabase
           .from('bts_posts')
-          .select('*, user_profiles!bts_posts_created_by_fkey(name)')
+          .select('*')
           .eq('is_active', true)
-          .eq('visibility', 'global')
+          .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+          .or(`scheduled_for.is.null,scheduled_for.lte.${new Date().toISOString()}`)
           .order('created_at', { ascending: false })
           .limit(6),
         supabase
           .from('announcements')
-          .select('*, user_profiles!announcements_admin_id_fkey(name)')
+          .select('*')
           .eq('is_active', true)
-          .eq('visibility', 'global')
+          .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+          .or(`scheduled_for.is.null,scheduled_for.lte.${new Date().toISOString()}`)
           .order('created_at', { ascending: false })
           .limit(4),
       ]);
 
       if (btsRes.error) console.error('[Roadblock] BTS error:', btsRes.error);
       else {
+        // Fetch user profiles for BTS posts
+        const btsCreatorIds = [...new Set((btsRes.data || []).map((p: any) => p.created_by).filter(Boolean))];
+        let btsProfileMap: Record<string, any> = {};
+        if (btsCreatorIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('user_profiles')
+            .select('id, name')
+            .in('id', btsCreatorIds);
+          if (profiles) btsProfileMap = Object.fromEntries(profiles.map((p: any) => [p.id, p]));
+        }
         setBtsPosts(
-          (btsRes.data || []).map((post) => ({
+          (btsRes.data || []).map((post: any) => ({
             ...post,
-            admin_name: (post as any).user_profiles?.name || 'Photographer',
+            admin_name: btsProfileMap[post.created_by]?.name || 'Photographer',
           })) as BTSPost[]
         );
       }
 
       if (annRes.error) console.error('[Roadblock] Announcements error:', annRes.error);
       else {
+        // Fetch user profiles for announcements (owner_admin_id FK to user_profiles)
+        const annCreatorIds = [...new Set((annRes.data || []).map((p: any) => p.owner_admin_id).filter(Boolean))];
+        let annProfileMap: Record<string, any> = {};
+        if (annCreatorIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('user_profiles')
+            .select('id, name')
+            .in('id', annCreatorIds);
+          if (profiles) annProfileMap = Object.fromEntries(profiles.map((p: any) => [p.id, p]));
+        }
         setAnnouncements(
-          (annRes.data || []).map((ann) => ({
+          (annRes.data || []).map((ann: any) => ({
             ...ann,
-            admin_name: (ann as any).user_profiles?.name || 'Photographer',
+            admin_name: annProfileMap[ann.owner_admin_id]?.name || 'Photographer',
           })) as Announcement[]
         );
       }

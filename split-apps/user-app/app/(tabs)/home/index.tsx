@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, usePathname } from 'expo-router';
 import { Bell, ChevronRight, Camera, Unlock, CreditCard, Zap, Play, Heart, Star } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
@@ -16,7 +17,19 @@ import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 import PaymentModal from '@/components/PaymentModal';
 
-import { Skeleton } from 'moti/skeleton';
+// Lightweight skeleton placeholder (moti renders a stray "." on web)
+function Skeleton({ width, height, radius }: { width?: number | string; height?: number; radius?: string }) {
+  return (
+    <View
+      style={{
+        width: (typeof width === 'string' ? width : (width ?? 60)) as any,
+        height: height ?? 16,
+        borderRadius: radius === 'round' ? (height ?? 16) / 2 : 8,
+        backgroundColor: 'rgba(212,175,55,0.12)',
+      }}
+    />
+  );
+}
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 64;
@@ -137,6 +150,8 @@ function BTSStoryCard({
                     source={{ uri: item.image_url || item.media_url }} 
                     style={styles.btsImage} 
                     contentFit="cover" 
+                    transition={300}
+                    cachePolicy="memory-disk"
                   />
                   <View style={styles.btsPlay}>
                     <Play size={16} color={Colors.white} fill={Colors.white} />
@@ -164,7 +179,7 @@ function BTSStoryCard({
             style={[styles.btsRing, !isViewed && styles.btsRingActive]}
           >
             <View style={[styles.btsInner, isViewed && { borderColor: '#444', borderWidth: 1 }]}>
-              <Image source={{ uri: item.image_url || item.media_url }} style={styles.btsImage} contentFit="cover" />
+              <Image source={{ uri: item.image_url || item.media_url }} style={styles.btsImage} contentFit="cover" transition={300} cachePolicy="memory-disk" />
             </View>
           </LinearGradient>
         )}
@@ -232,6 +247,8 @@ function AnnouncementCard({ item, index, onPress }: { item: AnnouncementRow; ind
               source={{ uri: item.image_url || item.media_url || '' }} 
               style={styles.announcementImage} 
               contentFit="cover" 
+              transition={300}
+              cachePolicy="memory-disk"
             />
           )}
         </Pressable>
@@ -239,7 +256,7 @@ function AnnouncementCard({ item, index, onPress }: { item: AnnouncementRow; ind
           colors={['transparent', 'rgba(0,0,0,0.85)']}
           style={styles.announcementOverlay}
         />
-        {item.tag && (
+        {!!item.tag && (
           <View style={styles.announcementTag}>
             <Text style={styles.announcementTagText}>{item.tag}</Text>
           </View>
@@ -286,6 +303,7 @@ function GalleryPreviewCard({ item }: { item: GalleryRow }) {
   const isLocked = item.is_locked;
   const title = item.name;
   const subtitle = item.shoot_type ?? 'My Gallery';
+  const photoCount = (item as any).photo_count || 0;
   const router = useRouter();
 
   return (
@@ -295,23 +313,28 @@ function GalleryPreviewCard({ item }: { item: GalleryRow }) {
       onPress={() => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         if (!item.is_paid && (item.price ?? 0) > 0) {
-          router.push('/(tabs)/gallery?tab=unlock');
+          router.push(`/(tabs)/gallery?tab=unlock&galleryId=${item.id}`);
           return;
         }
-        router.push('/(tabs)/gallery');
+        router.push(`/(tabs)/gallery?galleryId=${item.id}`);
       }}
       style={styles.galleryThumbContainer}
     >
       <Animated.View style={[styles.galleryThumbWrapper, { transform: [{ scale: scaleAnim }] }]}>
         {coverUrl.length > 0 ? (
-          <Image source={{ uri: coverUrl }} style={styles.galleryThumbImage} contentFit="cover" />
+          <Image source={{ uri: coverUrl }} style={styles.galleryThumbImage} contentFit="contain" transition={300} cachePolicy="memory-disk" />
         ) : (
           <LinearGradient colors={[Colors.card, Colors.cardLight]} style={styles.galleryThumbImage} />
         )}
-        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.82)']} style={styles.galleryThumbOverlay} />
+        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.galleryThumbOverlay} />
         {isLocked && (
           <View style={styles.galleryThumbLockBadge}>
             <Unlock size={10} color={Colors.background} />
+          </View>
+        )}
+        {photoCount > 0 && (
+          <View style={styles.galleryThumbCountBadge}>
+            <Text style={styles.galleryThumbCountText}>{photoCount}</Text>
           </View>
         )}
         <View style={styles.galleryThumbInfo}>
@@ -321,6 +344,11 @@ function GalleryPreviewCard({ item }: { item: GalleryRow }) {
           <Text style={styles.galleryThumbSubtitle} numberOfLines={1}>
             {subtitle}
           </Text>
+          {photoCount > 0 && (
+            <Text style={styles.galleryThumbPhotoCount}>
+              {photoCount} {photoCount === 1 ? 'photo' : 'photos'}
+            </Text>
+          )}
         </View>
       </Animated.View>
     </Pressable>
@@ -389,6 +417,7 @@ export default function HomeScreen() {
   const [galleries, setGalleries] = useState<GalleryRow[]>([]);
   const [galleriesLoading, setGalleriesLoading] = useState(true);
   const [galleriesError, setGalleriesError] = useState<string | null>(null);
+  const [realUnpaidGalleries, setRealUnpaidGalleries] = useState<GalleryRow[]>([]);
   const [announcements, setAnnouncements] = useState<AnnouncementRow[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(true);
   const [announcementsError, setAnnouncementsError] = useState(false);
@@ -456,7 +485,7 @@ export default function HomeScreen() {
         const nowIso = new Date().toISOString();
         const { data, error } = await supabase
           .from('bts_posts')
-          .select('*, user_profiles:created_by (id, name, avatar_url)')
+          .select('*')
           .eq('is_active', true)
           .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
           .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
@@ -471,15 +500,31 @@ export default function HomeScreen() {
           return;
         }
 
+        // Fetch user profiles for each unique created_by
+        const creatorIds = [...new Set((data || []).map((p: any) => p.created_by).filter(Boolean))];
+        let profileMap: Record<string, any> = {};
+        if (creatorIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('user_profiles')
+            .select('id, name, avatar_url')
+            .in('id', creatorIds);
+          if (profiles) {
+            profileMap = Object.fromEntries(profiles.map((p: any) => [p.id, p]));
+          }
+        }
+        const enriched = (data || []).map((p: any) => ({
+          ...p,
+          user_profiles: profileMap[p.created_by] || null,
+        }));
 
-        setBtsPosts(data || []);
+        setBtsPosts(enriched || []);
       } else {
         // Direct query — show all active BTS posts (RLS allows public read)
-        // Join user_profiles to get admin name/avatar for display
+        // Fetch user_profiles separately since created_by references auth.users, not user_profiles
         const nowIso = new Date().toISOString();
         const { data, error } = await supabase
           .from('bts_posts')
-          .select('*, user_profiles:created_by (id, name, avatar_url)')
+          .select('*')
           .eq('is_active', true)
           .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
           .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
@@ -494,8 +539,24 @@ export default function HomeScreen() {
           return;
         }
 
+        // Fetch user profiles for each unique created_by
+        const creatorIds = [...new Set((data || []).map((p: any) => p.created_by).filter(Boolean))];
+        let profileMap: Record<string, any> = {};
+        if (creatorIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('user_profiles')
+            .select('id, name, avatar_url')
+            .in('id', creatorIds);
+          if (profiles) {
+            profileMap = Object.fromEntries(profiles.map((p: any) => [p.id, p]));
+          }
+        }
+        const enriched = (data || []).map((p: any) => ({
+          ...p,
+          user_profiles: profileMap[p.created_by] || null,
+        }));
 
-        setBtsPosts((data || []) as BTSPost[]);
+        setBtsPosts((enriched || []) as BTSPost[]);
       }
     } catch (err) {
       console.error('[BTS Feed] ✗ Error fetching BTS:', err);
@@ -510,7 +571,14 @@ export default function HomeScreen() {
       setClientIds(['demo-client']);
       return ['demo-client'];
     }
-    const { data: { user: authUser } } = await supabase.auth.getUser();
+    let authUser: any = null;
+    try {
+      const result = await supabase.auth.getUser();
+      authUser = result.data?.user;
+    } catch {
+      setClientIds([]);
+      return [];
+    }
     if (!authUser) {
       setClientIds([]);
       return [];
@@ -536,19 +604,42 @@ export default function HomeScreen() {
       setUnreadCount(demoUnreadNotificationCount);
       return;
     }
-    const { data: { user: authUser } } = await supabase.auth.getUser();
+    let authUser: any = null;
+    try {
+      const result = await supabase.auth.getUser();
+      authUser = result.data?.user;
+    } catch {
+      setUnreadCount(0);
+      return;
+    }
     if (!authUser) {
       setUnreadCount(0);
       return;
     }
 
-    const { count } = await supabase
+    const { count: userCount } = await supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', authUser.id)
       .or('read.eq.false,is_read.eq.false');
 
-    setUnreadCount(count ?? 0);
+    let clientCount = 0;
+    const { data: clientRow } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('user_id', authUser.id)
+      .maybeSingle();
+    if (clientRow) {
+      const { count } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('client_id', clientRow.id)
+        .is('user_id', null)
+        .or('read.eq.false,is_read.eq.false');
+      clientCount = count ?? 0;
+    }
+
+    setUnreadCount((userCount ?? 0) + clientCount);
   }, [isDemoMode]);
 
   const fetchGalleries = useCallback(async () => {
@@ -556,6 +647,27 @@ export default function HomeScreen() {
     setGalleriesError(null);
 
     if (isDemoMode) {
+      // Still query real DB for unpaid galleries (for payment banner)
+      if (user?.id) {
+        try {
+          const { data: clientRows } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('user_id', user.id);
+          const realClientIds = (clientRows || []).map((r: any) => r.id).filter(Boolean);
+          if (realClientIds.length > 0) {
+            const { data: unpaidData } = await supabase
+              .from('galleries')
+              .select('*')
+              .in('client_id', realClientIds);
+            setRealUnpaidGalleries(
+              (unpaidData || []).filter((g: any) => g.is_locked && !g.is_paid && (g.price ?? 0) > 0)
+            );
+          }
+        } catch (e) {
+          console.error('[Home] Error fetching real unpaid galleries:', e);
+        }
+      }
       setGalleries(demoGalleries);
       setGalleriesLoading(false);
       return;
@@ -569,16 +681,13 @@ export default function HomeScreen() {
     }
 
     const activeClientIds = clientIds.length > 0 ? clientIds : (await fetchAllClientIds());
-    if (activeClientIds.length === 0) {
-      setGalleries([]);
-      setGalleriesLoading(false);
-      return;
-    }
 
-    const { data: clientGalleries, error: clientError } = await supabase
-      .from('galleries')
-      .select('*')
-      .in('client_id', activeClientIds);
+    const { data: clientGalleries, error: clientError } = activeClientIds.length > 0
+      ? await supabase
+          .from('galleries')
+          .select('*')
+          .in('client_id', activeClientIds)
+      : { data: [], error: null };
 
     // Only fetch unlocked galleries when user?.id is available
     const { data: unlockedGalleries, error: unlockedError } = user?.id
@@ -613,7 +722,9 @@ export default function HomeScreen() {
 
     const limited = unique.slice(0, 10);
     const limitedIds = limited.map((g) => g.id);
+
     const galleryThumbnailMap = new Map<string, string>();
+    const galleryPhotoCountMap = new Map<string, number>();
     if (limitedIds.length > 0) {
       const { data: thumbRows, error: thumbError } = await supabase
         .from('gallery_photos')
@@ -625,6 +736,7 @@ export default function HomeScreen() {
         console.error('[Home] Error loading gallery thumbnails:', thumbError);
       } else {
         (thumbRows || []).forEach((row: any) => {
+          galleryPhotoCountMap.set(row.gallery_id, (galleryPhotoCountMap.get(row.gallery_id) || 0) + 1);
           if (!galleryThumbnailMap.has(row.gallery_id) && row.photo_url) {
             galleryThumbnailMap.set(row.gallery_id, row.photo_url);
           }
@@ -635,15 +747,12 @@ export default function HomeScreen() {
     const normalizeCoverPath = (urlOrPath: string) => {
       if (!urlOrPath) return null;
       if (!urlOrPath.startsWith('http')) return urlOrPath;
-      // handle public storage urls
       const publicMarker = '/object/public/client-photos/';
       const publicIdx = urlOrPath.indexOf(publicMarker);
       if (publicIdx !== -1) {
         const tail = urlOrPath.slice(publicIdx + publicMarker.length);
         return tail.split('?')[0];
       }
-
-      // handle signed storage urls
       const signedMarker = '/object/sign/client-photos/';
       const signedIdx = urlOrPath.indexOf(signedMarker);
       if (signedIdx !== -1) {
@@ -671,11 +780,17 @@ export default function HomeScreen() {
 
     const withSignedCovers = limited.map((g) => {
       const preferredCover = galleryThumbnailMap.get(g.id) || g.cover_photo_url || '';
-      const normalized = normalizeCoverPath(preferredCover);
-      if (normalized) {
-        return { ...g, cover_photo_url: signedCoverMap.get(normalized) || preferredCover };
+      let coverUrl = preferredCover;
+      if (preferredCover) {
+        const normalized = normalizeCoverPath(preferredCover);
+        if (normalized && signedCoverMap.has(normalized)) {
+          coverUrl = signedCoverMap.get(normalized)!;
+        } else if (!preferredCover.startsWith('http')) {
+          const { data } = supabase.storage.from('client-photos').getPublicUrl(preferredCover);
+          if (data?.publicUrl) coverUrl = data.publicUrl;
+        }
       }
-      return { ...g, cover_photo_url: preferredCover };
+      return { ...g, cover_photo_url: coverUrl, photo_count: galleryPhotoCountMap.get(g.id) || 0 };
     });
 
     setGalleries(withSignedCovers);
@@ -685,8 +800,10 @@ export default function HomeScreen() {
   // Gallery fetches are handled by the main useEffect below (fetchAllClientIds -> fetchGalleries)
   // Removed duplicate pathname-based fetch to prevent double network calls on mount
 
-  const fetchAnnouncements = useCallback(async () => {
-    setAnnouncementsLoading(true);
+  const fetchAnnouncements = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setAnnouncementsLoading(true);
+    }
     setAnnouncementsError(false);
     if (isDemoMode) {
       setAnnouncements(demoAnnouncements);
@@ -704,7 +821,7 @@ export default function HomeScreen() {
         // If not logged in, only show active content
         const { data, error } = await supabase
           .from('announcements')
-          .select('*, user_profiles:created_by (id, name, avatar_url)')
+          .select('*')
           .eq('is_active', true)
           .order('created_at', { ascending: false })
           .limit(8);
@@ -717,15 +834,28 @@ export default function HomeScreen() {
           return;
         }
 
+        // Fetch user profiles for announcements
+        const annCreatorIds = [...new Set(data.map((p: any) => p.created_by || p.owner_admin_id).filter(Boolean))];
+        let annProfileMap: Record<string, any> = {};
+        if (annCreatorIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('user_profiles')
+            .select('id, name, avatar_url')
+            .in('id', annCreatorIds);
+          if (profiles) annProfileMap = Object.fromEntries(profiles.map((p: any) => [p.id, p]));
+        }
+        const enriched = data.map((ann: any) => ({
+          ...ann,
+          user_profiles: annProfileMap[ann.created_by || ann.owner_admin_id] || null,
+        }));
 
-        setAnnouncements(data);
+        setAnnouncements(enriched);
         setAnnouncementsLoading(false);
       } else {
         // Direct query — show all active announcements (RLS allows public read)
-        // Join user_profiles to get admin name/avatar for display
         const { data, error } = await supabase
           .from('announcements')
-          .select('*, user_profiles:created_by (id, name, avatar_url)')
+          .select('*')
           .eq('is_active', true)
           .order('created_at', { ascending: false })
           .limit(20);
@@ -738,8 +868,22 @@ export default function HomeScreen() {
           return;
         }
 
+        // Fetch user profiles for announcements
+        const annCreatorIds = [...new Set(data.map((p: any) => p.created_by || p.owner_admin_id).filter(Boolean))];
+        let annProfileMap: Record<string, any> = {};
+        if (annCreatorIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('user_profiles')
+            .select('id, name, avatar_url')
+            .in('id', annCreatorIds);
+          if (profiles) annProfileMap = Object.fromEntries(profiles.map((p: any) => [p.id, p]));
+        }
+        const enriched = data.map((ann: any) => ({
+          ...ann,
+          user_profiles: annProfileMap[ann.created_by || ann.owner_admin_id] || null,
+        }));
 
-        setAnnouncements(data as AnnouncementRow[]);
+        setAnnouncements(enriched as AnnouncementRow[]);
         setAnnouncementsLoading(false);
       }
     } catch (err) {
@@ -761,8 +905,10 @@ export default function HomeScreen() {
   }, [btsPosts, viewedIds]);
 
   const pendingPaymentGalleries = useMemo(
-    () => galleries.filter((gallery) => gallery.is_locked && !gallery.is_paid && (gallery.price ?? 0) > 0),
-    [galleries]
+    () => isDemoMode
+      ? realUnpaidGalleries
+      : galleries.filter((gallery) => gallery.is_locked && !gallery.is_paid && (gallery.price ?? 0) > 0),
+    [galleries, isDemoMode, realUnpaidGalleries]
   );
   const hasPendingPayments = pendingPaymentGalleries.length > 0;
 
@@ -783,10 +929,9 @@ export default function HomeScreen() {
     fetchBts();
     fetchUnreadCount();
     fetchAllClientIds().then(() => {
-      fetchGalleries();
-      fetchAnnouncements();
+      fetchGalleriesRef.current();
+      fetchAnnouncementsRef.current(true);
     });
-    // Fetch trust stats (client count + average rating)
     (async () => {
       try {
         const { count: clientCount } = await supabase
@@ -800,7 +945,8 @@ export default function HomeScreen() {
         setTrustStats({ clientCount: clientCount ?? 0, avgRating: parseFloat(avgRating) });
       } catch {}
     })();
-  }, [fetchAnnouncements, fetchBts, fetchAllClientIds, fetchGalleries, fetchUnreadCount, loadViewed]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount — callbacks are accessed via refs to avoid re-render loops
 
   // Use refs to store callbacks so realtime subscription doesn't re-run when they change
   const fetchBtsRef = useRef(fetchBts);
@@ -848,8 +994,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       {/* Sticky Header with Greeting */}
       <Animated.View style={[styles.stickyHeader, { paddingTop: insets.top + 12 }]}>
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.95)' }]} />
-        <BlurView intensity={200} tint="dark" style={StyleSheet.absoluteFillObject} />
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.95)' }]} /><BlurView intensity={200} tint="dark" style={StyleSheet.absoluteFillObject} />
         <View style={styles.stickyHeaderContent}>
           <View style={styles.headerContent}>
             <Pressable onPress={() => router.push('/(tabs)/profile')}>
@@ -877,11 +1022,11 @@ export default function HomeScreen() {
           </View>
           <Pressable style={styles.notifButton} onPress={handleNotificationPress}>
             <Bell size={22} color={Colors.white} />
-            {unreadCount > 0 && (
+            {unreadCount > 0 ? (
               <View style={styles.notifBadge}>
                 <Text style={styles.notifBadgeText}>{unreadCount}</Text>
               </View>
-            )}
+            ) : null}
           </Pressable>
         </View>
       </Animated.View>
@@ -895,6 +1040,7 @@ export default function HomeScreen() {
         contentContainerStyle={{ paddingTop: 80 + insets.top, paddingBottom: Math.max(insets.bottom + 120, 160) }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} colors={[Colors.gold]} />}
       >
+        <ErrorBoundary label="BTS Section">
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, styles.sectionTitleNoPad]}>Behind the Scenes</Text>
@@ -907,9 +1053,9 @@ export default function HomeScreen() {
             <View style={styles.btsList}>
               {[1, 2, 3, 4].map((i) => (
                 <View key={i} style={[styles.btsCard, { marginRight: 16 }]}>
-                  <Skeleton colorMode="dark" radius="round" height={BTS_CARD_SIZE} width={BTS_CARD_SIZE} />
+                  <Skeleton radius="round" height={BTS_CARD_SIZE} width={BTS_CARD_SIZE} />
                   <View style={{ marginTop: 8, alignSelf: 'center' }}>
-                    <Skeleton colorMode="dark" width={60} height={12} />
+                    <Skeleton width={60} height={12} />
                   </View>
                 </View>
               ))}
@@ -1023,13 +1169,13 @@ export default function HomeScreen() {
           {announcementsLoading ? (
             <View style={styles.announcementsContainer}>
               <View style={[styles.announcementCard, { backgroundColor: '#1C1C1E', overflow: 'hidden' }]}>
-                <Skeleton colorMode="dark" width={CARD_WIDTH} height={180} />
+                <Skeleton width={CARD_WIDTH} height={180} />
                 <View style={{ padding: 12 }}>
-                  <Skeleton colorMode="dark" width="80%" height={16} />
+                  <Skeleton width="80%" height={16} />
                   <View style={{ height: 8 }} />
-                  <Skeleton colorMode="dark" width="100%" height={12} />
+                  <Skeleton width="100%" height={12} />
                   <View style={{ height: 6 }} />
-                  <Skeleton colorMode="dark" width="60%" height={12} />
+                  <Skeleton width="60%" height={12} />
                 </View>
               </View>
             </View>
@@ -1062,7 +1208,9 @@ export default function HomeScreen() {
             />
           )}
         </View>
+        </ErrorBoundary>
 
+        <ErrorBoundary label="Galleries Section">
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Galleries</Text>
@@ -1080,11 +1228,11 @@ export default function HomeScreen() {
               {[1, 2].map((i) => (
                 <View key={i} style={[styles.galleryThumbContainer, { marginRight: 16 }]}>
                   <View style={[styles.galleryThumbWrapper, { backgroundColor: '#1C1C1E', overflow: 'hidden' }]}>
-                    <Skeleton colorMode="dark" width={160} height={200} />
+                    <Skeleton width={160} height={200} />
                     <View style={[styles.galleryThumbInfo, { zIndex: 10 }]}>
-                      <Skeleton colorMode="dark" width="70%" height={16} />
+                      <Skeleton width="70%" height={16} />
                       <View style={{ height: 6 }} />
-                      <Skeleton colorMode="dark" width="40%" height={12} />
+                      <Skeleton width="40%" height={12} />
                     </View>
                   </View>
                 </View>
@@ -1115,6 +1263,7 @@ export default function HomeScreen() {
             />
           )}
         </View>
+        </ErrorBoundary>
 
         <Pressable 
           style={styles.trustBanner}
@@ -1587,7 +1736,7 @@ const styles = StyleSheet.create({
   },
   galleryThumbWrapper: {
     width: 162,
-    height: 186,
+    height: 200,
     borderRadius: 20,
     overflow: 'hidden' as const,
     borderWidth: 1,
@@ -1637,6 +1786,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500' as const,
     color: Colors.textSecondary,
+  },
+  galleryThumbCountBadge: {
+    position: 'absolute' as const,
+    top: 10,
+    left: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backdropFilter: 'blur(8px)',
+  },
+  galleryThumbCountText: {
+    fontSize: 11,
+    fontWeight: '700' as const,
+    color: Colors.white,
+  },
+  galleryThumbPhotoCount: {
+    fontSize: 11,
+    fontWeight: '500' as const,
+    color: 'rgba(212,175,55,0.8)',
+    marginTop: 4,
   },
   trustBanner: {
     marginHorizontal: 20,

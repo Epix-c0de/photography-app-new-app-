@@ -59,6 +59,7 @@ export default function AdminSignupScreen() {
         email: email.trim(),
         password: password.trim(),
         options: {
+          emailRedirectTo: 'epix-visuals-admin://auth/callback',
           data: {
             role: 'admin',
             name: name.trim(),

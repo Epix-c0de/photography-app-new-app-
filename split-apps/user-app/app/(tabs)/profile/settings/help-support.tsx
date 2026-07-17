@@ -66,7 +66,13 @@ export default function HelpSupport() {
 
     setSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      let user: any = null;
+      try {
+        const result = await supabase.auth.getUser();
+        user = result.data?.user;
+      } catch {
+        throw new Error('Failed to get user');
+      }
       if (!user) throw new Error('Not authenticated');
 
       const { error } = await supabase.from('support_tickets').insert({

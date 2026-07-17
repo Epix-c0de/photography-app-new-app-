@@ -105,7 +105,12 @@ export default function PrivacySecurity() {
 
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
 
+  const [changePhoneOpen, setChangePhoneOpen] = useState<boolean>(false);
+  const [newPhone, setNewPhone] = useState<string>('');
+  const [phoneSubmitting, setPhoneSubmitting] = useState(false);
+
   const userEmail = user?.email || 'Not connected';
+  const userPhone = profile?.phone || 'Not set';
 
   const validatePassword = useCallback((password: string): string | null => {
     if (password.length < 8) return 'Password must be at least 8 characters.';
@@ -172,6 +177,39 @@ export default function PrivacySecurity() {
       Alert.alert('Email Change Failed', e.message || 'Could not update your email. Please try again.');
     } finally {
       setEmailSubmitting(false);
+    }
+  };
+
+  const handleChangePhone = async () => {
+    if (!newPhone.trim()) {
+      Alert.alert('Missing Field', 'Please enter your new phone number.');
+      return;
+    }
+    const phoneRegex = /^\+?[0-9]{7,15}$/;
+    if (!phoneRegex.test(newPhone.replace(/[\s\-()]/g, ''))) {
+      Alert.alert('Invalid Phone', 'Please enter a valid phone number (7-15 digits, optional + prefix).');
+      return;
+    }
+    if (newPhone.trim() === profile?.phone) {
+      Alert.alert('Same Phone', 'The new number is the same as your current phone number.');
+      return;
+    }
+
+    setPhoneSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ phone: newPhone.trim() })
+        .eq('id', user?.id);
+      if (error) throw error;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setNewPhone('');
+      setChangePhoneOpen(false);
+      Alert.alert('Phone Updated', 'Your phone number has been changed successfully.');
+    } catch (e: any) {
+      Alert.alert('Phone Change Failed', e.message || 'Could not update your phone number. Please try again.');
+    } finally {
+      setPhoneSubmitting(false);
     }
   };
 
@@ -292,6 +330,7 @@ export default function PrivacySecurity() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setChangeEmailOpen((v) => !v);
                 setChangePasswordOpen(false);
+                setChangePhoneOpen(false);
               }}
             >
               <Text style={styles.actionBtnText}>{changeEmailOpen ? '✕ Cancel' : 'Change Email'}</Text>
@@ -302,6 +341,7 @@ export default function PrivacySecurity() {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 setChangePasswordOpen((v) => !v);
                 setChangeEmailOpen(false);
+                setChangePhoneOpen(false);
               }}
             >
               <Text style={styles.actionBtnText}>{changePasswordOpen ? '✕ Cancel' : 'Change Password'}</Text>
@@ -335,6 +375,58 @@ export default function PrivacySecurity() {
                   <ActivityIndicator color="#000" size="small" />
                 ) : (
                   <Text style={styles.primaryBtnText}>Send Verification Email</Text>
+                )}
+              </Pressable>
+            </View>
+          )}
+        </SettingsSection>
+
+        {/* PHONE NUMBER */}
+        <SettingsSection title="PHONE NUMBER">
+          <SettingsRow
+            icon={<Smartphone size={18} color={Colors.gold} />}
+            label="Phone Number"
+            value={userPhone}
+          />
+          <View style={styles.actionRow}>
+            <Pressable
+              style={styles.actionBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setChangePhoneOpen((v) => !v);
+                setChangeEmailOpen(false);
+                setChangePasswordOpen(false);
+              }}
+            >
+              <Text style={styles.actionBtnText}>{changePhoneOpen ? '✕ Cancel' : 'Change Phone Number'}</Text>
+            </Pressable>
+          </View>
+          {changePhoneOpen && (
+            <View style={styles.formBlock}>
+              <Text style={styles.formLabel}>New Phone Number</Text>
+              <View style={styles.inputRow}>
+                <Smartphone size={16} color={Colors.textMuted} />
+                <TextInput
+                  style={styles.settingsInput}
+                  value={newPhone}
+                  onChangeText={setNewPhone}
+                  placeholder="+254 712 345 678"
+                  placeholderTextColor={Colors.textMuted}
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  editable={!phoneSubmitting}
+                />
+              </View>
+              <Text style={styles.formHint}>Enter your new phone number with country code (e.g. +254).</Text>
+              <Pressable
+                style={[styles.primaryBtn, phoneSubmitting && { opacity: 0.7 }]}
+                onPress={handleChangePhone}
+                disabled={phoneSubmitting}
+              >
+                {phoneSubmitting ? (
+                  <ActivityIndicator color="#000" size="small" />
+                ) : (
+                  <Text style={styles.primaryBtnText}>Update Phone Number</Text>
                 )}
               </Pressable>
             </View>

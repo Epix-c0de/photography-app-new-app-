@@ -14,24 +14,20 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Mail, Phone, ArrowRight, Lock, Eye, EyeOff, KeyRound, CheckCircle } from 'lucide-react-native';
+import { Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/colors';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(false);
-  
-  // Step 1 Data
-  const [contact, setContact] = useState('');
-  const [contactType, setContactType] = useState<'email' | 'phone'>('email');
 
-  // Step 2 Data
-  const [otp, setOtp] = useState('');
+  // Step 1: email input
+  const [email, setEmail] = useState('');
 
-  // Step 3 Data
+  // Step 2: new password (only when mode=recovery via deep link)
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -48,70 +44,28 @@ export default function ForgotPasswordScreen() {
 
   useEffect(() => {
     if (mode === 'recovery') {
-      setContactType('email');
-      setStep(3);
+      setStep(2);
     }
   }, [mode]);
 
-  const handleSendCode = async () => {
-    if (!contact.trim()) {
-      Alert.alert('Required', 'Please enter your email or phone number.');
+  const handleSendResetEmail = async () => {
+    if (!email.trim()) {
+      Alert.alert('Required', 'Please enter your email address.');
       return;
     }
 
     setLoading(true);
-    const isEmail = contact.includes('@');
-    setContactType(isEmail ? 'email' : 'phone');
-    const normalizedContact = contact.trim();
-
     try {
-      if (isEmail) {
-        const { error } = await supabase.auth.signInWithOtp({
-          email: normalizedContact.toLowerCase(),
-          options: { shouldCreateUser: false },
-        });
-        if (error) throw error;
-        Alert.alert('Code Sent', 'Check your email for the 6-digit verification code.');
-      } else {
-        const { error } = await supabase.auth.signInWithOtp({ phone: normalizedContact });
-        if (error) throw error;
-        Alert.alert('Code Sent', 'Check your SMS for the code.');
-      }
-      setStep(2);
+      const { error } = await supabase.auth.resetPasswordForEmail(
+        email.trim().toLowerCase(),
+        {
+          redirectTo: 'epix-visuals://reset-password',
+        }
+      );
+      if (error) throw error;
+      Alert.alert('Email Sent', 'Check your email for a password reset link.');
     } catch (err: any) {
       Alert.alert('Error', err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async () => {
-    if (otp.length < 6) {
-      Alert.alert('Invalid Code', 'Please enter the 6-digit code.');
-      return;
-    }
-    setLoading(true);
-
-    try {
-      const verifyParams: any = {
-        token: otp,
-        type: contactType === 'email' ? 'email' : 'sms',
-      };
-
-      if (contactType === 'email') {
-        verifyParams.email = contact.trim().toLowerCase();
-      } else {
-        verifyParams.phone = contact.trim();
-      }
-
-      const { data, error } = await supabase.auth.verifyOtp(verifyParams);
-
-      if (error) throw error;
-
-      // If successful, we have a session.
-      setStep(3);
-    } catch (err: any) {
-      Alert.alert('Verification Failed', err.message);
     } finally {
       setLoading(false);
     }
@@ -145,61 +99,33 @@ export default function ForgotPasswordScreen() {
   const renderStep1 = () => (
     <View style={styles.stepContainer}>
       <Text style={styles.title}>Forgot Password?</Text>
-      <Text style={styles.subtitle}>Enter your email or phone to reset it.</Text>
-      
+      <Text style={styles.subtitle}>Enter your email and we'll send you a reset link.</Text>
+
       <View style={styles.inputContainer}>
         <Mail size={20} color={Colors.textMuted} />
         <TextInput
           style={styles.input}
-          placeholder="Email or Phone Number"
+          placeholder="Email address"
           placeholderTextColor={Colors.textMuted}
-          value={contact}
-          onChangeText={setContact}
+          value={email}
+          onChangeText={setEmail}
           autoCapitalize="none"
+          keyboardType="email-address"
         />
       </View>
 
-      <Pressable style={styles.button} onPress={handleSendCode} disabled={loading}>
+      <Pressable style={styles.button} onPress={handleSendResetEmail} disabled={loading}>
         <LinearGradient
           colors={[Colors.gold, Colors.goldDark]}
           style={styles.gradient}
         >
-          {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.buttonText}>Send Reset Code</Text>}
+          {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.buttonText}>Send Reset Link</Text>}
         </LinearGradient>
       </Pressable>
     </View>
   );
 
   const renderStep2 = () => (
-    <View style={styles.stepContainer}>
-      <Text style={styles.title}>Verify Code</Text>
-      <Text style={styles.subtitle}>Enter the code sent to {contact}</Text>
-
-      <View style={styles.inputContainer}>
-        <KeyRound size={20} color={Colors.textMuted} />
-        <TextInput
-          style={styles.input}
-          placeholder="6-Digit Code"
-          placeholderTextColor={Colors.textMuted}
-          value={otp}
-          onChangeText={setOtp}
-          keyboardType="number-pad"
-          maxLength={6}
-        />
-      </View>
-
-      <Pressable style={styles.button} onPress={handleVerifyOtp} disabled={loading}>
-        <LinearGradient
-            colors={[Colors.gold, Colors.goldDark]}
-            style={styles.gradient}
-        >
-            {loading ? <ActivityIndicator color="#000" /> : <Text style={styles.buttonText}>Verify Code</Text>}
-        </LinearGradient>
-      </Pressable>
-    </View>
-  );
-
-  const renderStep3 = () => (
     <View style={styles.stepContainer}>
       <Text style={styles.title}>New Password</Text>
       <Text style={styles.subtitle}>Create a strong password.</Text>
@@ -219,7 +145,7 @@ export default function ForgotPasswordScreen() {
             {showPassword ? <EyeOff size={20} color={Colors.textMuted} /> : <Eye size={20} color={Colors.textMuted} />}
           </Pressable>
         </View>
-        
+
         <View style={styles.inputContainer}>
           <Lock size={20} color={Colors.textMuted} />
           <TextInput
@@ -251,13 +177,12 @@ export default function ForgotPasswordScreen() {
         colors={['#0A0A0A', '#111111', '#0A0A0A']}
         style={StyleSheet.absoluteFillObject}
       />
-      
+
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
         <View style={styles.content}>
             <Animated.View style={{ opacity: fadeAnim, width: '100%' }}>
                 {step === 1 && renderStep1()}
                 {step === 2 && renderStep2()}
-                {step === 3 && renderStep3()}
             </Animated.View>
 
             <Pressable onPress={() => router.back()} style={styles.backLink}>

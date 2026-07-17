@@ -1,7 +1,5 @@
 use anyhow::Result;
 use image::{DynamicImage, ImageBuffer, Rgb, RgbImage};
-use std::path::Path;
-use log::info;
 
 use crate::adjustments::BasicAdjustments;
 
@@ -56,7 +54,6 @@ impl PreviewRenderer {
                 b = adjustments.apply_contrast(b);
                 
                 // Apply highlights/shadows
-                let luminance = 0.299 * r + 0.587 * g + 0.114 * b;
                 r = adjustments.apply_highlights(r);
                 g = adjustments.apply_highlights(g);
                 b = adjustments.apply_highlights(b);

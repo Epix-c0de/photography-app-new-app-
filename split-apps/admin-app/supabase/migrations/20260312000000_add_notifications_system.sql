@@ -25,7 +25,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   -- Insert notification for all users when a new package is added or updated
   IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND OLD.is_active != NEW.is_active AND NEW.is_active = true) THEN
-    INSERT INTO public.notifications (user_id, title, message, type, data)
+    INSERT INTO public.notifications (user_id, title, body, type, data)
     SELECT
       up.id,
       CASE WHEN TG_OP = 'INSERT' THEN 'New Package Available!' ELSE 'Package Updated!' END,

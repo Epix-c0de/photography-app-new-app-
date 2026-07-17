@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -90,6 +91,14 @@ Deno.serve(async (req: Request) => {
       throw new Error("Payment settings not found");
     }
 
+    const shortcode = settings.mpesa_shortcode || settings.shortcode;
+    const passkey = settings.mpesa_passkey || settings.passkey;
+    const consumerKey = settings.mpesa_consumer_key || settings.consumer_key;
+    const consumerSecret = settings.mpesa_consumer_secret || settings.consumer_secret;
+    if (!shortcode || !passkey || !consumerKey || !consumerSecret) {
+      throw new Error("Incomplete payment credentials. Please configure all M-Pesa fields.");
+    }
+
     const { data: reserved, error: reserveError } = await adminClient.rpc("reserve_gallery_payment", {
       p_gallery_id: gallery.id,
       p_client_id: gallery.client_id,
@@ -111,8 +120,8 @@ Deno.serve(async (req: Request) => {
     }
 
     const timestamp = formatTimestamp();
-    const password = btoa(`${settings.mpesa_shortcode}${settings.mpesa_passkey}${timestamp}`);
-    const auth = btoa(`${settings.mpesa_consumer_key}:${settings.mpesa_consumer_secret}`);
+    const password = btoa(`${shortcode}${passkey}${timestamp}`);
+    const auth = btoa(`${consumerKey}:${consumerSecret}`);
 
     const tokenRes = await fetch("https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials", {
       headers: { Authorization: `Basic ${auth}` },
@@ -133,13 +142,13 @@ Deno.serve(async (req: Request) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        BusinessShortCode: settings.mpesa_shortcode,
+        BusinessShortCode: shortcode,
         Password: password,
         Timestamp: timestamp,
         TransactionType: "CustomerPayBillOnline",
         Amount: Math.round(amountToCharge),
         PartyA: normalizedPhone,
-        PartyB: settings.mpesa_shortcode,
+        PartyB: shortcode,
         PhoneNumber: normalizedPhone,
         CallBackURL: callbackUrl,
         AccountReference: normalizedCode,

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, FlatList, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, FlatList, Animated, Dimensions, Platform, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { Video, ResizeMode } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import { ChevronLeft, MessageCircle, Heart, Share2, ArrowRight, Play, Layers, Crown } from 'lucide-react-native';
+import { ChevronLeft, MessageCircle, Heart, Share2, ArrowRight, Play, Layers, Crown, Sparkles } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { ClientService } from '@/services/client';
@@ -83,14 +83,14 @@ function AnnouncementCard({ announcement, onPress, index }: { announcement: Anno
         toValue: 1,
         duration: 500,
         delay: index * 100,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }),
       Animated.spring(scaleAnim, {
         toValue: 1,
         friction: 8,
         tension: 40,
         delay: index * 100,
-        useNativeDriver: true,
+        useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start();
   }, []);
@@ -364,7 +364,7 @@ export default function AnnouncementsAllScreen() {
         refreshing={refreshing}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
+          { useNativeDriver: Platform.OS !== 'web' }
         )}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={

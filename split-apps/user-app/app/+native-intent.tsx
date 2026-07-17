@@ -3,7 +3,15 @@ export function redirectSystemPath({
   initial,
 }: { path: string; initial: boolean }) {
   console.log('[Native Intent] Handling deep link:', { path, initial });
-  
+
+  // Handle password reset deep link: epix-visuals://reset-password
+  if (path.startsWith('reset-password') || path.startsWith('/reset-password')) {
+    console.log('[Native Intent] Routing to reset-password');
+    const queryIndex = path.indexOf('?');
+    const query = queryIndex >= 0 ? path.substring(queryIndex) : '';
+    return '/reset-password' + query;
+  }
+
   // Handle OAuth callback
   if (path.includes('auth/callback') || path.includes('auth') || path.startsWith('/auth')) {
     console.log('[Native Intent] Routing to auth/callback');

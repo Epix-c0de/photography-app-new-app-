@@ -31,7 +31,14 @@ export default function ChatWrapper() {
       return;
     }
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      let user: any = null;
+      try {
+        const result = await supabase.auth.getUser();
+        user = result.data?.user;
+      } catch {
+        setAdminCount(0);
+        return;
+      }
       if (!user) { setAdminCount(0); return; }
 
       const { count } = await supabase

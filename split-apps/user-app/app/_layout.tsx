@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -32,6 +32,8 @@ function RootLayoutNav() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="login" options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="forgot-password" options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="reset-password" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="security-setup" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="auth-required" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
@@ -82,9 +84,12 @@ function RootLayoutNav() {
 function RootLayout() {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const authInitRef = useRef(false);
 
   useEffect(() => {
-    // Initialize auth state
+    if (authInitRef.current) return;
+    authInitRef.current = true;
+
     const initializeAuth = async () => {
       try {
         // Get initial session

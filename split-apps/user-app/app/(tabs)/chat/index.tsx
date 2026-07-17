@@ -183,14 +183,12 @@ export default function ChatScreen() {
           .from('user_profiles').select('id, name, avatar_url').in('id', adminIds);
 
         const threads = await Promise.all((profiles || []).map(async (admin: any) => {
-          const cr = (clientRows || []).find((c: any) => c.owner_admin_id === admin.id);
-          const clientId = cr?.id ?? '';
           const { data: lm } = await supabase.from('messages').select('content, created_at')
-            .eq('client_id', clientId).eq('owner_admin_id', admin.id)
+            .eq('client_id', user.id).eq('owner_admin_id', admin.id)
             .order('created_at', { ascending: false }).limit(1).maybeSingle();
           const { count: unread } = await supabase.from('messages')
             .select('*', { count: 'exact', head: true })
-            .eq('client_id', clientId).eq('owner_admin_id', admin.id)
+            .eq('client_id', user.id).eq('owner_admin_id', admin.id)
             .eq('sender_role', 'admin').eq('is_read', false);
           return {
             adminId: admin.id, adminName: admin.name || 'Photographer',
@@ -532,22 +530,24 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
         });
 
         // ── Step 4: Fetch existing messages ──
-        const messageClientCandidates = Array.from(new Set([clientId, authUser.id].filter(Boolean))) as string[];
+        // Search for messages where client_id = authUser.id (the FK target)
+        // Also check clientId (clients.id) for backwards compatibility with old messages
+        const messageClientCandidates = Array.from(new Set([authUser.id, clientId].filter(Boolean))) as string[];
         const { data: existingMsgs } = await supabase
           .from('messages')
           .select('*')
           .in('client_id', messageClientCandidates)
+          .eq('owner_admin_id', adminId)
           .order('created_at', { ascending: true });
 
-        const preferredMessageClientId =
-          (existingMsgs ?? []).some((m: any) => m.client_id === authUser.id)
-            ? authUser.id
-            : clientId;
+        // Always use authUser.id as messageClientId since messages.client_id FK
+        // points to user_profiles(id), not clients(id).
+        const messageClientIdToUse = authUser.id;
 
         if (!cancelled) {
           setOwnerAdminId(adminId);
           setClientRowId(clientId);
-          setMessageClientId(preferredMessageClientId);
+          setMessageClientId(messageClientIdToUse);
           setAdminName(finalAdminName);
           setAdminAvatar(finalAdminAvatar);
           setAvatarVersion((v) => v + 1);
@@ -590,14 +590,14 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
     if (!messageClientId) return;
 
     const channel = supabase
-      .channel(`chat_messages_${messageClientId}`)
+      .channel(`chat_messages_${messageClientId}_${ownerAdminId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'messages',
-          filter: `client_id=eq.${messageClientId}`,
+          filter: `client_id=eq.${messageClientId},owner_admin_id=eq.${ownerAdminId}`,
         },
         (payload) => {
           const newMsg = payload.new as any;
@@ -625,7 +625,7 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [isDemoMode, messageClientId]);
+  }, [isDemoMode, messageClientId, ownerAdminId]);
 
   // ─── Real-time: admin profile changes ──────────────────────────────────────
   useEffect(() => {
@@ -807,9 +807,9 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
         throw new Error('User not authenticated');
       }
 
-      const preferredClientId = messageClientId ?? clientRowId;
+      const preferredClientId = user.id;
 
-      let { error, data } = await supabase
+      const { error, data } = await supabase
         .from('messages')
         .insert({
           client_id: preferredClientId,
@@ -820,22 +820,8 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
         })
         .select();
 
-      if (error && error.message?.includes('messages_client_id_fkey') && preferredClientId !== user.id) {
-        const retry = await supabase
-          .from('messages')
-          .insert({
-            client_id: user.id,
-            owner_admin_id: ownerAdminId,
-            sender_role: 'client',
-            content: textToSend,
-            is_read: false,
-          })
-          .select();
-        error = retry.error;
-        data = retry.data;
-        if (!error) {
-          setMessageClientId(user.id);
-        }
+      if (!error && preferredClientId !== messageClientId) {
+        setMessageClientId(preferredClientId);
       }
 
       if (error) throw error;

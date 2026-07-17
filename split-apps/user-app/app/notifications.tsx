@@ -232,7 +232,7 @@ export default function NotificationsScreen() {
       // Permanently mark as read in database
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true, read_at: new Date().toISOString() })
+        .update({ read: true })
         .eq('id', id);
       if (error) {
         console.error('Failed to mark as read:', error);
@@ -310,7 +310,7 @@ export default function NotificationsScreen() {
       // Mark all unread notifications as read
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true, read_at: new Date().toISOString() })
+        .update({ read: true })
         .eq('user_id', user.id)
         .eq('read', false);
       if (error) {
@@ -404,14 +404,27 @@ export default function NotificationsScreen() {
           return;
         }
 
-        const { data, error } = await supabase
+        const { data: userNotifs, error: userErr } = await supabase
           .from('notifications')
           .select('*')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(50);
 
-        if (error) throw error;
+        if (userErr) throw userErr;
+
+        let extraNotifs: any[] = [];
+
+        const seenIds = new Set((userNotifs || []).map((n: any) => n.id));
+        const merged = [...(userNotifs || [])];
+        for (const n of extraNotifs) {
+          if (!seenIds.has(n.id)) {
+            merged.push(n);
+            seenIds.add(n.id);
+          }
+        }
+        merged.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        const data = merged;
 
         const formattedNotifs: Notification[] = (data || []).map((n: any) => ({
           id: n.id,
@@ -441,7 +454,7 @@ export default function NotificationsScreen() {
       return;
     }
 
-    // Set up real-time subscription
+    // Set up real-time subscription for user_id-based notifications
     const channel = supabase
       .channel(`user_notifications_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`)
       .on('postgres_changes', {
@@ -469,15 +482,56 @@ export default function NotificationsScreen() {
           announcement_id: newNotif.data?.announcementId,
         };
 
-        setNotifs(prev => [formattedNotif, ...prev]);
+        setNotifs(prev => {
+          if (prev.some(n => n.id === formattedNotif.id)) return prev;
+          return [formattedNotif, ...prev];
+        });
 
-        // Haptic feedback for new notification
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       })
       .subscribe();
 
+    let clientChannel: any = null;
+    supabase.from('clients').select('id').eq('user_id', user.id).maybeSingle().then(({ data: clientRow }) => {
+      if (!clientRow) return;
+      clientChannel = supabase
+        .channel(`client_notifications_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`)
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `client_id=eq.${clientRow.id}`
+        }, (payload) => {
+          if (!payload.new) return;
+          const newNotif = payload.new as any;
+          if (newNotif.user_id && newNotif.user_id === user.id) return;
+          const formattedNotif: Notification = {
+            id: newNotif.id,
+            title: newNotif.title || 'Notification',
+            body: newNotif.body ?? newNotif.message ?? '',
+            type: newNotif.type as NotificationType || 'system',
+            read: newNotif.read === true,
+            timestamp: new Date(newNotif.created_at).toLocaleDateString(),
+            createdAt: newNotif.created_at,
+            actionLabel: getActionLabel(newNotif.type as NotificationType),
+            access_code: newNotif.data?.accessCode ?? newNotif.access_code,
+            gallery_id: newNotif.data?.galleryId ?? newNotif.gallery_id,
+            client_id: newNotif.data?.clientId ?? newNotif.client_id,
+            bts_id: newNotif.data?.btsId,
+            announcement_id: newNotif.data?.announcementId,
+          };
+          setNotifs(prev => {
+            if (prev.some(n => n.id === formattedNotif.id)) return prev;
+            return [formattedNotif, ...prev];
+          });
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        })
+        .subscribe();
+    });
+
     return () => {
       supabase.removeChannel(channel);
+      if (clientChannel) supabase.removeChannel(clientChannel);
     };
   }, [isDemoMode, user]);
 

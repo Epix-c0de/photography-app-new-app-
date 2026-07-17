@@ -14,6 +14,7 @@ config.resolver.disableHierarchicalLookup = true;
 config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules,
   'jimp-compact': path.resolve(projectRoot, 'mocks/jimp-compact.js'),
+  'use-sync-external-store/with-selector': path.resolve(projectRoot, 'node_modules/use-sync-external-store/with-selector.js'),
 };
 
 module.exports = withRorkMetro(config);

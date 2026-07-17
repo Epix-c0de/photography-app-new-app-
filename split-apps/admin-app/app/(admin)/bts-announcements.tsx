@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform, SectionList, Linking, Share } from 'react-native';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform, SectionList, Linking, Share, Animated } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,11 +7,12 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { Video, ResizeMode } from 'expo-av';
-import { Camera, X, Sparkles, Image as ImageIcon, Megaphone, ChevronRight, BarChart2, Heart, MessageCircle, Eye, Share2 } from 'lucide-react-native';
+import { Camera, X, Sparkles, Image as ImageIcon, Megaphone, ChevronRight, BarChart2, Heart, MessageCircle, Eye, Share2, Layers, Crown, Music, Calendar, Clock, Globe, Lock, Shield } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminService } from '@/services/admin';
+import { compressImage, generateThumbnail } from '@/lib/image-utils';
 import type { Database } from '@/types/supabase';
 
 type BTSPost = Database['public']['Tables']['bts_posts']['Row'];
@@ -50,9 +51,6 @@ function daysToExpiryIso(days: number) {
 async function generateVideoThumbnail(videoUri: string): Promise<string | null> {
   try {
     console.log('[Video Thumbnail] Thumbnail generation not available - using video directly');
-
-    // For now, return null to use the video directly
-    // TODO: Install expo-video-thumbnails or react-native-create-thumbnail for proper thumbnails
     return null;
   } catch (error) {
     console.error('[Video Thumbnail] Failed to generate thumbnail:', error);
@@ -63,29 +61,18 @@ async function generateVideoThumbnail(videoUri: string): Promise<string | null> 
 async function uploadVideoThumbnail(thumbnailUri: string, baseFileName: string): Promise<string | null> {
   try {
     console.log('[Video Thumbnail] Uploading thumbnail...');
-
     const response = await fetch(thumbnailUri);
     const blob = await response.blob();
-
     const thumbnailFileName = `${baseFileName}_thumbnail.jpg`;
     const thumbnailPath = `thumbnails/${thumbnailFileName}`;
-
     const { error: uploadError } = await supabase.storage
       .from('media')
-      .upload(thumbnailPath, blob, {
-        contentType: 'image/jpeg',
-        upsert: true,
-      });
-
+      .upload(thumbnailPath, blob, { contentType: 'image/jpeg', upsert: true });
     if (uploadError) {
       console.error('[Video Thumbnail] Upload failed:', uploadError);
       throw uploadError;
     }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from('media')
-      .getPublicUrl(thumbnailPath);
-
+    const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(thumbnailPath);
     console.log('[Video Thumbnail] Uploaded successfully:', publicUrl);
     return publicUrl;
   } catch (error) {
@@ -112,13 +99,8 @@ export default function AdminBtsAnnouncementsScreen() {
     const referralCode = user.id.substring(0, 8).toUpperCase();
     const url = `https://studio.epix.co/share/${referralCode}`;
     const message = `Check out our studio! View portfolio and book here: ${url}`;
-
     try {
-      const result = await Share.share({
-        message,
-        url, // iOS only
-        title: 'Share Studio Link',
-      });
+      await Share.share({ message, url, title: 'Share Studio Link' });
     } catch (error: any) {
       Alert.alert('Error', error.message);
     }
@@ -218,9 +200,8 @@ export default function AdminBtsAnnouncementsScreen() {
         mediaTypes: ImagePicker.MediaTypeOptions.All,
         allowsEditing: false,
         quality: 0.8,
-        videoMaxDuration: 30, // Auto-crop to 30s for BTS videos
+        videoMaxDuration: 30,
       });
-
       if (!result.canceled && result.assets[0]) {
         if (forType === 'bts') {
           setBtsPicked(result.assets[0]);
@@ -243,1492 +224,888 @@ export default function AdminBtsAnnouncementsScreen() {
         multiple: false,
         copyToCacheDirectory: true,
       });
-      if (result.canceled || !result.assets?.length) {
-        return;
-      }
+      if (result.canceled || !result.assets?.length) return;
       setBtsMusicFile(result.assets[0]);
-    } catch {
-      Alert.alert('Error', 'Failed to pick music');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to pick music file');
     }
   }, []);
 
+  // ── Upload Functions ──────────────────────────────────────────
   const uploadBtsPost = useCallback(async () => {
-    if (!btsPicked || !btsTitle.trim()) {
-      Alert.alert('Error', 'Please select media and add a caption');
-      return;
-    }
-
+    if (!btsPicked || !user) return;
     setPosting(true);
+    setUploadStatus('Compressing...');
     try {
-      // 1. If it's a video, we might want to handle it differently if audio crop was requested
-      // However, client-side video editing is complex without extra libs.
-      // We will assume for now we just upload and maybe handle 30s limit via UI/Metadata
-      
-      // Attempt to ensure bucket exists via Edge Function
-      try {
-        setUploadStatus('Checking storage setup...');
-        await supabase.functions.invoke('ensure_buckets', {
-          body: { buckets: ['media'], public: true }
-        });
-      } catch (invokeError) {
-        console.warn('Failed to invoke ensure_buckets:', invokeError);
-      }
+      const ext = getFileExtension(btsPicked);
+      const fileName = `bts-${Date.now()}.${ext}`;
+      const filePath = `bts/${user.id}/${fileName}`;
 
-      const fileExt = getFileExtension(btsPicked);
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `bts/${fileName}`;
-
-      setUploadStatus('Uploading file to storage...');
-      // Upload file to storage
-      const response = await fetch(btsPicked.uri);
-      const blob = await response.blob();
-
-      const { error: uploadError } = await supabase.storage
-        .from('media')
-        .upload(filePath, blob, {
-          contentType: btsPicked.mimeType || 'image/jpeg',
-          upsert: true,
-        });
-
-      if (uploadError) {
-        const msg = (uploadError as any)?.message || String(uploadError);
-        const lowerMsg = msg.toLowerCase();
-
-        if (lowerMsg.includes('bucket') && lowerMsg.includes('not found')) {
-          setPosting(false);
-          Alert.alert(
-            'Storage Bucket Required',
-            'The "media" bucket needs to be created.\n\n1. Go to Supabase Dashboard > Storage\n2. Click "New Bucket"\n3. Name it "media"\n4. Set to "Public" access\n5. Click "Create Bucket"\n\nAfter creating the bucket, try uploading again.',
-            [
-              {
-                text: 'Open Dashboard',
-                onPress: () => Linking.openURL('https://supabase.com/dashboard/project/_/storage/buckets')
-              },
-              { text: 'OK' }
-            ]
-          );
-          return;
-        }
-
-        if (lowerMsg.includes('forbidden') || lowerMsg.includes('unauthorized') || lowerMsg.includes('permission denied')) {
-          setPosting(false);
-          Alert.alert(
-            'Permission Denied',
-            'You do not have permission to upload to the "media" bucket. Check your Supabase Storage RLS policies.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-
-        throw uploadError;
-      }
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('media')
-        .getPublicUrl(filePath);
-
-      // Thumbnail generation moved after insert to get real ID
+      let uploadUri = btsPicked.uri;
       let thumbnailUrl: string | null = null;
 
-      const expiresAtIso = daysToExpiryIso(Number(btsExpiryDays));
-      const scheduledForIso = btsScheduledFor ? new Date(btsScheduledFor).toISOString() : null;
-      let musicUrl: string | null = null;
-      let hasMusic = false;
+      // Compress images (not videos)
+      if (inferMediaType(btsPicked) === 'image') {
+        setUploadStatus('Compressing image...');
+        const compressed = await compressImage(btsPicked.uri);
+        uploadUri = compressed.uri;
 
-      if (btsMusicFile?.uri) {
-        setUploadStatus('Uploading background music...');
-        const nameParts = btsMusicFile.name?.split('.') ?? [];
-        const ext = nameParts.length > 1 ? nameParts[nameParts.length - 1]?.toLowerCase() : '';
-        const musicName = `${Date.now()}.${ext || 'mp3'}`;
-        const musicPath = `music/${musicName}`;
-
-        const musicResponse = await fetch(btsMusicFile.uri);
-        const musicBlob = await musicResponse.blob();
-
-        const { error: musicUploadError } = await supabase.storage
-          .from('media')
-          .upload(musicPath, musicBlob, {
-            contentType: btsMusicFile.mimeType || 'audio/mpeg',
-            upsert: true,
-          });
-
-        if (musicUploadError) {
-          const msg = (musicUploadError as any)?.message || String(musicUploadError);
-          const lowerMsg = msg.toLowerCase();
-
-          if (lowerMsg.includes('bucket') && lowerMsg.includes('not found')) {
-            setPosting(false);
-            Alert.alert(
-              'Storage Bucket Required',
-              'The "media" bucket needs to be created.\n\n1. Go to Supabase Dashboard > Storage\n2. Click "New Bucket"\n3. Name it "media"\n4. Set to "Public" access\n5. Click "Create Bucket"\n\nAfter creating the bucket, try uploading again.',
-              [
-                {
-                  text: 'Open Dashboard',
-                  onPress: () => Linking.openURL('https://supabase.com/dashboard/project/_/storage/buckets')
-                },
-                { text: 'OK' }
-              ]
-            );
-            return;
+        // Generate thumbnail for instant preview
+        setUploadStatus('Generating thumbnail...');
+        const thumb = await generateThumbnail(btsPicked.uri);
+        if (thumb) {
+          const thumbFileName = `bts-thumb-${Date.now()}.jpg`;
+          const thumbPath = `bts/thumbnails/${user.id}/${thumbFileName}`;
+          const thumbResponse = await fetch(thumb.uri);
+          const thumbBlob = await thumbResponse.blob();
+          const { error: thumbErr } = await supabase.storage
+            .from('media')
+            .upload(thumbPath, thumbBlob, { contentType: 'image/jpeg', upsert: true });
+          if (!thumbErr) {
+            const { data: thumbUrlData } = supabase.storage.from('media').getPublicUrl(thumbPath);
+            thumbnailUrl = thumbUrlData.publicUrl;
           }
-
-          if (lowerMsg.includes('forbidden') || lowerMsg.includes('unauthorized') || lowerMsg.includes('permission denied')) {
-            setPosting(false);
-            Alert.alert(
-              'Permission Denied',
-              'You do not have permission to upload to the "media" bucket. Check your Supabase Storage RLS policies.',
-              [{ text: 'OK' }]
-            );
-            return;
-          }
-
-          throw musicUploadError;
         }
-
-        const { data: { publicUrl: musicPublicUrl } } = supabase.storage
-          .from('media')
-          .getPublicUrl(musicPath);
-
-        musicUrl = musicPublicUrl || null;
-        hasMusic = !!musicPublicUrl;
       }
 
-      setUploadStatus('Saving to database...');
-      const { data: newPost, error: insertError } = await supabase
-        .from('bts_posts')
-        .insert({
-          title: btsTitle,
-          media_url: publicUrl,
-          media_type: inferMediaType(btsPicked),
-          category: btsCategory,
-          expires_at: expiresAtIso,
-          scheduled_for: scheduledForIso,
-          music_url: musicUrl,
-          is_active: true,
-          created_by: user?.id,
-          caption: btsTitle,
-          media_aspect_ratio: btsPicked.width / btsPicked.height,
-          visibility: btsVisibility,
-        })
-        .select()
-        .single();
+      setUploadStatus('Uploading...');
+      const response = await fetch(uploadUri);
+      const blob = await response.blob();
 
-      if (!insertError && newPost && inferMediaType(btsPicked) === 'video') {
-        setUploadStatus('Triggering background processing...');
-        supabase.functions.invoke('generate_video_thumbnail', {
-          body: {
-            videoUrl: publicUrl,
-            postId: newPost.id,
-            type: 'bts'
+      const { error: uploadErr } = await supabase.storage
+        .from('media')
+        .upload(filePath, blob, { contentType: btsPicked.mimeType || 'image/jpeg', upsert: true });
+      if (uploadErr) throw uploadErr;
+
+      const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(filePath);
+
+      // For video posts, generate thumbnail from first frame
+      if (inferMediaType(btsPicked) === 'video' && !thumbnailUrl) {
+        try {
+          const thumb = await generateThumbnail(btsPicked.uri);
+          if (thumb) {
+            const thumbFileName = `bts-thumb-${Date.now()}.jpg`;
+            const thumbPath = `bts/thumbnails/${user.id}/${thumbFileName}`;
+            const thumbResponse = await fetch(thumb.uri);
+            const thumbBlob = await thumbResponse.blob();
+            const { error: thumbErr } = await supabase.storage
+              .from('media')
+              .upload(thumbPath, thumbBlob, { contentType: 'image/jpeg', upsert: true });
+            if (!thumbErr) {
+              const { data: thumbUrlData } = supabase.storage.from('media').getPublicUrl(thumbPath);
+              thumbnailUrl = thumbUrlData.publicUrl;
+            }
           }
-        }).catch(err => console.error('[BTS Thumbnail] Trigger failed:', err));
-      }
-
-      console.log('[BTS Upload] Insert response - error:', insertError);
-
-      if (insertError) {
-        console.error('[BTS Upload] ✗ Database Insert FAILED');
-        console.error('[BTS Upload] Error:', insertError);
-        console.error('[BTS Upload] Error message:', (insertError as any)?.message);
-        console.error('[BTS Upload] Error code:', (insertError as any)?.code);
-        console.error('[BTS Upload] Error details:', JSON.stringify(insertError));
-        
-        const msg = (insertError as any)?.message || String(insertError);
-        const lower = msg.toLowerCase();
-        
-        if (lower.includes('row-level security') || lower.includes('violates row-level security') || lower.includes('permission denied') || lower.includes('not authorized')) {
-          setPosting(false);
-          Alert.alert(
-            'Posting Blocked - RLS Policy',
-            'Row Level Security rejected this post:\n\nError: ' + msg + '\n\nEnsure your account is admin and the created_by/admin_id policy is applied.',
-            [{ text: 'OK' }]
-          );
-          return;
+        } catch (e) {
+          console.warn('[BTS] Video thumbnail generation failed:', e);
         }
-        throw insertError;
       }
 
-      console.log('[BTS Upload] ✓ Database insert SUCCESSFUL');
-      setPosting(false);
-      loadBtsPosts();
+      let musicPublicUrl: string | null = null;
+      if (btsMusicFile) {
+        try {
+          const musicExt = btsMusicFile.name?.split('.').pop() || 'mp3';
+          const musicFileName = `bts-music-${Date.now()}.${musicExt}`;
+          const musicFilePath = `bts/music/${user.id}/${musicFileName}`;
+          const musicResponse = await fetch(btsMusicFile.uri);
+          const musicBlob = await musicResponse.blob();
+          const { error: musicUploadErr } = await supabase.storage
+            .from('media')
+            .upload(musicFilePath, musicBlob, { contentType: btsMusicFile.mimeType || 'audio/mpeg', upsert: true });
+          if (musicUploadErr) throw musicUploadErr;
+          const { data: musicUrlData } = supabase.storage.from('media').getPublicUrl(musicFilePath);
+          musicPublicUrl = musicUrlData.publicUrl;
+        } catch (e: any) {
+          console.warn('[BTS] Music upload failed:', e?.message);
+        }
+      }
 
-      // Notify all clients about new BTS post
-      AdminService.notifications.notifyAll({
-        type: 'bts_post',
-        title: 'New BTS Post! ✨',
-        body: `We just posted some behind-the-scenes magic. Tap to see "${btsTitle}".`,
-        data: { btsId: newPost?.id }
-      }).catch(err => console.error('Failed to send BTS notification:', err));
+      const { error: dbErr } = await supabase.from('bts_posts').insert({
+        created_by: user.id,
+        admin_id: user.id,
+        media_url: publicUrl,
+        media_type: inferMediaType(btsPicked),
+        video_thumbnail_url: thumbnailUrl,
+        title: btsTitle || 'Untitled BTS',
+        category: btsCategory,
+        visibility: btsVisibility,
+        expires_at: btsExpiryDays ? daysToExpiryIso(Number(btsExpiryDays)) : null,
+        scheduled_for: btsScheduledFor && !isNaN(new Date(btsScheduledFor).getTime()) ? new Date(btsScheduledFor).toISOString() : null,
+        music_url: musicPublicUrl,
+        has_music: !!musicPublicUrl,
+      } as any);
+      if (dbErr) throw dbErr;
+
+      Alert.alert('Success', 'BTS post uploaded!');
+      setBtsPicked(null);
+      setBtsTitle('');
     } catch (error: any) {
-      console.error('[BTS Upload] ✗ Complete Upload Error:', error);
-      console.error('[BTS Upload] Error Stack:', error.stack);
-      console.error('[BTS Upload] Error Code:', (error as any)?.code);
-      console.error('[BTS Upload] Error Name:', (error as any)?.name);
-      
-      let errorTitle = 'Upload Failed ✗';
-      let errorDetails = 'Error: ' + (error.message || 'Failed to upload post');
-      
-      if (error.message?.includes('fetch') || error.message?.includes('network')) {
-        errorTitle = '🌐 Network Error';
-        errorDetails = 'Connection failed. Please check:\n• Internet connection\n• Firewall/proxy settings\n• Try again in a moment';
-      } else if (error.message?.includes('Supabase') || error.message?.includes('database') || error.message?.includes('ECONNREFUSED')) {
-        errorTitle = '🗄️ Database Error';
-        errorDetails = 'Supabase service issue:\n• Database may be temporarily unavailable\n• Check Supabase dashboard status\n• Try again in a few moments';
-      } else if (error.message?.includes('function')) {
-        errorTitle = '⚙️ Function Error';
-        errorDetails = 'Cloud function issue:\n• Edge function may be down\n• Check deployment status\n• Contact support if persists';
-      } else if (error.message?.includes('TIMEOUT') || error.message?.includes('timeout')) {
-        errorTitle = '⏱️ Request Timeout';
-        errorDetails = 'The request took too long:\n• Your internet may be slow\n• Server may be overloaded\n• Try uploading smaller file';
-      }
-      
-      Alert.alert(errorTitle, errorDetails + '\n\nPlease check your internet connection and try again.', [{ text: 'OK' }]);
+      Alert.alert('Upload Failed', error?.message || 'Unknown error');
+    } finally {
       setPosting(false);
+      setUploadStatus('');
     }
-  }, [btsPicked, btsTitle, btsCategory, btsExpiryDays, btsScheduledFor, btsMusicFile, btsVisibility, user]);
+  }, [btsPicked, user, btsTitle, btsCategory, btsVisibility, btsExpiryDays, btsScheduledFor, btsMusicFile]);
 
   const uploadAnnouncement = useCallback(async () => {
-    if (!annPicked || !annTitle.trim()) {
-      Alert.alert('Error', 'Please select media and add a title');
-      return;
-    }
-
+    if (!annPicked || !user) return;
     setPosting(true);
+    setUploadStatus('Compressing...');
     try {
-      // Attempt to ensure bucket exists via Edge Function
-      try {
-        await supabase.functions.invoke('ensure_buckets', {
-          body: { buckets: ['media'], public: true }
-        });
-      } catch (invokeError) {
-        console.warn('Failed to invoke ensure_buckets:', invokeError);
+      const ext = getFileExtension(annPicked);
+      const fileName = `ann-${Date.now()}.${ext}`;
+      const filePath = `announcements/${user.id}/${fileName}`;
+
+      let uploadUri = annPicked.uri;
+      if (inferMediaType(annPicked) === 'image') {
+        const compressed = await compressImage(annPicked.uri);
+        uploadUri = compressed.uri;
       }
 
-      const fileExt = getFileExtension(annPicked);
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `announcements/${fileName}`;
-
-      // Upload file to storage
-      const response = await fetch(annPicked.uri);
+      setUploadStatus('Uploading...');
+      const response = await fetch(uploadUri);
       const blob = await response.blob();
 
-      const { error: uploadError } = await supabase.storage
+      const { error: uploadErr } = await supabase.storage
         .from('media')
-        .upload(filePath, blob, {
-          contentType: annPicked.mimeType || 'image/jpeg',
-          upsert: true,
-        });
+        .upload(filePath, blob, { contentType: annPicked.mimeType || 'image/jpeg', upsert: true });
+      if (uploadErr) throw uploadErr;
 
-      if (uploadError) {
-        const msg = (uploadError as any)?.message || String(uploadError);
-        const lowerMsg = msg.toLowerCase();
+      const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(filePath);
 
-        if (lowerMsg.includes('bucket') && lowerMsg.includes('not found')) {
-          setPosting(false);
-          Alert.alert(
-            'Storage Bucket Required',
-            'The "media" bucket needs to be created.\n\n1. Go to Supabase Dashboard > Storage\n2. Click "New Bucket"\n3. Name it "media"\n4. Set to "Public" access\n5. Click "Create Bucket"\n\nAfter creating the bucket, try uploading again.',
-            [
-              {
-                text: 'Open Dashboard',
-                onPress: () => Linking.openURL('https://supabase.com/dashboard/project/_/storage/buckets')
-              },
-              { text: 'OK' }
-            ]
-          );
-          return;
-        }
+      const { error: dbErr } = await supabase.from('announcements').insert({
+        created_by: user.id,
+        owner_admin_id: user.id,
+        title: annTitle || 'Untitled Announcement',
+        description: annDescription,
+        content: annDescription || annTitle || '',
+        media_url: publicUrl,
+        image_url: publicUrl,
+        media_type: annMediaType,
+        visibility: annVisibility === 'global' ? 'all' : 'selected',
+        is_active: true,
+        expires_at: annExpiryDays ? daysToExpiryIso(Number(annExpiryDays)) : null,
+        scheduled_for: annScheduledFor && !isNaN(new Date(annScheduledFor).getTime()) ? new Date(annScheduledFor).toISOString() : null,
+      } as any);
+      if (dbErr) throw dbErr;
 
-        if (lowerMsg.includes('forbidden') || lowerMsg.includes('unauthorized') || lowerMsg.includes('permission denied')) {
-          setPosting(false);
-          Alert.alert(
-            'Permission Denied',
-            'You do not have permission to upload to the "media" bucket. Check your Supabase Storage RLS policies.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-
-        throw uploadError;
-      }
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('media')
-        .getPublicUrl(filePath);
-
-      // Thumbnail generation logic refactored below insert
-      let thumbnailUrl: string | null = null;
-
-      const expiresAtIso = daysToExpiryIso(Number(annExpiryDays));
-      const scheduledForIso = annScheduledFor ? new Date(annScheduledFor).toISOString() : null;
-
-      const { data: newAnn, error: insertError } = await supabase
-        .from('announcements')
-        .insert({
-          title: annTitle,
-          description: annDescription,
-          content_html: annContentHtml,
-          media_url: publicUrl,
-          image_url: thumbnailUrl, // Store thumbnail URL for videos
-          media_type: annMediaType,
-          category: annCategory,
-          tag: annTag,
-          expires_at: expiresAtIso,
-          scheduled_for: scheduledForIso,
-          target_audience: annTargetAudience,
-          visibility: annVisibility,
-          is_active: true,
-          created_by: user?.id,
-          media_aspect_ratio: annPicked.width / annPicked.height,
-        })
-        .select()
-        .single();
-
-      if (!insertError && newAnn && annMediaType === 'video') {
-        supabase.functions.invoke('generate_video_thumbnail', {
-          body: {
-            videoUrl: publicUrl,
-            postId: newAnn.id,
-            type: 'announcement'
-          }
-        }).catch(err => console.error('[Ann Thumbnail] Trigger failed:', err));
-      }
-
-      if (insertError) {
-        const msg = (insertError as any)?.message || String(insertError);
-        const lower = msg.toLowerCase();
-        if (lower.includes('row-level security') || lower.includes('violates row-level security') || lower.includes('permission denied') || lower.includes('not authorized')) {
-          setPosting(false);
-          Alert.alert(
-            'Posting Blocked',
-            'Row Level Security rejected this announcement. Ensure your account is admin and the created_by policy is applied.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-        throw insertError;
-      }
-
-      setPosting(false);
-      loadAnnouncements();
-
-      // Notify all clients about new announcement
-      AdminService.notifications.notifyAll({
-        type: 'announcement',
-        title: 'New Announcement! 📢',
-        body: annTitle,
-        data: { announcementId: newAnn?.id }
-      }).catch(err => console.error('Failed to send announcement notification:', err));
+      Alert.alert('Success', 'Announcement uploaded!');
+      setAnnPicked(null);
+      setAnnTitle('');
+      setAnnDescription('');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to post announcement');
+      Alert.alert('Upload Failed', error?.message || 'Unknown error');
+    } finally {
       setPosting(false);
+      setUploadStatus('');
     }
-  }, [annPicked, annTitle, annDescription, annContentHtml, annCategory, annTag, annExpiryDays, annScheduledFor, annTargetAudience, annVisibility, annMediaType, user]);
+  }, [annPicked, user, annTitle, annDescription, annMediaType, annVisibility, annExpiryDays, annScheduledFor]);
 
-  const generateVideoThumbnail = useCallback(async (videoUri: string): Promise<string | null> => {
-    try {
-      console.log('[Video Thumbnail] Generating thumbnail for video:', videoUri);
-      // For now, return null to skip thumbnail generation
-      // In a real implementation, you would use expo-video-thumbnails or similar
-      console.log('[Video Thumbnail] Skipping thumbnail generation (not implemented)');
-      return null;
-    } catch (error) {
-      console.warn('[Video Thumbnail] Error generating thumbnail:', error);
-      return null;
-    }
-  }, []);
-
-  const uploadVideoThumbnail = useCallback(async (thumbnailUri: string, baseFileName: string): Promise<string | null> => {
-    try {
-      console.log('[Video Thumbnail] Uploading thumbnail:', thumbnailUri);
-      // For now, return null to skip thumbnail upload
-      // In a real implementation, you would upload the thumbnail to storage
-      console.log('[Video Thumbnail] Skipping thumbnail upload (not implemented)');
-      return null;
-    } catch (error) {
-      console.warn('[Video Thumbnail] Error uploading thumbnail:', error);
-      return null;
-    }
-  }, []);
-
-  const uploadPortfolio = useCallback(async () => {
-    if (!portfolioPicked || !portfolioTitle.trim()) {
-      Alert.alert('Error', 'Please select media and add a title');
-      return;
-    }
-
+  const uploadPortfolioItem = useCallback(async () => {
+    if (!portfolioPicked || !user) return;
     setPosting(true);
+    setUploadStatus('Compressing...');
     try {
-      // Attempt to ensure bucket exists via Edge Function
-      try {
-        setUploadStatus('Checking storage setup...');
-        await supabase.functions.invoke('ensure_buckets', {
-          body: { buckets: ['media'], public: true }
-        });
-      } catch (invokeError) {
-        console.warn('Failed to invoke ensure_buckets:', invokeError);
+      const ext = getFileExtension(portfolioPicked);
+      const fileName = `portfolio-${Date.now()}.${ext}`;
+      const filePath = `portfolio/${user.id}/${fileName}`;
+
+      let uploadUri = portfolioPicked.uri;
+      if (inferMediaType(portfolioPicked) === 'image') {
+        const compressed = await compressImage(portfolioPicked.uri);
+        uploadUri = compressed.uri;
       }
 
-      const fileExt = getFileExtension(portfolioPicked);
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `portfolio/${fileName}`;
-
-      setUploadStatus('Uploading file to storage...');
-      // Upload file to storage
-      const response = await fetch(portfolioPicked.uri);
+      setUploadStatus('Uploading...');
+      const response = await fetch(uploadUri);
       const blob = await response.blob();
 
-      console.log('[Portfolio Upload] Uploading file to storage:', filePath);
-      const { error: uploadError } = await supabase.storage
-        .from('media')
-        .upload(filePath, blob, {
-          contentType: portfolioPicked.mimeType || 'image/jpeg',
-          upsert: true,
-        });
+      const { error: uploadErr } = await supabase.storage
+        .from('portfolio')
+        .upload(filePath, blob, { contentType: portfolioPicked.mimeType || 'image/jpeg', upsert: true });
+      if (uploadErr) throw uploadErr;
 
-      if (uploadError) {
-        const msg = (uploadError as any)?.message || String(uploadError);
-        const lowerMsg = msg.toLowerCase();
+      const { data: { publicUrl } } = supabase.storage.from('portfolio').getPublicUrl(filePath);
 
-        if (lowerMsg.includes('bucket') && lowerMsg.includes('not found')) {
-          setPosting(false);
-          setUploadStatus('');
-          Alert.alert(
-            'Storage Bucket Required',
-            'The "media" bucket needs to be created.\n\n1. Go to Supabase Dashboard > Storage\n2. Click "New Bucket"\n3. Name it "media"\n4. Set to "Public" access\n5. Click "Create Bucket"\n\nAfter creating the bucket, try uploading again.',
-            [
-              {
-                text: 'Open Dashboard',
-                onPress: () => Linking.openURL('https://supabase.com/dashboard/project/_/storage/buckets')
-              },
-              { text: 'OK' }
-            ]
-          );
-          return;
-        }
+      const { error: dbErr } = await supabase.from('portfolio_items').insert({
+        created_by: user.id,
+        title: portfolioTitle || 'Untitled',
+        description: portfolioDescription,
+        media_url: publicUrl,
+        category: portfolioCategory,
+        is_featured: portfolioFeatured,
+        is_top_rated: portfolioTopRated,
+      } as any);
+      if (dbErr) throw dbErr;
 
-        if (lowerMsg.includes('forbidden') || lowerMsg.includes('unauthorized') || lowerMsg.includes('permission denied')) {
-          setPosting(false);
-          setUploadStatus('');
-          Alert.alert(
-            'Permission Denied',
-            'You do not have permission to upload to the "media" bucket. Check your Supabase Storage RLS policies.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-
-        throw uploadError;
-      }
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('media')
-        .getPublicUrl(filePath);
-
-      console.log('[Portfolio Upload] File uploaded successfully:', publicUrl);
-
-      setUploadStatus('Processing video thumbnail...');
-      // Generate thumbnail for videos
-      let thumbnailUrl: string | null = null;
-      if (inferMediaType(portfolioPicked) === 'video') {
-        console.log('[Portfolio Upload] Generating video thumbnail...');
-        const thumbnailUri = await generateVideoThumbnail(portfolioPicked.uri);
-        if (thumbnailUri) {
-          thumbnailUrl = await uploadVideoThumbnail(thumbnailUri, fileName);
-          console.log('[Portfolio Upload] Video thumbnail generated:', thumbnailUrl);
-        }
-      }
-
-      setUploadStatus('Saving to database...');
-      console.log('[Portfolio Upload] Inserting into database with created_by:', user?.id);
-      const { error: insertError } = await supabase
-        .from('portfolio_items')
-        .insert({
-          title: portfolioTitle,
-          description: portfolioDescription,
-          category: portfolioCategory,
-          media_url: publicUrl,
-          media_type: inferMediaType(portfolioPicked),
-          is_featured: portfolioFeatured,
-          is_top_rated: portfolioTopRated,
-          is_active: true,
-          created_by: user?.id,
-          media_aspect_ratio: portfolioPicked.width / portfolioPicked.height,
-        });
-
-      console.log('[Portfolio Upload] Insert response - error:', insertError);
-
-      if (insertError) {
-        console.error('[Portfolio Upload] ✗ Database Insert FAILED');
-        console.error('[Portfolio Upload] Error:', insertError);
-        console.error('[Portfolio Upload] Error message:', (insertError as any)?.message);
-        console.error('[Portfolio Upload] Error code:', (insertError as any)?.code);
-        console.error('[Portfolio Upload] Error details:', JSON.stringify(insertError));
-
-        const msg = (insertError as any)?.message || String(insertError);
-        const lower = msg.toLowerCase();
-
-        if (lower.includes('row-level security') || lower.includes('violates row-level security') || lower.includes('permission denied') || lower.includes('not authorized')) {
-          setPosting(false);
-          setUploadStatus('');
-          Alert.alert(
-            'Posting Blocked - RLS Policy',
-            'Row Level Security rejected this portfolio item:\n\nError: ' + msg + '\n\nEnsure your account is admin and the created_by policy is applied.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-        throw insertError;
-      }
-
-      setUploadStatus('');
-      setPosting(false);
-      loadPortfolioItems();
-
-      // Notify all clients about new portfolio item
-      AdminService.notifications.notifyAll({
-        type: 'portfolio_item',
-        title: 'New Portfolio Update! 📸',
-        body: `We've added a new piece to our portfolio: "${portfolioTitle}".`,
-        data: { portfolioId: portfolioTitle } // Use ID if available
-      }).catch(err => console.error('Failed to send portfolio notification:', err));
+      Alert.alert('Success', 'Portfolio item uploaded!');
+      setPortfolioPicked(null);
+      setPortfolioTitle('');
+      setPortfolioDescription('');
     } catch (error: any) {
-      console.error('[Portfolio Upload] ✗ Complete Upload Error:', error);
-      console.error('[Portfolio Upload] Error Stack:', error.stack);
-      console.error('[Portfolio Upload] Error Code:', (error as any)?.code);
-      console.error('[Portfolio Upload] Error Name:', (error as any)?.name);
-
-      let errorTitle = 'Upload Failed ✗';
-      let errorDetails = 'Error: ' + (error.message || 'Failed to upload portfolio item');
-
-      if (error.message?.includes('fetch') || error.message?.includes('network')) {
-        errorTitle = '🌐 Network Error';
-        errorDetails = 'Connection failed. Please check:\n• Internet connection\n• Firewall/proxy settings\n• Try again in a moment';
-      } else if (error.message?.includes('Supabase') || error.message?.includes('database') || error.message?.includes('ECONNREFUSED')) {
-        errorTitle = '🗄️ Database Error';
-        errorDetails = 'Supabase service issue:\n• Database may be temporarily unavailable\n• Check Supabase dashboard status\n• Try again in a few moments';
-      } else if (error.message?.includes('function')) {
-        errorTitle = '⚙️ Function Error';
-        errorDetails = 'Cloud function issue:\n• Edge function may be down\n• Check deployment status\n• Contact support if persists';
-      } else if (error.message?.includes('TIMEOUT') || error.message?.includes('timeout')) {
-        errorTitle = '⏱️ Request Timeout';
-        errorDetails = 'The request took too long:\n• Your internet may be slow\n• Server may be overloaded\n• Try uploading smaller file';
-      }
-
-      Alert.alert(errorTitle, errorDetails + '\n\nPlease check your internet connection and try again.', [{ text: 'OK' }]);
-      setUploadStatus('');
+      Alert.alert('Upload Failed', error?.message || 'Unknown error');
+    } finally {
       setPosting(false);
+      setUploadStatus('');
     }
-  }, [portfolioPicked, portfolioTitle, portfolioDescription, portfolioCategory, portfolioFeatured, portfolioTopRated, user]);
+  }, [portfolioPicked, user, portfolioTitle, portfolioDescription, portfolioCategory, portfolioFeatured, portfolioTopRated]);
 
-  const loadBtsPosts = useCallback(async () => {
-    try {
-      const nowIso = new Date().toISOString();
-      const { data, error } = await supabase
-        .from('bts_posts')
-        .select('*')
-        .eq('admin_id', user.id)
-        .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setBtsPosts(data || []);
-    } catch (error) {
-      console.error('Error loading BTS posts:', error);
-    }
-  }, [user?.id]);
+  // ── Fetch Lists ───────────────────────────────────────────────
+  useEffect(() => {
+    const load = async () => {
+      if (!user) return;
+      setAccessReady(true);
+      try {
+        const [btsData, annData, portData] = await Promise.all([
+          supabase.from('bts_posts').select('*').eq('created_by', user.id).order('created_at', { ascending: false }).limit(50),
+          supabase.from('announcements').select('*').eq('created_by', user.id).order('created_at', { ascending: false }).limit(50),
+          supabase.from('portfolio_items').select('*').eq('created_by', user.id).order('created_at', { ascending: false }).limit(50),
+        ]);
+        if (btsData.data) setBtsPosts(btsData.data as any);
+        if (annData.data) setAnnouncements(annData.data as any);
+        if (portData.data) setPortfolioItems(portData.data as any);
+      } catch (e) {
+        console.warn('[BTS] Load error:', e);
+      }
+    };
+    load();
+  }, [user]);
 
   useEffect(() => {
-    const timer = setInterval(() => setClockMs(Date.now()), 30000);
+    const timer = setInterval(() => setClockMs(Date.now()), 60000);
     return () => clearInterval(timer);
   }, []);
 
-  const loadAnnouncements = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('announcements')
-        .select('*')
-        .eq('admin_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setAnnouncements(data || []);
-    } catch (error) {
-      console.error('Error loading announcements:', error);
-    }
-  }, [user?.id]);
-
-  const loadPortfolioItems = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('portfolio_items')
-        .select('*')
-        .eq('admin_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setPortfolioItems(data || []);
-    } catch (error) {
-      console.error('Error loading portfolio items:', error);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    (async () => {
-      const ok = await verifyAdminGuard('upload_galleries');
-      if (!ok) {
-        router.replace('/admin-login');
-        return;
-      }
-      setAccessReady(true);
-      loadBtsPosts();
-      loadAnnouncements();
-      loadPortfolioItems();
-    })();
-  }, [router, verifyAdminGuard, loadBtsPosts, loadAnnouncements, loadPortfolioItems]);
-
+  // ── Derived ───────────────────────────────────────────────────
   const visibleBtsPosts = useMemo(() => {
-    return btsPosts.filter((post) => !post.expires_at || new Date(post.expires_at).getTime() > clockMs);
+    return btsPosts.filter(p => {
+      if (!p.scheduled_for) return true;
+      return new Date(p.scheduled_for).getTime() <= clockMs;
+    });
   }, [btsPosts, clockMs]);
+
+  const getPostStats = (item: any) => ({
+    likes: item.likes_count || item.reaction_count || 0,
+    comments: item.comments_count || item.comment_count || 0,
+    views: item.views_count || item.view_count || 0,
+  });
+
+  const handleDelete = useCallback(async (type: 'bts' | 'announcement' | 'portfolio', id: string) => {
+    Alert.alert('Delete', 'Are you sure you want to delete this?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const table = type === 'bts' ? 'bts_posts' : type === 'announcement' ? 'announcements' : 'portfolio_items';
+            const { error } = await supabase.from(table).delete().eq('id', id);
+            if (error) throw error;
+            if (type === 'bts') setBtsPosts(prev => prev.filter(p => p.id !== id));
+            else if (type === 'announcement') setAnnouncements(prev => prev.filter(a => a.id !== id));
+            else setPortfolioItems(prev => prev.filter((p: any) => p.id !== id));
+          } catch (e: any) {
+            Alert.alert('Error', e?.message || 'Failed to delete');
+          }
+        }
+      }
+    ]);
+  }, []);
 
   if (!accessReady) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={Colors.gold} />
       </View>
     );
   }
 
   const sections: SectionData[] = [
-    {
-      title: 'BTS Posts',
-      data: visibleBtsPosts,
-      type: 'bts' as const,
-    },
-    {
-      title: 'Announcements',
-      data: announcements,
-      type: 'announcement' as const,
-    },
-    {
-      title: 'Portfolio Items',
-      data: portfolioItems,
-      type: 'portfolio' as const,
-    }
+    { title: 'BTS Posts', data: visibleBtsPosts, type: 'bts' as const },
+    { title: 'Announcements', data: announcements, type: 'announcement' as const },
+    { title: 'Portfolio Items', data: portfolioItems, type: 'portfolio' as const },
   ];
 
-  // List header component for SectionList
+  const renderMediaPicker = (
+    picked: ImagePicker.ImagePickerAsset | null,
+    onPick: () => void,
+    onClear: () => void,
+    mediaType: 'image' | 'video' | 'all',
+    icon: React.ReactNode,
+    label: string
+  ) => (
+    <Pressable style={styles.mediaPicker} onPress={onPick}>
+      {picked ? (
+        <View style={styles.mediaPreview}>
+          {inferMediaType(picked) === 'video' ? (
+            <Video source={{ uri: picked.uri }} style={styles.mediaPreviewImage} resizeMode={ResizeMode.COVER} shouldPlay={false} isMuted={true} />
+          ) : (
+            <Image source={{ uri: picked.uri }} style={styles.mediaPreviewImage} />
+          )}
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.6)']} style={styles.mediaOverlay}>
+            <Text style={styles.mediaOverlayText}>{picked.fileName || 'Selected'}</Text>
+          </LinearGradient>
+          <Pressable style={styles.removeMediaBtn} onPress={onClear}>
+            <X size={14} color="#fff" />
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.mediaPlaceholder}>
+          <View style={styles.mediaPlaceholderIcon}>{icon}</View>
+          <Text style={styles.mediaPlaceholderLabel}>{label}</Text>
+          <Text style={styles.mediaPlaceholderHint}>Tap to select from gallery</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+
+  const renderSectionItem = ({ item, section }: { item: SectionItem; section: SectionData }) => {
+    const stats = getPostStats(item);
+    const created = new Date(item.created_at).toLocaleDateString();
+
+    return (
+      <Pressable
+        style={styles.contentCard}
+        onPress={() => router.push({ pathname: '/post-details/[id]', params: { id: item.id, type: section.type } } as any)}
+      >
+        <View style={styles.contentCardInner}>
+          {section.type === 'bts' && (
+            <>
+              {(item as BTSPost).media_url && (
+                <Image source={{ uri: (item as BTSPost).video_thumbnail_url || (item as BTSPost).media_url }} style={styles.contentThumb} />
+              )}
+              <View style={styles.contentInfo}>
+                <Text style={styles.contentTitle} numberOfLines={1}>{(item as BTSPost).title || 'Untitled'}</Text>
+                <Text style={styles.contentMeta}>{(item as BTSPost).category || 'BTS'} • {created}</Text>
+                <View style={styles.contentStats}>
+                  <View style={styles.contentStat}><Heart size={11} color={Colors.textMuted} /><Text style={styles.contentStatText}>{stats.likes}</Text></View>
+                  <View style={styles.contentStat}><MessageCircle size={11} color={Colors.textMuted} /><Text style={styles.contentStatText}>{stats.comments}</Text></View>
+                  <View style={styles.contentStat}><Eye size={11} color={Colors.textMuted} /><Text style={styles.contentStatText}>{stats.views}</Text></View>
+                </View>
+              </View>
+            </>
+          )}
+          {section.type === 'announcement' && (
+            <>
+              {(item as AnnouncementRow).media_url && (
+                <Image source={{ uri: (item as AnnouncementRow).media_url || (item as AnnouncementRow).image_url || '' }} style={styles.contentThumb} />
+              )}
+              <View style={styles.contentInfo}>
+                <Text style={styles.contentTitle} numberOfLines={1}>{(item as AnnouncementRow).title || 'Untitled'}</Text>
+                <Text style={styles.contentMeta}>{created}</Text>
+                <View style={styles.contentStats}>
+                  <View style={styles.contentStat}><Heart size={11} color={Colors.textMuted} /><Text style={styles.contentStatText}>{stats.likes}</Text></View>
+                  <View style={styles.contentStat}><MessageCircle size={11} color={Colors.textMuted} /><Text style={styles.contentStatText}>{stats.comments}</Text></View>
+                </View>
+              </View>
+            </>
+          )}
+          {section.type === 'portfolio' && (
+            <>
+              {(item as PortfolioItem).media_url && (
+                <Image source={{ uri: (item as PortfolioItem).media_url }} style={styles.contentThumb} />
+              )}
+              <View style={styles.contentInfo}>
+                <Text style={styles.contentTitle} numberOfLines={1}>{(item as PortfolioItem).title}</Text>
+                <Text style={styles.contentMeta}>{(item as PortfolioItem).category || 'Portfolio'} • {created}</Text>
+                {((item as PortfolioItem).is_featured || (item as PortfolioItem).is_top_rated) && (
+                  <View style={styles.badgePill}>
+                    <Crown size={10} color={Colors.gold} />
+                    <Text style={styles.badgePillText}>{(item as PortfolioItem).is_featured ? 'Featured' : 'Top Rated'}</Text>
+                  </View>
+                )}
+              </View>
+            </>
+          )}
+        </View>
+        <Pressable style={styles.contentDeleteBtn} onPress={() => handleDelete(section.type, item.id)}>
+          <X size={14} color={Colors.textMuted} />
+        </Pressable>
+      </Pressable>
+    );
+  };
+
   const renderListHeader = () => (
     <>
+      {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.title}>BTS & Announcements</Text>
         <Text style={styles.subtitle}>Create engaging content for your audience</Text>
       </View>
 
-      {/* Content Type Selector */}
-      <View style={styles.typeSelector}>
+      {/* Content Type Tabs */}
+      <View style={styles.tabBar}>
+        {([
+          { key: 'bts' as ContentType, label: 'BTS Posts', icon: <Layers size={16} /> },
+          { key: 'announcement' as ContentType, label: 'Announcements', icon: <Megaphone size={16} /> },
+          { key: 'portfolio' as ContentType, label: 'Portfolio', icon: <ImageIcon size={16} /> },
+        ]).map(tab => (
           <Pressable
-            style={[styles.typeButton, contentType === 'bts' && styles.typeButtonActive]}
-            onPress={() => setContentType('bts')}
+            key={tab.key}
+            style={[styles.tab, contentType === tab.key && styles.tabActive]}
+            onPress={() => setContentType(tab.key)}
           >
-            <ExpoImage
-              source={require('@/assets/icons/bts-announcements/bts.svg')}
-              style={{ width: 20, height: 20 }}
-              tintColor={contentType === 'bts' ? Colors.gold : Colors.textMuted}
-              contentFit="contain"
-            />
-            <Text style={[styles.typeButtonText, contentType === 'bts' && styles.typeButtonTextActive]}>
-              BTS Posts
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.typeButton, contentType === 'announcement' && styles.typeButtonActive]}
-            onPress={() => setContentType('announcement')}
-          >
-            <ExpoImage
-              source={require('@/assets/icons/bts-announcements/announcements.svg')}
-              style={{ width: 20, height: 20 }}
-              tintColor={contentType === 'announcement' ? Colors.gold : Colors.textMuted}
-              contentFit="contain"
-            />
-            <Text style={[styles.typeButtonText, contentType === 'announcement' && styles.typeButtonTextActive]}>
-              Announcements
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[styles.typeButton, contentType === 'portfolio' && styles.typeButtonActive]}
-            onPress={() => setContentType('portfolio')}
-          >
-            <ImageIcon size={20} color={contentType === 'portfolio' ? Colors.gold : Colors.textMuted} />
-            <Text style={[styles.typeButtonText, contentType === 'portfolio' && styles.typeButtonTextActive]}>
-              Portfolio
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* BTS Post Form */}
-        {contentType === 'bts' && (
-          <View style={styles.formSection}>
-            <Text style={styles.sectionTitle}>Create BTS Post</Text>
-
-            {/* Media Picker */}
-            <Pressable style={styles.mediaPicker} onPress={() => pickMedia('bts')}>
-              {btsPicked ? (
-                <View style={styles.mediaPreview}>
-                  {inferMediaType(btsPicked) === 'video' ? (
-                    <Video
-                      source={{ uri: btsPicked.uri }}
-                      style={styles.mediaPreviewImage}
-                      resizeMode={ResizeMode.COVER}
-                      shouldPlay={false}
-                      isMuted={true}
-                    />
-                  ) : (
-                    <Image source={{ uri: btsPicked.uri }} style={styles.mediaPreviewImage} />
-                  )}
-                  <Pressable style={styles.removeMedia} onPress={() => setBtsPicked(null)}>
-                    <X size={16} color="#fff" />
-                  </Pressable>
-                </View>
-              ) : (
-                <View style={styles.mediaPlaceholder}>
-                  <Camera size={32} color={Colors.textMuted} />
-                  <Text style={styles.mediaPlaceholderText}>Select Photo/Video</Text>
-                </View>
-              )}
-            </Pressable>
-
-            {/* Caption */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Caption</Text>
-              <View style={styles.captionRow}>
-                <TextInput
-                  style={[styles.input, styles.captionInput]}
-                  placeholder="Add an engaging caption..."
-                  value={btsTitle}
-                  onChangeText={setBtsTitle}
-                  multiline
-                  maxLength={220}
-                />
-                <Pressable onPress={generateCaption} style={styles.aiCaptionButton}>
-                  <Sparkles size={12} color={Colors.gold} />
-                  <Text style={styles.aiCaptionText}>AI Caption</Text>
-                </Pressable>
-              </View>
+            <View style={[styles.tabIconWrap, contentType === tab.key && styles.tabIconWrapActive]}>
+              {tab.icon}
             </View>
+            <Text style={[styles.tabLabel, contentType === tab.key && styles.tabLabelActive]}>{tab.label}</Text>
+            {contentType === tab.key && <View style={styles.tabIndicator} />}
+          </Pressable>
+        ))}
+      </View>
 
-            {/* Category */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Category</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-                {CATEGORIES.map((cat) => (
-                  <Pressable
-                    key={cat}
-                    style={[styles.categoryButton, btsCategory === cat && styles.categoryButtonActive]}
-                    onPress={() => setBtsCategory(cat)}
-                  >
-                    <Text style={[styles.categoryButtonText, btsCategory === cat && styles.categoryButtonTextActive]}>
-                      {cat}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
+      {/* ── BTS Form ── */}
+      {contentType === 'bts' && (
+        <View style={styles.formCard}>
+          <Text style={styles.formCardTitle}>Create BTS Post</Text>
 
-            {/* Visibility toggle */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Visibility</Text>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Pressable
-                  style={[styles.categoryButton, btsVisibility === 'global' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
-                  onPress={() => setBtsVisibility('global')}
-                >
-                  <Text style={[styles.categoryButtonText, btsVisibility === 'global' && styles.categoryButtonTextActive]}>
-                    🌍 Global
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.categoryButton, btsVisibility === 'assigned_only' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
-                  onPress={() => setBtsVisibility('assigned_only')}
-                >
-                  <Text style={[styles.categoryButtonText, btsVisibility === 'assigned_only' && styles.categoryButtonTextActive]}>
-                    🔒 My Clients
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.categoryButton, btsVisibility === 'private' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
-                  onPress={() => setBtsVisibility('private')}
-                >
-                  <Text style={[styles.categoryButtonText, btsVisibility === 'private' && styles.categoryButtonTextActive]}>
-                    🔐 Private
-                  </Text>
-                </Pressable>
-              </View>
-              <Text style={styles.inputHint}>
-                {btsVisibility === 'global' ? 'Visible to all users' : 
-                 btsVisibility === 'assigned_only' ? 'Only your assigned clients can see this' :
-                 'Only you can see this'}
-              </Text>
-            </View>
+          {renderMediaPicker(
+            btsPicked,
+            () => pickMedia('bts'),
+            () => setBtsPicked(null),
+            'all',
+            <Camera size={28} color={Colors.gold} />,
+            'Select Photo/Video'
+          )}
 
-            {/* Expiry */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Expires After (days)</Text>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Caption</Text>
+            <View style={styles.captionRow}>
               <TextInput
-                style={styles.input}
+                style={[styles.fieldInput, styles.captionInput]}
+                placeholder="Add an engaging caption..."
+                placeholderTextColor={Colors.textMuted}
+                value={btsTitle}
+                onChangeText={setBtsTitle}
+                multiline
+                maxLength={220}
+              />
+              <Pressable onPress={generateCaption} style={styles.aiBtn}>
+                <Sparkles size={12} color={Colors.gold} />
+                <Text style={styles.aiBtnText}>AI</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Category</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+              {CATEGORIES.map(cat => (
+                <Pressable
+                  key={cat}
+                  style={[styles.chip, btsCategory === cat && styles.chipActive]}
+                  onPress={() => setBtsCategory(cat)}
+                >
+                  <Text style={[styles.chipText, btsCategory === cat && styles.chipTextActive]}>{cat}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Visibility</Text>
+            <View style={styles.visibilityRow}>
+              {([
+                { key: 'global' as const, label: '🌍 Global', icon: Globe },
+                { key: 'assigned_only' as const, label: '🔒 My Clients', icon: Lock },
+                { key: 'private' as const, label: '🔐 Private', icon: Shield },
+              ]).map(opt => (
+                <Pressable
+                  key={opt.key}
+                  style={[styles.visBtn, btsVisibility === opt.key && styles.visBtnActive]}
+                  onPress={() => setBtsVisibility(opt.key)}
+                >
+                  <Text style={[styles.visBtnText, btsVisibility === opt.key && styles.visBtnTextActive]}>{opt.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.fieldHint}>
+              {btsVisibility === 'global' ? 'Visible to all users' :
+               btsVisibility === 'assigned_only' ? 'Only your assigned clients can see this' :
+               'Only you can see this'}
+            </Text>
+          </View>
+
+          <View style={styles.fieldRow}>
+            <View style={[styles.fieldGroup, { flex: 1 }]}>
+              <Text style={styles.fieldLabel}>Expires After (days)</Text>
+              <TextInput
+                style={styles.fieldInput}
                 placeholder="7"
+                placeholderTextColor={Colors.textMuted}
                 value={btsExpiryDays}
-                onChangeText={(t) => {
-                  const cleaned = t.replace(/[^0-9]/g, '');
-                  setBtsExpiryDays(cleaned);
-                }}
+                onChangeText={t => setBtsExpiryDays(t.replace(/[^0-9]/g, ''))}
                 keyboardType="numeric"
                 maxLength={3}
               />
-              {btsExpiryDays && (Number(btsExpiryDays) < 1 || Number(btsExpiryDays) > 365) && (
-                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Must be 1-365 days</Text>
-              )}
             </View>
-
-            {/* Schedule */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Schedule For (optional)</Text>
+            <View style={[styles.fieldGroup, { flex: 1.5 }]}>
+              <Text style={styles.fieldLabel}>Schedule (optional)</Text>
               <TextInput
-                style={styles.input}
+                style={styles.fieldInput}
                 placeholder="YYYY-MM-DD HH:MM"
+                placeholderTextColor={Colors.textMuted}
                 value={btsScheduledFor}
                 onChangeText={setBtsScheduledFor}
               />
-              {btsScheduledFor && isNaN(new Date(btsScheduledFor).getTime()) && (
-                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Invalid date format. Use YYYY-MM-DD HH:MM</Text>
-              )}
-              {btsScheduledFor && !isNaN(new Date(btsScheduledFor).getTime()) && new Date(btsScheduledFor).getTime() <= Date.now() && (
-                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Schedule time must be in the future</Text>
-              )}
             </View>
-
-            {/* Music */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Background Music (optional)</Text>
-              <View style={styles.captionRow}>
-                <TextInput
-                  style={[styles.input, styles.captionInput]}
-                  placeholder="Select music file..."
-                  value={btsMusicFile?.name || ''}
-                  editable={false}
-                />
-                <Pressable onPress={pickMusic} style={styles.aiCaptionButton}>
-                  <Text style={styles.aiCaptionText}>Choose Music</Text>
-                </Pressable>
-              </View>
-              {btsMusicFile && (
-                <View style={{ alignItems: 'flex-end', marginTop: 8 }}>
-                  <Pressable onPress={() => setBtsMusicFile(null)} style={styles.aiCaptionButton}>
-                    <Text style={styles.aiCaptionText}>Clear</Text>
-                  </Pressable>
-                </View>
-              )}
-            </View>
-
-            <Pressable
-              style={[styles.uploadButton, posting && styles.uploadButtonDisabled]}
-              onPress={uploadBtsPost}
-              disabled={posting}
-            >
-              {posting ? (
-                <View style={styles.uploadingContainer}>
-                  <ActivityIndicator color="#000" size="small" />
-                  <Text style={styles.uploadingText}>
-                    {uploadStatus || 'Uploading...'}
-                  </Text>
-                </View>
-              ) : (
-                <Text style={styles.uploadButtonText}>Upload BTS Post</Text>
-              )}
-            </Pressable>
           </View>
-        )}
 
-        {/* Announcement Form */}
-        {contentType === 'announcement' && (
-          <View style={styles.formSection}>
-            <Text style={styles.sectionTitle}>Create Announcement</Text>
-
-            {/* Media Picker */}
-            <Pressable style={styles.mediaPicker} onPress={() => pickMedia('announcement')}>
-              {annPicked ? (
-                <View style={styles.mediaPreview}>
-                  {annMediaType === 'video' ? (
-                    <Video
-                      source={{ uri: annPicked.uri }}
-                      style={styles.mediaPreviewImage}
-                      resizeMode={ResizeMode.COVER}
-                      shouldPlay={false}
-                      isMuted={true}
-                    />
-                  ) : (
-                    <Image source={{ uri: annPicked.uri }} style={styles.mediaPreviewImage} />
-                  )}
-                  <Pressable style={styles.removeMedia} onPress={() => setAnnPicked(null)}>
-                    <X size={16} color="#fff" />
-                  </Pressable>
-                </View>
-              ) : (
-                <View style={styles.mediaPlaceholder}>
-                  <ImageIcon size={32} color={Colors.textMuted} />
-                  <Text style={styles.mediaPlaceholderText}>Select Photo/Video</Text>
-                </View>
-              )}
-            </Pressable>
-
-            {/* Title */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Title</Text>
-              <View style={styles.captionRow}>
-                <TextInput
-                  style={[styles.input, styles.captionInput]}
-                  placeholder="Announcement title..."
-                  value={annTitle}
-                  onChangeText={setAnnTitle}
-                  maxLength={100}
-                />
-                <Pressable onPress={generateAnnouncementCaption} style={styles.aiCaptionButton}>
-                  <Sparkles size={12} color={Colors.gold} />
-                  <Text style={styles.aiCaptionText}>AI Title</Text>
-                </Pressable>
-              </View>
-            </View>
-
-            {/* Description */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Description</Text>
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Background Music (optional)</Text>
+            <View style={styles.captionRow}>
               <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Brief description..."
-                value={annDescription}
-                onChangeText={setAnnDescription}
-                multiline
-                maxLength={280}
+                style={[styles.fieldInput, { flex: 1 }]}
+                placeholder="Select music file..."
+                placeholderTextColor={Colors.textMuted}
+                value={btsMusicFile?.name || ''}
+                editable={false}
               />
+              <Pressable onPress={pickMusic} style={styles.aiBtn}>
+                <Music size={12} color={Colors.gold} />
+                <Text style={styles.aiBtnText}>Pick</Text>
+              </Pressable>
             </View>
+            {btsMusicFile && (
+              <Pressable onPress={() => setBtsMusicFile(null)} style={styles.clearBtn}>
+                <Text style={styles.clearBtnText}>Clear music</Text>
+              </Pressable>
+            )}
+          </View>
 
-            {/* Target Audience */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Target Audience</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-                {AUDIENCE_OPTIONS.map((audience) => (
-                  <Pressable
-                    key={audience}
-                    style={[
-                      styles.categoryButton,
-                      annTargetAudience.includes(audience) && styles.categoryButtonActive
-                    ]}
-                    onPress={() => {
-                      setAnnTargetAudience(prev =>
-                        prev.includes(audience)
-                          ? prev.filter(a => a !== audience)
-                          : [...prev, audience]
-                      );
-                    }}
-                  >
-                    <Text style={[
-                      styles.categoryButtonText,
-                      annTargetAudience.includes(audience) && styles.categoryButtonTextActive
-                    ]}>
-                      {audience}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-
-            {/* Visibility */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Visibility</Text>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Pressable
-                  style={[styles.categoryButton, annVisibility === 'global' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
-                  onPress={() => setAnnVisibility('global')}
-                >
-                  <Text style={[styles.categoryButtonText, annVisibility === 'global' && styles.categoryButtonTextActive]}>
-                    🌍 Global
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.categoryButton, annVisibility === 'assigned_only' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
-                  onPress={() => setAnnVisibility('assigned_only')}
-                >
-                  <Text style={[styles.categoryButtonText, annVisibility === 'assigned_only' && styles.categoryButtonTextActive]}>
-                    🔒 My Clients
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.categoryButton, annVisibility === 'private' && styles.categoryButtonActive, { flex: 1, alignItems: 'center' }]}
-                  onPress={() => setAnnVisibility('private')}
-                >
-                  <Text style={[styles.categoryButtonText, annVisibility === 'private' && styles.categoryButtonTextActive]}>
-                    🔐 Private
-                  </Text>
-                </Pressable>
+          <Pressable
+            style={[styles.submitBtn, posting && styles.submitBtnDisabled]}
+            onPress={uploadBtsPost}
+            disabled={posting}
+          >
+            {posting ? (
+              <View style={styles.submitLoading}>
+                <ActivityIndicator color="#000" size="small" />
+                <Text style={styles.submitBtnText}>{uploadStatus || 'Uploading...'}</Text>
               </View>
-              <Text style={styles.inputHint}>
-                {annVisibility === 'global' ? 'Visible to all users' : 
-                 annVisibility === 'assigned_only' ? 'Only your assigned clients can see this' :
-                 'Only you can see this'}
-              </Text>
-            </View>
+            ) : (
+              <Text style={styles.submitBtnText}>Upload BTS Post</Text>
+            )}
+          </Pressable>
+        </View>
+      )}
 
-            {/* Expiry */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Expires After (days)</Text>
+      {/* ── Announcement Form ── */}
+      {contentType === 'announcement' && (
+        <View style={styles.formCard}>
+          <Text style={styles.formCardTitle}>Create Announcement</Text>
+
+          {renderMediaPicker(
+            annPicked,
+            () => pickMedia('announcement'),
+            () => setAnnPicked(null),
+            'all',
+            <Megaphone size={28} color={Colors.gold} />,
+            'Select Photo/Video'
+          )}
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Title</Text>
+            <View style={styles.captionRow}>
               <TextInput
-                style={styles.input}
+                style={[styles.fieldInput, styles.captionInput]}
+                placeholder="Announcement title..."
+                placeholderTextColor={Colors.textMuted}
+                value={annTitle}
+                onChangeText={setAnnTitle}
+                maxLength={100}
+              />
+              <Pressable onPress={generateAnnouncementCaption} style={styles.aiBtn}>
+                <Sparkles size={12} color={Colors.gold} />
+                <Text style={styles.aiBtnText}>AI</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Description</Text>
+            <TextInput
+              style={[styles.fieldInput, styles.textArea]}
+              placeholder="Add more details..."
+              placeholderTextColor={Colors.textMuted}
+              value={annDescription}
+              onChangeText={setAnnDescription}
+              multiline
+              maxLength={500}
+            />
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Visibility</Text>
+            <View style={styles.visibilityRow}>
+              {([
+                { key: 'global' as const, label: '🌍 Global' },
+                { key: 'assigned_only' as const, label: '🔒 My Clients' },
+                { key: 'private' as const, label: '🔐 Private' },
+              ]).map(opt => (
+                <Pressable
+                  key={opt.key}
+                  style={[styles.visBtn, annVisibility === opt.key && styles.visBtnActive]}
+                  onPress={() => setAnnVisibility(opt.key)}
+                >
+                  <Text style={[styles.visBtnText, annVisibility === opt.key && styles.visBtnTextActive]}>{opt.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.fieldRow}>
+            <View style={[styles.fieldGroup, { flex: 1 }]}>
+              <Text style={styles.fieldLabel}>Expires After (days)</Text>
+              <TextInput
+                style={styles.fieldInput}
                 placeholder="30"
+                placeholderTextColor={Colors.textMuted}
                 value={annExpiryDays}
-                onChangeText={(t) => {
-                  const cleaned = t.replace(/[^0-9]/g, '');
-                  setAnnExpiryDays(cleaned);
-                }}
+                onChangeText={t => setAnnExpiryDays(t.replace(/[^0-9]/g, ''))}
                 keyboardType="numeric"
                 maxLength={3}
               />
-              {annExpiryDays && (Number(annExpiryDays) < 1 || Number(annExpiryDays) > 365) && (
-                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Must be 1-365 days</Text>
-              )}
             </View>
-
-            {/* Schedule */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Schedule For (optional)</Text>
+            <View style={[styles.fieldGroup, { flex: 1.5 }]}>
+              <Text style={styles.fieldLabel}>Schedule (optional)</Text>
               <TextInput
-                style={styles.input}
+                style={styles.fieldInput}
                 placeholder="YYYY-MM-DD HH:MM"
+                placeholderTextColor={Colors.textMuted}
                 value={annScheduledFor}
                 onChangeText={setAnnScheduledFor}
               />
-              {annScheduledFor && isNaN(new Date(annScheduledFor).getTime()) && (
-                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Invalid date format. Use YYYY-MM-DD HH:MM</Text>
-              )}
-              {annScheduledFor && !isNaN(new Date(annScheduledFor).getTime()) && new Date(annScheduledFor).getTime() <= Date.now() && (
-                <Text style={{ color: Colors.error || '#ff4444', fontSize: 12, marginTop: 4 }}>Schedule time must be in the future</Text>
-              )}
             </View>
+          </View>
 
-            <Pressable
-              style={[styles.uploadButton, posting && styles.uploadButtonDisabled]}
-              onPress={uploadAnnouncement}
-              disabled={posting}
-            >
-              {posting ? (
+          <Pressable
+            style={[styles.submitBtn, posting && styles.submitBtnDisabled]}
+            onPress={uploadAnnouncement}
+            disabled={posting}
+          >
+            {posting ? (
+              <View style={styles.submitLoading}>
                 <ActivityIndicator color="#000" size="small" />
-              ) : (
-                <Text style={styles.uploadButtonText}>Post Announcement</Text>
-              )}
-            </Pressable>
-          </View>
-        )}
-
-        {/* Portfolio Form */}
-        {contentType === 'portfolio' && (
-          <View style={styles.formSection}>
-            <Text style={styles.sectionTitle}>Upload Portfolio Item</Text>
-
-            <Pressable
-              style={styles.mediaPicker}
-              onPress={() => pickMedia('portfolio')}
-            >
-              {portfolioPicked ? (
-                <View style={styles.mediaPreview}>
-                  <Image source={{ uri: portfolioPicked.uri }} style={styles.mediaPreviewImage} />
-                  <Pressable style={styles.removeMedia} onPress={() => setPortfolioPicked(null)}>
-                    <X size={16} color="#fff" />
-                  </Pressable>
-                </View>
-              ) : (
-                <View style={styles.mediaPlaceholder}>
-                  <ImageIcon size={32} color={Colors.textMuted} />
-                  <Text style={styles.mediaPlaceholderText}>Select Photo/Video</Text>
-                </View>
-              )}
-            </Pressable>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Title</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Portfolio item title"
-                placeholderTextColor={Colors.textMuted}
-                value={portfolioTitle}
-                onChangeText={setPortfolioTitle}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Description (optional)</Text>
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Brief description..."
-                placeholderTextColor={Colors.textMuted}
-                value={portfolioDescription}
-                onChangeText={setPortfolioDescription}
-                multiline
-                numberOfLines={3}
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Category</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g., Wedding, Portrait, Corporate"
-                placeholderTextColor={Colors.textMuted}
-                value={portfolioCategory}
-                onChangeText={setPortfolioCategory}
-              />
-            </View>
-
-            {/* Featured Checkbox */}
-            <View style={styles.inputGroup}>
-              <View style={styles.checkboxRow}>
-                <Pressable
-                  style={styles.checkbox}
-                  onPress={() => setPortfolioFeatured(!portfolioFeatured)}
-                >
-                  <View style={[styles.checkboxBox, portfolioFeatured && styles.checkboxBoxChecked]}>
-                    {portfolioFeatured && <Text style={styles.checkmark}>✓</Text>}
-                  </View>
-                </Pressable>
-                <Text style={styles.checkboxLabel}>Feature in portfolio showcase</Text>
+                <Text style={styles.submitBtnText}>{uploadStatus || 'Uploading...'}</Text>
               </View>
-            </View>
-
-            {/* Top Rated Checkbox */}
-            <View style={styles.inputGroup}>
-              <View style={styles.checkboxRow}>
-                <Pressable
-                  style={styles.checkbox}
-                  onPress={() => setPortfolioTopRated(!portfolioTopRated)}
-                >
-                  <View style={[styles.checkboxBox, portfolioTopRated && styles.checkboxBoxChecked]}>
-                    {portfolioTopRated && <Text style={styles.checkmark}>⭐</Text>}
-                  </View>
-                </Pressable>
-                <Text style={styles.checkboxLabel}>Mark as Top Rated</Text>
-              </View>
-            </View>
-
-            {/* Preview Button */}
-            {portfolioPicked && portfolioTitle.trim() && (
-              <Pressable
-                style={styles.previewButton}
-                onPress={() => setShowPortfolioPreview(!showPortfolioPreview)}
-              >
-                <Text style={styles.previewButtonText}>
-                  {showPortfolioPreview ? 'Hide Preview' : '👁️ Show Preview'}
-                </Text>
-              </Pressable>
+            ) : (
+              <Text style={styles.submitBtnText}>Upload Announcement</Text>
             )}
-
-            {/* Preview Section */}
-            {showPortfolioPreview && portfolioPicked && (
-              <View style={styles.previewContainer}>
-                <Text style={styles.previewTitle}>Preview - As it will appear in client gallery</Text>
-                <View style={styles.portfolioPreviewCard}>
-                  <Image
-                    source={{ uri: portfolioPicked.uri }}
-                    style={styles.portfolioPreviewImage}
-                  />
-                  {(portfolioFeatured || portfolioTopRated) && (
-                    <View style={styles.featuredBadge}>
-                      <Text style={styles.featuredBadgeText}>
-                        {portfolioTopRated ? '⭐ Top Rated' : '⭐ Featured'}
-                      </Text>
-                    </View>
-                  )}
-                  <View style={styles.portfolioPreviewContent}>
-                    <Text style={styles.portfolioPreviewTitleText} numberOfLines={2}>{portfolioTitle}</Text>
-                    {portfolioCategory && (
-                      <Text style={styles.portfolioPreviewCategory}>{portfolioCategory}</Text>
-                    )}
-                    {portfolioDescription && (
-                      <Text style={styles.portfolioPreviewDescription} numberOfLines={2}>{portfolioDescription}</Text>
-                    )}
-                  </View>
-                </View>
-              </View>
-            )}
-
-            <Pressable
-              style={[styles.uploadButton, posting && styles.uploadButtonDisabled]}
-              onPress={uploadPortfolio}
-              disabled={posting}
-            >
-              {posting ? (
-                <View style={styles.uploadingContainer}>
-                  <ActivityIndicator color="#000" size="small" />
-                  <Text style={styles.uploadingText}>
-                    {uploadStatus || 'Uploading...'}
-                  </Text>
-                </View>
-              ) : (
-                <Text style={styles.uploadButtonText}>Upload to Portfolio</Text>
-              )}
-            </Pressable>
-          </View>
-        )}
-
-        {/* Content List - Section Title */}
-        <View style={styles.listSection}>
-          <Text style={styles.sectionTitle}>Recent Content</Text>
+          </Pressable>
         </View>
+      )}
+
+      {/* ── Portfolio Form ── */}
+      {contentType === 'portfolio' && (
+        <View style={styles.formCard}>
+          <Text style={styles.formCardTitle}>Add Portfolio Item</Text>
+
+          {renderMediaPicker(
+            portfolioPicked,
+            () => pickMedia('portfolio'),
+            () => setPortfolioPicked(null),
+            'image',
+            <ImageIcon size={28} color={Colors.gold} />,
+            'Select Image'
+          )}
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Title</Text>
+            <TextInput
+              style={styles.fieldInput}
+              placeholder="Portfolio title..."
+              placeholderTextColor={Colors.textMuted}
+              value={portfolioTitle}
+              onChangeText={setPortfolioTitle}
+              maxLength={100}
+            />
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Description</Text>
+            <TextInput
+              style={[styles.fieldInput, styles.textArea]}
+              placeholder="Describe this work..."
+              placeholderTextColor={Colors.textMuted}
+              value={portfolioDescription}
+              onChangeText={setPortfolioDescription}
+              multiline
+              maxLength={500}
+            />
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Category</Text>
+            <TextInput
+              style={styles.fieldInput}
+              placeholder="e.g. Wedding, Portrait..."
+              placeholderTextColor={Colors.textMuted}
+              value={portfolioCategory}
+              onChangeText={setPortfolioCategory}
+            />
+          </View>
+
+          <View style={styles.toggleRow}>
+            <Pressable
+              style={[styles.toggleBtn, portfolioFeatured && styles.toggleBtnActive]}
+              onPress={() => setPortfolioFeatured(!portfolioFeatured)}
+            >
+              <Crown size={14} color={portfolioFeatured ? '#000' : Colors.textMuted} />
+              <Text style={[styles.toggleBtnText, portfolioFeatured && styles.toggleBtnTextActive]}>Featured</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.toggleBtn, portfolioTopRated && styles.toggleBtnActive]}
+              onPress={() => setPortfolioTopRated(!portfolioTopRated)}
+            >
+              <Sparkles size={14} color={portfolioTopRated ? '#000' : Colors.textMuted} />
+              <Text style={[styles.toggleBtnText, portfolioTopRated && styles.toggleBtnTextActive]}>Top Rated</Text>
+            </Pressable>
+          </View>
+
+          <Pressable
+            style={[styles.submitBtn, posting && styles.submitBtnDisabled]}
+            onPress={uploadPortfolioItem}
+            disabled={posting}
+          >
+            {posting ? (
+              <View style={styles.submitLoading}>
+                <ActivityIndicator color="#000" size="small" />
+                <Text style={styles.submitBtnText}>{uploadStatus || 'Uploading...'}</Text>
+              </View>
+            ) : (
+              <Text style={styles.submitBtnText}>Add to Portfolio</Text>
+            )}
+          </Pressable>
+        </View>
+      )}
     </>
   );
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
-      <SectionList<SectionItem, SectionData>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderListHeader}
-        renderItem={({ item, section }) => (
-          <Pressable 
-            style={styles.contentCard} 
-            onPress={() => {
-              router.push({
-                pathname: '/post-details/[id]',
-                params: { 
-                  id: item.id,
-                  type: section.type 
-                }
-              } as any);
-            }}
-          >
-            {section.type === 'bts' ? (
-              <>
-                <Image source={{ uri: (item as BTSPost).media_url }} style={styles.contentImage} />
-                <View style={styles.contentInfo}>
-                  <Text style={styles.contentTitle} numberOfLines={1}>{(item as BTSPost).title}</Text>
-                  <Text style={styles.contentMeta}>{(item as BTSPost).category} • {new Date((item as BTSPost).created_at).toLocaleDateString()}</Text>
-                  <View style={styles.engagementRow}>
-                    <View style={styles.statChip}>
-                      <Heart size={10} color={Colors.error} />
-                      <Text style={styles.statChipText}>{(item as any).likes_count || 0}</Text>
-                    </View>
-                    <View style={styles.statChip}>
-                      <MessageCircle size={10} color={Colors.gold} />
-                      <Text style={styles.statChipText}>{(item as any).comments_count || 0}</Text>
-                    </View>
-                    <View style={styles.statChip}>
-                      <Eye size={10} color="#60A5FA" />
-                      <Text style={styles.statChipText}>{(item as any).views_count || 0}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.analyticsHint}>
-                    <BarChart2 size={10} color={Colors.gold} />
-                    <Text style={styles.analyticsHintText}>View Analytics</Text>
-                  </View>
-                </View>
-              </>
-            ) : section.type === 'announcement' ? (
-              <>
-                <Image source={{ uri: (item as AnnouncementRow).media_url || (item as AnnouncementRow).image_url || '' }} style={styles.contentImage} />
-                <View style={styles.contentInfo}>
-                  <Text style={styles.contentTitle} numberOfLines={1}>{(item as AnnouncementRow).title}</Text>
-                  <Text style={styles.contentMeta} numberOfLines={1}>{(item as AnnouncementRow).description || 'No description'}</Text>
-                  <View style={styles.engagementRow}>
-                    <View style={styles.statChip}>
-                      <Heart size={10} color={Colors.error} />
-                      <Text style={styles.statChipText}>{(item as any).likes_count || 0}</Text>
-                    </View>
-                    <View style={styles.statChip}>
-                      <MessageCircle size={10} color={Colors.gold} />
-                      <Text style={styles.statChipText}>{(item as any).comments_count || 0}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.analyticsHint}>
-                    <BarChart2 size={10} color={Colors.gold} />
-                    <Text style={styles.analyticsHintText}>View Analytics & Comments</Text>
-                  </View>
-                </View>
-              </>
-            ) : section.type === 'portfolio' ? (
-              <>
-                <Image source={{ uri: (item as PortfolioItem).media_url }} style={styles.contentImage} />
-                <View style={styles.contentInfo}>
-                  <Text style={styles.contentTitle} numberOfLines={1}>{(item as PortfolioItem).title}</Text>
-                  <Text style={styles.contentMeta}>{(item as PortfolioItem).category || 'Portfolio'} • {new Date((item as PortfolioItem).created_at).toLocaleDateString()}</Text>
-                  {((item as PortfolioItem).is_featured || (item as PortfolioItem).is_top_rated) && (
-                    <Text style={styles.contentBadge}>
-                      {(item as PortfolioItem).is_featured ? '⭐ Featured' : '⭐ Top Rated'}
-                    </Text>
-                  )}
-                </View>
-              </>
-            ) : null}
-            {/* Tappable arrow */}
-            <ChevronRight size={18} color={Colors.textMuted} style={{ marginLeft: 4 }} />
-          </Pressable>
-        )}
+        renderItem={renderSectionItem}
         renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionHeader}>{section.title}</Text>
+          <View style={styles.sectionHeaderWrap}>
+            <Text style={styles.sectionHeaderText}>{section.title}</Text>
+            <View style={styles.sectionHeaderCount}>
+              <Text style={styles.sectionHeaderCountText}>{section.data.length}</Text>
+            </View>
+          </View>
         )}
-        contentContainerStyle={{ paddingBottom: 20 }}
+        ListHeaderComponent={renderListHeader}
+        contentContainerStyle={{ paddingBottom: 40 }}
+        stickySectionHeadersEnabled={false}
+        ListEmptyComponent={null}
+        renderSectionFooter={() => null}
       />
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  header: {
-    padding: 20,
-    paddingBottom: 16,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: Colors.textMuted,
-  },
-  typeSelector: {
+  container: { flex: 1, backgroundColor: Colors.background },
+  center: { justifyContent: 'center', alignItems: 'center' },
+  header: { padding: 20, paddingBottom: 12 },
+  title: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -0.5 },
+  subtitle: { fontSize: 14, color: Colors.textMuted, marginTop: 4 },
+
+  // Tabs
+  tabBar: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    gap: 8,
-  },
-  typeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingBottom: 12,
+    gap: 6,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: 14,
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
-  },
-  typeButtonActive: {
-    backgroundColor: Colors.gold + '15',
-    borderColor: Colors.gold,
-  },
-  typeButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textMuted,
-  },
-  typeButtonTextActive: {
-    color: Colors.gold,
-  },
-  referralCard: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(59,130,246,0.2)',
-    backgroundColor: 'rgba(59,130,246,0.03)',
-  },
-  referralGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    gap: 12,
-  },
-  referralIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(59,130,246,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  referralInfo: {
-    flex: 1,
-  },
-  referralTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#3B82F6',
-    marginBottom: 2,
-  },
-  referralDesc: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    opacity: 0.9,
-  },
-  referralCta: {
-    backgroundColor: '#3B82F6',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-  },
-  referralCtaText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.white,
-  },
-  formSection: {
-    padding: 20,
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 16,
-  },
-  mediaPicker: {
-    marginBottom: 16,
-  },
-  mediaPreview: {
     position: 'relative',
   },
-  mediaPreviewImage: {
-    width: '100%',
-    height: 250,
-    borderRadius: 12,
-    backgroundColor: Colors.card,
-    resizeMode: 'contain' as const,
+  tabActive: {
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderColor: Colors.gold,
   },
-  removeMedia: {
+  tabIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: Colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  tabIconWrapActive: {
+    backgroundColor: Colors.gold,
+  },
+  tabLabel: { fontSize: 11, fontWeight: '600', color: Colors.textMuted },
+  tabLabelActive: { color: Colors.gold },
+  tabIndicator: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 16,
-    padding: 4,
+    bottom: -1,
+    left: '30%',
+    right: '30%',
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: Colors.gold,
+  },
+
+  // Form Card
+  formCard: {
+    margin: 16,
+    marginTop: 4,
+    backgroundColor: Colors.card,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  formCardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 16,
+    letterSpacing: -0.3,
+  },
+
+  // Media Picker
+  mediaPicker: { marginBottom: 16 },
+  mediaPreview: { position: 'relative', borderRadius: 16, overflow: 'hidden' },
+  mediaPreviewImage: { width: '100%', height: 220, borderRadius: 16, backgroundColor: Colors.cardDark },
+  mediaOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    paddingTop: 24,
+  },
+  mediaOverlayText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  removeMediaBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   mediaPlaceholder: {
     width: '100%',
-    height: 250,
-    borderRadius: 12,
-    backgroundColor: Colors.card,
+    height: 180,
+    borderRadius: 16,
+    backgroundColor: Colors.background,
     borderWidth: 2,
     borderColor: Colors.border,
     borderStyle: 'dashed',
@@ -1736,320 +1113,174 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  mediaPlaceholderText: {
-    color: Colors.textMuted,
-    fontSize: 14,
+  mediaPlaceholderIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 8,
-  },
-  inputHint: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginTop: 4,
-  },
-  input: {
-    backgroundColor: Colors.card,
+  mediaPlaceholderLabel: { color: Colors.textSecondary, fontSize: 14, fontWeight: '600' },
+  mediaPlaceholderHint: { color: Colors.textMuted, fontSize: 11 },
+
+  // Fields
+  fieldGroup: { marginBottom: 14 },
+  fieldLabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginBottom: 6 },
+  fieldHint: { fontSize: 11, color: Colors.textMuted, marginTop: 4 },
+  fieldInput: {
+    backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 12,
     color: Colors.textPrimary,
     fontSize: 14,
   },
-  captionRow: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'flex-start',
-  },
-  captionInput: {
-    flex: 1,
-    minHeight: 60,
-  },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
-  aiCaptionButton: {
+  captionRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+  captionInput: { flex: 1, minHeight: 60 },
+  textArea: { minHeight: 72, textAlignVertical: 'top' },
+  fieldRow: { flexDirection: 'row', gap: 10 },
+  aiBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    padding: 8,
-    backgroundColor: Colors.gold + '15',
-    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    borderRadius: 10,
     alignSelf: 'flex-start',
-    marginTop: 4,
+    marginTop: 2,
   },
-  aiCaptionText: {
-    fontSize: 10,
-    color: Colors.gold,
-    fontWeight: '600',
-  },
-  categoryScroll: {
-    flexGrow: 0,
-    marginHorizontal: -4,
-  },
-  categoryButton: {
+  aiBtnText: { fontSize: 11, color: Colors.gold, fontWeight: '700' },
+
+  // Chips
+  chipRow: { gap: 8 },
+  chip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    backgroundColor: Colors.card,
+    borderRadius: 20,
+    backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 20,
-    marginHorizontal: 4,
   },
-  categoryButtonActive: {
-    backgroundColor: Colors.gold + '15',
+  chipActive: {
+    backgroundColor: Colors.gold,
     borderColor: Colors.gold,
   },
-  categoryButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: Colors.textMuted,
+  chipText: { fontSize: 13, fontWeight: '600', color: Colors.textMuted },
+  chipTextActive: { color: '#000' },
+
+  // Visibility
+  visibilityRow: { flexDirection: 'row', gap: 8 },
+  visBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  categoryButtonTextActive: {
-    color: Colors.gold,
+  visBtnActive: {
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    borderColor: Colors.gold,
   },
-  switchGroup: {
-    marginBottom: 16,
-  },
-  switchRow: {
+  visBtnText: { fontSize: 12, fontWeight: '600', color: Colors.textMuted },
+  visBtnTextActive: { color: Colors.gold },
+
+  // Toggle
+  toggleRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  toggleBtn: {
+    flex: 1,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  switchLabel: {
-    fontSize: 14,
-    color: Colors.textPrimary,
-  },
-  uploadButton: {
+  toggleBtnActive: { backgroundColor: Colors.gold, borderColor: Colors.gold },
+  toggleBtnText: { fontSize: 13, fontWeight: '600', color: Colors.textMuted },
+  toggleBtnTextActive: { color: '#000' },
+
+  clearBtn: { alignSelf: 'flex-start', marginTop: 6 },
+  clearBtnText: { fontSize: 12, color: Colors.gold, fontWeight: '600' },
+
+  // Submit
+  submitBtn: {
     backgroundColor: Colors.gold,
-    borderRadius: 8,
-    padding: 16,
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: 'center',
+    marginTop: 4,
   },
-  uploadButtonDisabled: {
-    opacity: 0.6,
+  submitBtnDisabled: { opacity: 0.5 },
+  submitBtnText: { color: '#000', fontSize: 15, fontWeight: '700' },
+  submitLoading: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+
+  // Section Headers
+  sectionHeaderWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
-  uploadButtonText: {
-    color: '#000',
-    fontSize: 16,
-    fontWeight: '600',
+  sectionHeaderText: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
+  sectionHeaderCount: {
+    backgroundColor: Colors.card,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
   },
-  listSection: {
-    padding: 20,
-  },
-  sectionHeader: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 12,
-    marginTop: 8,
-  },
+  sectionHeaderCountText: { fontSize: 12, fontWeight: '600', color: Colors.textMuted },
+
+  // Content Cards
   contentCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    marginBottom: 12,
-    marginTop: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  contentImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    backgroundColor: Colors.border,
-    resizeMode: 'cover',
-  },
-  contentInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  contentTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  contentMeta: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginBottom: 2,
-  },
-  contentBadge: {
-    fontSize: 10,
-    color: Colors.gold,
-    fontWeight: '600' as const,
-    marginTop: 2,
-    textTransform: 'uppercase' as const,
-  },
-  contentDate: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  previewButton: {
-    backgroundColor: Colors.gold + '25',
-    borderWidth: 1,
-    borderColor: Colors.gold,
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  previewButtonText: {
-    color: Colors.gold,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  previewContainer: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  previewTitle: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginBottom: 12,
-    fontWeight: '500',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  portfolioPreviewCard: {
-    backgroundColor: Colors.background,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  portfolioPreviewImage: {
-    width: '100%',
-    height: 180,
-    backgroundColor: Colors.card,
-  },
-  portfolioPreviewContent: {
-    padding: 12,
-  },
-  portfolioPreviewTitleText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  portfolioPreviewCategory: {
-    fontSize: 12,
-    color: Colors.gold,
-    fontWeight: '600',
+    marginHorizontal: 16,
     marginBottom: 8,
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  portfolioPreviewDescription: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    lineHeight: 18,
-  },
-  featuredBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: Colors.gold,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  featuredBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#000',
-  },
-  checkboxRow: {
+  contentCardInner: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  checkbox: {
-    padding: 4,
+  contentThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: Colors.cardDark,
   },
-  checkboxBox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: Colors.gold,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  checkboxBoxChecked: {
-    backgroundColor: Colors.gold + '25',
-    borderColor: Colors.gold,
-  },
-  checkmark: {
-    fontSize: 14,
-    color: Colors.gold,
-    fontWeight: '700',
-  },
-  checkboxLabel: {
-    fontSize: 14,
-    color: Colors.textPrimary,
-    fontWeight: '500',
-  },
-  uploadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  uploadingText: {
-    fontSize: 14,
-    color: '#000',
-    fontWeight: '500',
-  },
-  engagementRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 4,
-    marginBottom: 2,
-  },
-  statChip: {
+  contentInfo: { flex: 1 },
+  contentTitle: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary, marginBottom: 2 },
+  contentMeta: { fontSize: 11, color: Colors.textMuted },
+  contentStats: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  contentStat: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  contentStatText: { fontSize: 11, color: Colors.textMuted },
+  contentDeleteBtn: { padding: 8 },
+  badgePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: 'rgba(212,175,55,0.1)',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 4,
-  },
-  statChipText: {
-    fontSize: 10,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-  analyticsHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+    borderRadius: 6,
     marginTop: 4,
+    alignSelf: 'flex-start',
   },
-  analyticsHintText: {
-    fontSize: 10,
-    color: Colors.gold,
-    fontWeight: '600',
-  },
+  badgePillText: { fontSize: 10, color: Colors.gold, fontWeight: '700' },
 });

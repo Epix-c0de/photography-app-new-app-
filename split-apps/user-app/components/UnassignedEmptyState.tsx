@@ -43,7 +43,9 @@ export default function UnassignedEmptyState({
 
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        setInviteLink('https://epixvisuals.co.ke');
+        const { getPlatformDomain } = await import('@/lib/platform-config');
+        const domain = await getPlatformDomain();
+        setInviteLink(domain);
         return;
       }
 
@@ -62,21 +64,20 @@ export default function UnassignedEmptyState({
           .maybeSingle();
 
         if (adminProfile?.photographer_code) {
-          // Fetch domain from platform_settings
-          const { data: domainSetting } = await supabase
-            .from('platform_settings')
-            .select('value')
-            .eq('key', 'platform_domain')
-            .maybeSingle();
-          const domain = domainSetting?.value || 'https://epixvisuals.co.ke';
+          const { getPlatformDomain } = await import('@/lib/platform-config');
+          const domain = await getPlatformDomain();
           setInviteLink(`${domain}/join/${adminProfile.photographer_code}`);
           return;
         }
       }
 
-      setInviteLink('https://epixvisuals.co.ke');
+      const { getPlatformDomain } = await import('@/lib/platform-config');
+      const fallbackDomain = await getPlatformDomain();
+      setInviteLink(fallbackDomain);
     } catch {
-      setInviteLink('https://epixvisuals.co.ke');
+      const { getPlatformDomain } = await import('@/lib/platform-config');
+      const fallbackDomain = await getPlatformDomain();
+      setInviteLink(fallbackDomain);
     }
   };
 

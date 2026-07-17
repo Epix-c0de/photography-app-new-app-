@@ -1,0 +1,28 @@
+[package]
+name = "photo_access_bridge"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.12.0"
+raw_engine = { path = "../raw_engine" }
+render_engine = { path = "../render_engine" }
+export_engine = { path = "../export_engine" }
+ai_engine = { path = "../ai_engine" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+image = { workspace = true }
+uuid = { workspace = true }
+
+# Optional AI engines for ONNX inference
+ort = { path = "../../engines/ort", optional = true }
+opencv = { path = "../../engines/opencv-rust", optional = true }
+
+[features]
+default = []
+ai = ["ort", "opencv", "ai_engine/onnx"]

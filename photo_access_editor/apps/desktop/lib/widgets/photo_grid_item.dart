@@ -21,6 +21,9 @@ class PhotoGridItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
+      onSecondaryTap: () {
+        // Right-click context menu could go here
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         decoration: BoxDecoration(
@@ -31,7 +34,7 @@ class PhotoGridItem extends StatelessWidget {
           ),
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppTheme.borderRadius - 1),
+          borderRadius: BorderRadius.circular(isSelected ? AppTheme.borderRadius - 1 : AppTheme.borderRadius),
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -39,41 +42,23 @@ class PhotoGridItem extends StatelessWidget {
               _buildThumbnail(),
               
               // Bottom info bar
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _buildInfoBar(),
-              ),
+              Positioned(left: 0, right: 0, bottom: 0, child: _buildInfoBar()),
               
-              // Rating stars
+              // Rating badge
               if (photo.rating > 0)
-                Positioned(
-                  top: 6,
-                  right: 6,
-                  child: _buildRatingBadge(),
-                ),
+                Positioned(top: 6, right: 6, child: _buildRatingBadge()),
               
               // RAW badge
               if (photo.isRaw)
-                Positioned(
-                  top: 6,
-                  left: 6,
-                  child: _buildRawBadge(),
-                ),
+                Positioned(top: 6, left: 6, child: _buildBadge('RAW', AppTheme.orange)),
               
-              // Selection indicator
+              // Selection ring
               if (isSelected)
                 Positioned(
-                  top: 6,
-                  left: 6,
+                  top: 6, left: 6,
                   child: Container(
-                    width: 20,
-                    height: 20,
-                    decoration: const BoxDecoration(
-                      color: AppTheme.gold,
-                      shape: BoxShape.circle,
-                    ),
+                    width: 20, height: 20,
+                    decoration: const BoxDecoration(color: AppTheme.gold, shape: BoxShape.circle),
                     child: const Icon(Icons.check, size: 12, color: Colors.black),
                   ),
                 ),
@@ -90,25 +75,15 @@ class PhotoGridItem extends StatelessWidget {
       child: Image.file(
         File(photo.filePath),
         fit: BoxFit.cover,
+        gaplessPlayback: true,
         errorBuilder: (context, error, stackTrace) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.image_outlined,
-                  size: 32,
-                  color: AppTheme.textTertiary.withValues(alpha:0.3),
-                ),
+                Icon(Icons.image_outlined, size: 32, color: AppTheme.textTertiary.withAlpha(75)),
                 const SizedBox(height: 4),
-                Text(
-                  photo.extension,
-                  style: TextStyle(
-                    color: AppTheme.textTertiary.withValues(alpha:0.5),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                Text(photo.extension, style: TextStyle(color: AppTheme.textTertiary.withAlpha(125), fontSize: 10, fontWeight: FontWeight.w500)),
               ],
             ),
           );
@@ -124,10 +99,7 @@ class PhotoGridItem extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            Colors.transparent,
-            Colors.black.withValues(alpha:0.8),
-          ],
+          colors: [Colors.transparent, Colors.black.withAlpha(200)],
         ),
       ),
       child: Row(
@@ -135,22 +107,12 @@ class PhotoGridItem extends StatelessWidget {
           Expanded(
             child: Text(
               photo.displayName,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-              ),
+              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w500),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           if (photo.cameraModel != null)
-            Text(
-              photo.cameraModel!,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha:0.6),
-                fontSize: 9,
-              ),
-            ),
+            Text(photo.cameraModel!, style: TextStyle(color: Colors.white.withAlpha(150), fontSize: 9)),
         ],
       ),
     );
@@ -159,34 +121,19 @@ class PhotoGridItem extends StatelessWidget {
   Widget _buildRatingBadge() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha:0.7),
-        borderRadius: BorderRadius.circular(4),
-      ),
+      decoration: BoxDecoration(color: Colors.black.withAlpha(180), borderRadius: BorderRadius.circular(4)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: List.generate(photo.rating, (index) {
-          return const Icon(Icons.star, size: 8, color: AppTheme.gold);
-        }),
+        children: List.generate(photo.rating, (_) => const Icon(Icons.star, size: 8, color: AppTheme.gold)),
       ),
     );
   }
 
-  Widget _buildRawBadge() {
+  Widget _buildBadge(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      decoration: BoxDecoration(
-        color: AppTheme.orange.withValues(alpha:0.9),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Text(
-        'RAW',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: 8,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+      decoration: BoxDecoration(color: color.withAlpha(230), borderRadius: BorderRadius.circular(4)),
+      child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
     );
   }
 }

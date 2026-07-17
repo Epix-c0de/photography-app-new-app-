@@ -22,7 +22,7 @@ type AdminProfile = {
 };
 
 export default function AdminManagement() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [admins, setAdmins] = useState<AdminProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -32,8 +32,8 @@ export default function AdminManagement() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
 
-  // Check if current user is master admin
-  const isMasterAdmin = user?.email === 'epixshots002@gmail.com';
+  // Only super_admin can access admin management
+  const isMasterAdmin = profile?.role === 'super_admin';
 
   const fetchAdmins = useCallback(async () => {
     if (!isMasterAdmin) {

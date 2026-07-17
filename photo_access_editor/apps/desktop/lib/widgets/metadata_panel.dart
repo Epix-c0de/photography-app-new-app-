@@ -14,150 +14,57 @@ class MetadataPanel extends ConsumerWidget {
 
     return Container(
       width: AppTheme.panelWidth,
-      decoration: const BoxDecoration(
-        color: AppTheme.surface,
-        border: Border(left: BorderSide(color: AppTheme.border)),
-      ),
+      decoration: const BoxDecoration(color: AppTheme.surface, border: Border(left: BorderSide(color: AppTheme.border))),
       child: Column(
         children: [
-          // ─── Header ───────────────────────────────────
           Container(
             height: 40,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppTheme.border)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.info_outline, size: 14, color: AppTheme.textSecondary),
-                SizedBox(width: 8),
-                Text(
-                  'Metadata',
-                  style: TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: AppTheme.border))),
+            child: const Row(children: [
+              Icon(Icons.info_outline, size: 14, color: AppTheme.textSecondary),
+              SizedBox(width: 8),
+              Text('Metadata', style: TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.w600)),
+            ]),
           ),
-          
-          // ─── Content ──────────────────────────────────
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(12),
               children: [
-                // File Info
-                _Section(
-                  title: 'FILE',
-                  children: [
-                    _MetadataRow(label: 'Name', value: photo.filename),
-                    _MetadataRow(label: 'Type', value: photo.extension),
-                    _MetadataRow(label: 'Format', value: photo.isRaw ? 'RAW' : 'Standard'),
-                  ],
-                ),
-                
+                _Section(title: 'FILE', children: [
+                  _Row(label: 'Name', value: photo.filename),
+                  _Row(label: 'Type', value: photo.extension),
+                  _Row(label: 'Format', value: photo.isRaw ? 'RAW' : 'Standard'),
+                ]),
                 const SizedBox(height: 16),
-                
-                // Camera Info
-                _Section(
-                  title: 'CAMERA',
-                  children: [
-                    _MetadataRow(label: 'Make', value: photo.cameraMake ?? '—'),
-                    _MetadataRow(label: 'Model', value: photo.cameraModel ?? '—'),
-                    _MetadataRow(label: 'Lens', value: photo.lens ?? '—'),
-                    _MetadataRow(label: 'ISO', value: photo.iso?.toString() ?? '—'),
-                    _MetadataRow(label: 'Aperture', value: photo.aperture != null ? 'f/${photo.aperture}' : '—'),
-                    _MetadataRow(label: 'Shutter', value: photo.shutterSpeed ?? '—'),
-                    _MetadataRow(label: 'Focal Length', value: photo.focalLength != null ? '${photo.focalLength}mm' : '—'),
-                  ],
-                ),
-                
+                _Section(title: 'CAMERA', children: [
+                  _Row(label: 'Make', value: photo.cameraMake ?? '—'),
+                  _Row(label: 'Model', value: photo.cameraModel ?? '—'),
+                  _Row(label: 'Lens', value: photo.lens ?? '—'),
+                  _Row(label: 'ISO', value: photo.iso?.toString() ?? '—'),
+                  _Row(label: 'Aperture', value: photo.aperture != null ? 'f/${photo.aperture}' : '—'),
+                  _Row(label: 'Shutter', value: photo.shutterSpeed ?? '—'),
+                  _Row(label: 'Focal Length', value: photo.focalLength != null ? '${photo.focalLength}mm' : '—'),
+                ]),
                 const SizedBox(height: 16),
-                
-                // Date
-                _Section(
-                  title: 'DATE',
-                  children: [
-                    _MetadataRow(
-                      label: 'Captured',
-                      value: photo.captureDate != null
-                          ? DateFormat('MMM d, yyyy HH:mm').format(photo.captureDate!)
-                          : '—',
-                    ),
-                  ],
-                ),
-                
+                _Section(title: 'DATE', children: [
+                  _Row(label: 'Captured', value: photo.captureDate != null ? DateFormat('MMM d, yyyy HH:mm').format(photo.captureDate!) : '—'),
+                ]),
                 const SizedBox(height: 16),
-                
-                // Rating
-                _Section(
-                  title: 'RATING',
-                  child: Row(
-                    children: List.generate(5, (index) {
-                      return GestureDetector(
-                        onTap: () {
-                          ref.read(photosProvider.notifier).updateRating(
-                                photo.photoId,
-                                index + 1,
-                              );
-                        },
-                        child: Icon(
-                          Icons.star,
-                          size: 20,
-                          color: index < photo.rating ? AppTheme.gold : AppTheme.textTertiary,
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-                
+                _Section(title: 'RATING', child: Row(
+                  children: List.generate(5, (i) => GestureDetector(
+                    onTap: () => ref.read(photosProvider.notifier).updateRating(photo.photoId, i + 1),
+                    child: Icon(Icons.star, size: 20, color: i < photo.rating ? AppTheme.gold : AppTheme.textTertiary),
+                  )),
+                )),
                 const SizedBox(height: 16),
-                
-                // Flag
-                _Section(
-                  title: 'FLAG',
-                  child: Row(
-                    children: [
-                      _FlagButton(
-                        icon: Icons.flag,
-                        color: AppTheme.green,
-                        isActive: photo.flag == 'pick',
-                        onTap: () {
-                          ref.read(photosProvider.notifier).updateFlag(
-                                photo.photoId,
-                                photo.flag == 'pick' ? 'none' : 'pick',
-                              );
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _FlagButton(
-                        icon: Icons.flag,
-                        color: AppTheme.red,
-                        isActive: photo.flag == 'reject',
-                        onTap: () {
-                          ref.read(photosProvider.notifier).updateFlag(
-                                photo.photoId,
-                                photo.flag == 'reject' ? 'none' : 'reject',
-                              );
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _FlagButton(
-                        icon: Icons.help_outline,
-                        color: AppTheme.orange,
-                        isActive: photo.flag == 'review',
-                        onTap: () {
-                          ref.read(photosProvider.notifier).updateFlag(
-                                photo.photoId,
-                                photo.flag == 'review' ? 'none' : 'review',
-                              );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
+                _Section(title: 'FLAG', child: Row(children: [
+                  _FlagBtn(icon: Icons.flag, color: AppTheme.green, isActive: photo.flag == 'pick', onTap: () => ref.read(photosProvider.notifier).updateFlag(photo.photoId, photo.flag == 'pick' ? 'none' : 'pick')),
+                  const SizedBox(width: 8),
+                  _FlagBtn(icon: Icons.flag, color: AppTheme.red, isActive: photo.flag == 'reject', onTap: () => ref.read(photosProvider.notifier).updateFlag(photo.photoId, photo.flag == 'reject' ? 'none' : 'reject')),
+                  const SizedBox(width: 8),
+                  _FlagBtn(icon: Icons.help_outline, color: AppTheme.orange, isActive: photo.flag == 'review', onTap: () => ref.read(photosProvider.notifier).updateFlag(photo.photoId, photo.flag == 'review' ? 'none' : 'review')),
+                ])),
               ],
             ),
           ),
@@ -171,7 +78,6 @@ class _Section extends StatelessWidget {
   final String title;
   final List<Widget>? children;
   final Widget? child;
-
   const _Section({required this.title, this.children, this.child});
 
   @override
@@ -179,15 +85,7 @@ class _Section extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: const TextStyle(
-            color: AppTheme.textTertiary,
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.5,
-          ),
-        ),
+        Text(title, style: const TextStyle(color: AppTheme.textTertiary, fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
         const SizedBox(height: 8),
         if (child != null) child!,
         if (children != null) ...children!,
@@ -196,11 +94,10 @@ class _Section extends StatelessWidget {
   }
 }
 
-class _MetadataRow extends StatelessWidget {
+class _Row extends StatelessWidget {
   final String label;
   final String value;
-
-  const _MetadataRow({required this.label, required this.value});
+  const _Row({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -209,61 +106,33 @@ class _MetadataRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppTheme.textTertiary,
-              fontSize: 11,
-            ),
-          ),
-          Flexible(
-            child: Text(
-              value,
-              style: const TextStyle(
-                color: AppTheme.textPrimary,
-                fontSize: 11,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
+          Text(label, style: const TextStyle(color: AppTheme.textTertiary, fontSize: 11)),
+          Flexible(child: Text(value, style: const TextStyle(color: AppTheme.textPrimary, fontSize: 11), overflow: TextOverflow.ellipsis)),
         ],
       ),
     );
   }
 }
 
-class _FlagButton extends StatelessWidget {
+class _FlagBtn extends StatelessWidget {
   final IconData icon;
   final Color color;
   final bool isActive;
   final VoidCallback onTap;
-
-  const _FlagButton({
-    required this.icon,
-    required this.color,
-    required this.isActive,
-    required this.onTap,
-  });
+  const _FlagBtn({required this.icon, required this.color, required this.isActive, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 32,
-        height: 32,
+        width: 32, height: 32,
         decoration: BoxDecoration(
-          color: isActive ? color.withValues(alpha:0.2) : AppTheme.surfaceLight,
+          color: isActive ? color.withAlpha(50) : AppTheme.surfaceLight,
           borderRadius: BorderRadius.circular(AppTheme.borderRadius),
-          border: Border.all(
-            color: isActive ? color : AppTheme.border,
-          ),
+          border: Border.all(color: isActive ? color : AppTheme.border),
         ),
-        child: Icon(
-          icon,
-          size: 14,
-          color: isActive ? color : AppTheme.textTertiary,
-        ),
+        child: Icon(icon, size: 14, color: isActive ? color : AppTheme.textTertiary),
       ),
     );
   }

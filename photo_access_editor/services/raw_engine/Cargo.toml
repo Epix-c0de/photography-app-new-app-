@@ -12,3 +12,6 @@ thiserror = { workspace = true }
 log = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+rawloader = { workspace = true }
+exif = { workspace = true }
+byteorder = "1"

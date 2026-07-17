@@ -10,3 +10,4 @@ image = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
+uuid = { version = "1", features = ["v4"] }

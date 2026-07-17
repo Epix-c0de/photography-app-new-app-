@@ -1,0 +1,20 @@
+[package]
+name = "ai_engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+image = { workspace = true }
+uuid = { workspace = true }
+rawloader = { workspace = true }
+
+# ONNX Runtime — optional, needs ort feature
+ort = { path = "../../engines/ort", optional = true, default-features = false, features = ["std", "download-binaries"] }
+
+[features]
+default = []
+onnx = ["ort"]

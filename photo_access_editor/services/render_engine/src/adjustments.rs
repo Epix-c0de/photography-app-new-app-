@@ -105,7 +105,7 @@ pub struct HslAdjustment {
     pub lum_magenta: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ColorWheel {
     pub hue: f64,
     pub saturation: f64,

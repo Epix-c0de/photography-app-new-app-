@@ -19,6 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { AdminService } from '@/services/admin';
+import { compressImage } from '@/lib/image-utils';
 import Colors from '@/constants/colors';
 import type { Database } from '@/types/supabase';
 
@@ -80,9 +81,10 @@ export default function PackageEditorScreen() {
       console.log('Load packages result:', { data, error });
       if (error) throw error;
       setPackages(data || []);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error loading packages:', e);
-      Alert.alert('Error', 'Failed to load packages');
+      const msg = e?.message || e?.error?.message || String(e);
+      Alert.alert('Error', `Failed to load packages: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -151,9 +153,10 @@ export default function PackageEditorScreen() {
           data: { packageId: data.id }
         }).catch(err => console.error('Failed to send package notification:', err));
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error adding package:', e);
-      Alert.alert('Error', 'Failed to add package');
+      const msg = e?.message || e?.error?.message || String(e);
+      Alert.alert('Error', `Failed to add package: ${msg}`);
     }
   };
 
@@ -270,7 +273,7 @@ export default function PackageEditorScreen() {
     
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [16, 9],
         quality: 0.8,
@@ -279,28 +282,42 @@ export default function PackageEditorScreen() {
       if (result.canceled) return;
 
       const file = result.assets[0];
-      const fileName = `package-${editingId}-${Date.now()}.jpg`;
+      
+      // Compress the image before upload
+      const compressed = await compressImage(file.uri);
+      
+      const ext = 'jpg';
+      const fileName = `package-${editingId}-${Date.now()}.${ext}`;
       const filePath = `package-covers/${editingId}/${fileName}`;
 
-      // Convert to blob and upload
-      const response = await fetch(file.uri);
-      const blob = await response.blob();
+      const buf = await fetch(compressed.uri).then(r => r.arrayBuffer());
+      const blob = new Blob([buf], { type: 'image/jpeg' });
 
-      const { error: uploadError } = await supabase.storage
-        .from('package-images')
+      let uploadBucket = 'package-images';
+      let { error: uploadError } = await supabase.storage
+        .from(uploadBucket)
         .upload(filePath, blob, {
-          contentType: 'image/jpeg',
+          contentType: file.mimeType || 'image/jpeg',
           upsert: true,
         });
 
-      if (uploadError) throw uploadError;
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('package-images')
-        .getPublicUrl(filePath);
-
-      setEditForm(prev => prev ? { ...prev, cover_image_url: publicUrl } : null);
+      if (uploadError) {
+        console.warn('[Package] package-images bucket failed, trying media:', uploadError.message);
+        uploadBucket = 'media';
+        const fallbackPath = `announcements/packages/${editingId}/${fileName}`;
+        const retry = await supabase.storage
+          .from(uploadBucket)
+          .upload(fallbackPath, blob, {
+            contentType: file.mimeType || 'image/jpeg',
+            upsert: true,
+          });
+        if (retry.error) throw retry.error;
+        const { data: { publicUrl } } = supabase.storage.from(uploadBucket).getPublicUrl(fallbackPath);
+        setEditForm(prev => prev ? { ...prev, cover_image_url: publicUrl } : null);
+      } else {
+        const { data: { publicUrl } } = supabase.storage.from(uploadBucket).getPublicUrl(filePath);
+        setEditForm(prev => prev ? { ...prev, cover_image_url: publicUrl } : null);
+      }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error('Error uploading image:', error);

@@ -1,11 +1,13 @@
 [workspace]
 members = [
-    "services/raw_engine",
-    "services/render_engine",
-    "services/catalog_engine",
-    "services/mask_engine",
-    "services/retouch_engine",
-    "services/export_engine",
+    "raw_engine",
+    "render_engine",
+    "catalog_engine",
+    "mask_engine",
+    "retouch_engine",
+    "export_engine",
+    "photo_access_bridge",
+    "ai_engine",
 ]
 resolver = "2"
 
@@ -21,3 +23,5 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 image = "0.25"
 log = "0.4"
 env_logger = "0.11"
+rawloader = "0.37"
+exif = { package = "kamadak-exif", version = "0.5" }

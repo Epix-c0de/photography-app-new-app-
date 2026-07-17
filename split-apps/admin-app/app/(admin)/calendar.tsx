@@ -225,7 +225,7 @@ export default function CalendarScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Bookings</Text>
-        <Text style={styles.subtitle}>{events.length} events this month</Text>
+        <Text style={styles.subtitle}>{bookings.length} bookings this month</Text>
       </View>
       
       <ScrollView

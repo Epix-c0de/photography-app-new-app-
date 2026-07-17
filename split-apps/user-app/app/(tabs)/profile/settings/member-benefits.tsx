@@ -31,15 +31,26 @@ export default function MemberBenefits() {
   const [promoCode, setPromoCode] = useState('');
 
   const loadBenefits = useCallback(async () => {
+    setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      let authUser: any = null;
+      try {
+        const result = await supabase.auth.getUser();
+        authUser = result.data?.user;
+      } catch {
+        console.error('Failed to get user');
+        setLoading(false);
+        return;
+      }
+      if (!authUser) {
+        setLoading(false);
+        return;
+      }
 
-      // Try to get existing benefits
       const { data: existing } = await supabase
         .from('member_benefits')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', authUser.id)
         .single();
 
       if (existing) {
@@ -52,10 +63,19 @@ export default function MemberBenefits() {
           next_tier: existing.next_tier,
           points_to_next: existing.points_to_next || 0,
         });
+
+        const { data: prefs } = await supabase
+          .from('user_preferences')
+          .select('*')
+          .eq('user_id', authUser.id)
+          .single();
+
+        if (prefs?.tier) {
+          setBenefits(b => b ? { ...b, tier: prefs.tier } : null);
+        }
       } else {
-        // Create default benefits
         const { data: newBenefits } = await supabase
-          .rpc('get_member_benefits', { p_user_id: user.id });
+          .rpc('get_member_benefits', { p_user_id: authUser.id });
 
         if (newBenefits) {
           setBenefits(newBenefits);
@@ -72,8 +92,7 @@ export default function MemberBenefits() {
         }
       }
 
-      // Generate unique promo code
-      setPromoCode(`EPIX-${user.id.slice(0, 8).toUpperCase()}`);
+      setPromoCode(`EPIX-${authUser.id.slice(0, 8).toUpperCase()}`);
     } catch (error) {
       console.error('Failed to load benefits:', error);
     } finally {

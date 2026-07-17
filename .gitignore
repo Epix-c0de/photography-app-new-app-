@@ -47,3 +47,6 @@ out/
 .env
 rork-eslint.config.js
 core
+
+# Rust build artifacts
+target/

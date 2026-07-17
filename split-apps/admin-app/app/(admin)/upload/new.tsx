@@ -20,7 +20,7 @@ import {
   User, ArrowLeft, ChevronUp, ChevronDown,
   Wifi, WifiOff, Cloud, DollarSign, FileText, Hash, Copy,
   Trash2, CreditCard, Mail, Smartphone, AlertTriangle, Shield, Calendar,
-  Check, Send, MessageCircle, Phone, X, Search, Camera
+  Check, Send, MessageCircle, Phone, X, Search, Camera, Images, Share2
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
@@ -30,8 +30,9 @@ import { AdminService } from '@/services/admin';
 import { supabase } from '@/lib/supabase';
 import { useBranding } from '@/contexts/BrandingContext';
 import { useAuth } from '@/contexts/AuthContext';
+import QRCode from 'react-native-qrcode-svg';
 
-type DeliveryMethod = 'sms' | 'whatsapp' | 'email' | 'in_app' | 'ussd';
+type DeliveryMethod = 'sms' | 'whatsapp' | 'email' | 'in_app';
 type ShootType = 'wedding' | 'portrait' | 'event' | 'commercial' | 'other';
 
 type Client = {
@@ -48,54 +49,101 @@ type Photo = {
   uri: string;
   fileName: string;
   fileSize: number;
+  originalSize?: number;
   mimeType: string;
   width?: number;
   height?: number;
   mediaType?: 'image' | 'video';
+  compressed?: boolean;
 };
 
-const COMPRESS_THRESHOLD = 5 * 1024 * 1024; // 5MB
-
-async function compressImage(uri: string): Promise<{ uri: string; width: number; height: number; size: number }> {
-  if (!ImageManipulator) {
-    const info = await FileSystem.getInfoAsync(uri);
-    return { uri, width: 0, height: 0, size: info.exists ? (info as any).size || 0 : 0 };
+async function getFileSize(uri: string): Promise<number> {
+  if (Platform.OS === 'web') {
+    try {
+      const res = await fetch(uri);
+      const blob = await res.blob();
+      return blob.size;
+    } catch { return 0; }
   }
+  const info = await FileSystem.getInfoAsync(uri);
+  return info.exists ? (info as any).size || 0 : 0;
+}
 
-  try {
-    const info = await FileSystem.getInfoAsync(uri);
-    const originalSize = info.exists ? (info as any).size || 0 : 0;
+async function compressImage(uri: string): Promise<{ uri: string; width: number; height: number; size: number; compressed: boolean }> {
+  const originalSize = await getFileSize(uri);
 
-    if (originalSize <= COMPRESS_THRESHOLD) {
-      return { uri, width: 0, height: 0, size: originalSize };
+  // Try native ImageManipulator first (iOS/Android)
+  if (ImageManipulator) {
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 2400 } }],
+        { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: false }
+      );
+      const compressedSize = await getFileSize(result.uri);
+      if (compressedSize < originalSize) {
+        return { uri: result.uri, width: result.width, height: result.height, size: compressedSize, compressed: true };
+      }
+    } catch (e) {
+      console.warn('[Compress] Native manipulation failed, trying web fallback:', e);
     }
-
-    const result = await ImageManipulator.manipulateAsync(
-      uri,
-      [{ resize: { width: 2400 } }],
-      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: false }
-    );
-
-    const compressedInfo = await FileSystem.getInfoAsync(result.uri);
-    const compressedSize = compressedInfo.exists ? (compressedInfo as any).size || 0 : 0;
-
-    return {
-      uri: result.uri,
-      width: result.width,
-      height: result.height,
-      size: compressedSize || originalSize,
-    };
-  } catch (e) {
-    console.warn('Compression failed, using original:', e);
-    const info = await FileSystem.getInfoAsync(uri);
-    return { uri, width: 0, height: 0, size: info.exists ? (info as any).size || 0 : 0 };
   }
+
+  // Web fallback: use browser Canvas API for compression
+  if (Platform.OS === 'web') {
+    try {
+      const compressedUri = await webCompressImage(uri, 2400, 0.82);
+      const compressedSize = await getFileSize(compressedUri);
+      if (compressedSize < originalSize) {
+        const img = await new Promise<HTMLImageElement>((resolve) => {
+          const el = new window.Image();
+          el.onload = () => resolve(el);
+          el.src = uri;
+        });
+        return { uri: compressedUri, width: img.naturalWidth, height: img.naturalHeight, size: compressedSize, compressed: true };
+      }
+    } catch (e) {
+      console.warn('[Compress] Web compression failed:', e);
+    }
+  }
+
+  return { uri, width: 0, height: 0, size: originalSize, compressed: false };
+}
+
+function webCompressImage(uri: string, maxDim: number, quality: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      let { naturalWidth: w, naturalHeight: h } = img;
+      if (w > maxDim || h > maxDim) {
+        const ratio = Math.min(maxDim / w, maxDim / h);
+        w = Math.round(w * ratio);
+        h = Math.round(h * ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return reject(new Error('Canvas toBlob failed'));
+          resolve(URL.createObjectURL(blob));
+        },
+        'image/jpeg',
+        quality
+      );
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = uri;
+  });
 }
 
 export default function ClientPhotoUploadScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { userId, phoneNumber: phoneParam } = useLocalSearchParams<{ userId: string; phoneNumber: string }>();
+  const { userId, clientId: clientIdParam, phoneNumber: phoneParam } = useLocalSearchParams<{ userId: string; clientId: string; phoneNumber: string }>();
   const { user, verifyAdminGuard } = useAuth();
   const { brandName: activeBrand, appDisplayName: activeAppName, shareAppLink: appLink, accessCodeLink: accessLink } = useBranding();
 
@@ -127,12 +175,15 @@ export default function ClientPhotoUploadScreen() {
   const [shootType, setShootType] = useState<ShootType>('portrait');
   const [delayedDelivery, setDelayedDelivery] = useState(false);
   const [releaseDate, setReleaseDate] = useState(new Date());
-  const [deliveryMethods, setDeliveryMethods] = useState<DeliveryMethod[]>(['sms']);
+  const [deliveryMethods, setDeliveryMethods] = useState<DeliveryMethod[]>(['sms', 'in_app']);
   const [sendNotificationAfterUpload, setSendNotificationAfterUpload] = useState(true);
   const [requirePaymentBeforeDownload, setRequirePaymentBeforeDownload] = useState(false);
   const [customMessage, setCustomMessage] = useState('');
   const [outdoorMode, setOutdoorMode] = useState(false);
-  const [enableUssdAccess, setEnableUssdAccess] = useState(true);
+
+  // Wizard step
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [pendingCount, setPendingCount] = useState(0);
 
   // Photos
   const [photos, setPhotos] = useState<Photo[]>([]);
@@ -142,6 +193,9 @@ export default function ClientPhotoUploadScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ total: number; completed: number; currentFile: string }>({ total: 0, completed: 0, currentFile: '' });
   const [uploadStatus, setUploadStatus] = useState('');
+  const [uploadSpeed, setUploadSpeed] = useState(0);
+  const [uploadBytes, setUploadBytes] = useState<{ uploaded: number; total: number }>({ uploaded: 0, total: 0 });
+  const [uploadEta, setUploadEta] = useState<string>('');
   const [initializedGallery, setInitializedGallery] = useState<{
     id: string;
     sessionId: string;
@@ -149,6 +203,7 @@ export default function ClientPhotoUploadScreen() {
   } | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
 
 
@@ -243,15 +298,22 @@ export default function ClientPhotoUploadScreen() {
   useEffect(() => {
     if (!accessReady) return;
     loadClients().then((loadedClients) => {
-      if (userId && loadedClients) {
-        const client = loadedClients.find(c => c.id === userId);
+      const preselectId = clientIdParam || userId;
+      if (preselectId && loadedClients) {
+        const client = loadedClients.find(c => c.id === preselectId);
         if (client) {
           selectClient(client);
+          setPhoneNumber(client.phone || '');
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          // Skip step 1 — go directly to step 2 since client is pre-selected
+          setStep(2);
         }
       }
     });
-  }, [accessReady, loadClients, userId]);
+    import('@/lib/outdoor-upload-queue').then(({ getPendingClientCount }) => {
+      getPendingClientCount().then(setPendingCount);
+    });
+  }, [accessReady, loadClients, clientIdParam, userId]);
 
   const copyAccessCode = async () => {
     if (!accessCode) {
@@ -383,22 +445,25 @@ export default function ClientPhotoUploadScreen() {
               let fileSize = asset.fileSize || 0;
               if (!fileSize) {
                 try {
-                  const fileInfo = await FileSystem.getInfoAsync(asset.uri);
-                  fileSize = fileInfo.exists ? (fileInfo as any).size || 0 : 0;
+                  fileSize = await getFileSize(asset.uri);
                 } catch { fileSize = 0; }
               }
 
               let processedUri = asset.uri;
               let width = asset.width;
               let height = asset.height;
+              let didCompress = false;
 
               if (!isVideo) {
                 setUploadStatus(`Compressing ${fileName}...`);
+                const originalSize = asset.fileSize || await getFileSize(asset.uri);
                 const compressed = await compressImage(asset.uri);
                 processedUri = compressed.uri;
+                didCompress = compressed.compressed;
                 fileSize = compressed.size || fileSize;
                 if (compressed.width) width = compressed.width;
                 if (compressed.height) height = compressed.height;
+                console.log(`[Compress] ${fileName}: ${(originalSize / 1024).toFixed(0)}KB → ${(fileSize / 1024).toFixed(0)}KB (${compressed.compressed ? 'compressed' : 'unchanged'})`);
               } else if (fileSize > 100 * 1024 * 1024) {
                 Alert.alert('Large Video', `${fileName} is ${(fileSize / (1024 * 1024)).toFixed(0)}MB. Upload may be slow.`);
               }
@@ -408,10 +473,12 @@ export default function ClientPhotoUploadScreen() {
                 uri: processedUri,
                 fileName,
                 fileSize,
+                originalSize: didCompress ? (asset.fileSize || await getFileSize(asset.uri)) : undefined,
                 mimeType,
                 width,
                 height,
                 mediaType: isVideo ? 'video' as const : 'image' as const,
+                compressed: didCompress,
               };
             })
           )
@@ -476,51 +543,87 @@ export default function ClientPhotoUploadScreen() {
   const uploadGalleryPhotosWithConcurrency = async (
     galleryId: string,
     items: Photo[],
-    concurrency: number
+    _concurrency: number,
+    clientId?: string
   ) => {
-    let completed = 0;
     const total = items.length;
-    let index = 0;
     const failed: string[] = [];
+    const startTime = Date.now();
+    let completed = 0;
+    let bytesUploaded = 0;
+    const totalBytes = items.reduce((s, p) => s + (p.fileSize || 0), 0);
 
-    const worker = async () => {
-      while (index < total) {
-        const currentIndex = index;
-        index += 1;
-        const photo = items[currentIndex];
+    setUploadBytes({ uploaded: 0, total: totalBytes });
 
-        setUploadProgress(prev => ({
-          total,
-          completed: prev.completed,
-          currentFile: `Uploading ${currentIndex + 1}/${total}: ${photo.fileName}`
-        }));
+    // Live progress timer — updates UI every 500ms
+    const progressTimer = setInterval(() => {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const speedMBps = elapsed > 0 ? (bytesUploaded / (1024 * 1024)) / elapsed : 0;
+      const remainingBytes = totalBytes - bytesUploaded;
+      const remaining = speedMBps > 0 ? remainingBytes / (speedMBps * 1024 * 1024) : 0;
+      const mins = Math.floor(remaining / 60);
+      const secs = Math.floor(remaining % 60);
+      setUploadEta(mins > 0 ? `${mins}m ${secs}s` : secs > 0 ? `${secs}s` : '');
+      setUploadSpeed(speedMBps);
+      setUploadBytes({ uploaded: bytesUploaded, total: totalBytes });
+    }, 500);
 
-        try {
-          await AdminService.gallery.uploadPhotoDirect(
-            galleryId,
-            photo,
-            !isPaid,
-            currentIndex + 1
-          );
-        } catch (error) {
-          console.error(`Failed to upload photo ${photo.fileName}:`, error);
-          failed.push(photo.fileName);
-        }
+    // Sequential upload — one file at a time for reliable progress
+    for (let i = 0; i < total; i++) {
+      const photo = items[i];
 
-        completed += 1;
-        setUploadProgress(prev => ({
-          total,
-          completed,
-          currentFile: prev.currentFile
-        }));
+      setUploadProgress({
+        total,
+        completed,
+        currentFile: `Uploading ${i + 1}/${total}: ${photo.fileName}`,
+      });
+
+      try {
+        console.log(`[UploadLoop] Uploading photo ${i + 1}/${total}: ${photo.fileName} (${((photo.fileSize || 0) / 1024).toFixed(1)}KB)`);
+        await AdminService.gallery.uploadPhotoDirect(
+          galleryId,
+          photo,
+          !isPaid,
+          i + 1,
+          clientId
+        );
+        bytesUploaded += photo.fileSize || 0;
+        console.log(`[UploadLoop] ✓ Photo ${i + 1}/${total} done: ${photo.fileName}`);
+      } catch (error: any) {
+        const errMsg = error?.message || String(error);
+        console.error(`[UploadLoop] ✗ Photo ${i + 1}/${total} FAILED: ${photo.fileName}`, errMsg);
+        failed.push(`${photo.fileName}: ${errMsg}`);
       }
-    };
 
-    const workers = Array.from({ length: Math.min(concurrency, total) }, () => worker());
-    await Promise.all(workers);
+      completed += 1;
+
+      // Immediate update after each file
+      const elapsed = (Date.now() - startTime) / 1000;
+      const speedMBps = elapsed > 0 ? (bytesUploaded / (1024 * 1024)) / elapsed : 0;
+      const remainingBytes = totalBytes - bytesUploaded;
+      const remaining = speedMBps > 0 ? remainingBytes / (speedMBps * 1024 * 1024) : 0;
+      const mins = Math.floor(remaining / 60);
+      const secs = Math.floor(remaining % 60);
+      setUploadEta(mins > 0 ? `${mins}m ${secs}s` : secs > 0 ? `${secs}s` : '');
+      setUploadSpeed(speedMBps);
+      setUploadBytes({ uploaded: bytesUploaded, total: totalBytes });
+      setUploadProgress({
+        total,
+        completed,
+        currentFile: `Uploading ${i + 1}/${total}: ${photo.fileName}`,
+      });
+    }
+
+    clearInterval(progressTimer);
+
+    // Final state
+    setUploadSpeed(0);
+    setUploadEta('');
 
     if (failed.length > 0) {
-      Alert.alert('Partial Upload', `${failed.length} of ${total} files failed: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '...' : ''}`);
+      const summary = failed.slice(0, 5).join('\n');
+      const extra = failed.length > 5 ? `\n...and ${failed.length - 5} more` : '';
+      Alert.alert('Upload Errors', `${failed.length} of ${total} files failed:\n\n${summary}${extra}`);
     }
     return { failed };
   };
@@ -666,7 +769,7 @@ export default function ClientPhotoUploadScreen() {
       const result = await AdminService.gallery.createSimple({
         clientId: clientId!,
         name: galleryName,
-        price: price ? parseFloat(price) : 0,
+        price: isPaid && price ? parseFloat(price) : 0,
         shootType,
         isPaid,
         accessCode,
@@ -735,6 +838,24 @@ export default function ClientPhotoUploadScreen() {
       return;
     }
 
+    // Outdoor mode: save client info locally for later sync
+    if (outdoorMode) {
+      const { queueClient } = await import('@/lib/outdoor-upload-queue');
+      await queueClient({
+        name: resolveClientName(),
+        phone: phoneNumber,
+        email: email || undefined,
+        notes: galleryTitle || shootType ? `Shoot: ${shootType}, Gallery: ${galleryTitle || 'Not set'}` : undefined,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        'Client Saved Offline',
+        `${resolveClientName()} (${phoneNumber}) saved locally.\nWill sync to your client list when you're back online.`,
+      );
+      router.back();
+      return;
+    }
+
     const galleryName = galleryTitle || `${shootType.charAt(0).toUpperCase() + shootType.slice(1)} ${new Date().getFullYear()}`;
 
     // Check for duplicate gallery name for this client
@@ -769,9 +890,14 @@ export default function ClientPhotoUploadScreen() {
 
   const proceedWithUpload = async (galleryName: string) => {
     const totalPhotos = photos.length;
+    const totalBytes = photos.reduce((s, p) => s + (p.fileSize || 0), 0);
+    console.log(`[Upload] Starting upload: ${totalPhotos} photos, ${(totalBytes / (1024 * 1024)).toFixed(1)}MB total, gallery="${galleryName}"`);
     setIsUploading(true);
-    setUploadProgress({ total: totalPhotos, completed: 0, currentFile: '' });
+    setUploadProgress({ total: totalPhotos, completed: 0, currentFile: 'Preparing...' });
     setUploadStatus('Creating client and gallery...');
+    setUploadBytes({ uploaded: 0, total: totalBytes });
+    setUploadSpeed(0);
+    setUploadEta('');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
     try {
@@ -802,7 +928,7 @@ export default function ClientPhotoUploadScreen() {
         const gallery = await AdminService.gallery.createSimple({
           clientId: clientId!,
           name: galleryName,
-          price: price ? parseFloat(price) : 0,
+          price: isPaid && price ? parseFloat(price) : 0,
           shootType,
           isPaid,
           accessCode,
@@ -819,80 +945,78 @@ export default function ClientPhotoUploadScreen() {
       // 3. Upload photos directly (no Edge Functions)
       setUploadStatus('Uploading photos...');
 
-      await uploadGalleryPhotosWithConcurrency(finalGalleryId, photos, 3);
+      await uploadGalleryPhotosWithConcurrency(finalGalleryId, photos, 3, clientId);
 
-      // 4. Send notifications (non-critical — don't let this crash the upload)
-      if (sendNotificationAfterUpload) {
+      // 4. Send via selected delivery methods
+      if (sendNotificationAfterUpload && deliveryMethods.length > 0) {
         setUploadStatus('Sending notifications...');
-        try {
-          const resolvedName = clientData?.name || resolveClientName();
-          const templates = await SMSService.templates.list();
-          const titleTpl = templates?.find(t => t.name === 'In-App Notification Title')?.body
-            || `Hello ${resolvedName} 👋, your ${galleryName} gallery is ready!`;
-          const bodyTpl = templates?.find(t => t.name === 'In-App Notification Body')?.body
-            || `Your photos from ${galleryName} are now available. Tap to view your gallery.`;
-          const links = await SMSService.utils.getAdminLinks();
-          const appLinkBase = links?.access_code_delivery_link || links?.share_app_link || '';
-          const compiledTitle = SMSService.utils.compileTemplate(titleTpl, {
-            client_name: resolvedName,
-            gallery_name: galleryName,
-            access_code: finalAccessCode,
-            app_link: appLinkBase,
-            business_name: 'Epix Visuals Studios.co'
-          });
-          const compiledBody = SMSService.utils.compileTemplate(bodyTpl, {
-            client_name: resolvedName,
-            gallery_name: galleryName,
-            access_code: finalAccessCode,
-            app_link: appLinkBase,
-            business_name: 'Epix Visuals Studios.co'
-          });
+        const resolvedName = clientData?.name || resolveClientName();
+        const links = await SMSService.utils.getAdminLinks();
+        const appLinkBase = links?.access_code_delivery_link || links?.share_app_link || accessLink;
+        const deepLink = `${appLinkBase}${finalAccessCode}`;
+        const smsBody = `Hello ${resolvedName}, your ${galleryName} photos are ready!\n\nView here: ${deepLink}\n\nUse code: ${finalAccessCode} to unlock.\n\nEpix Visuals Studios`;
+        const whatsappBody = `Hello ${resolvedName}, your ${galleryName} photos are ready!\n\nView here: ${deepLink}\n\nUse code: ${finalAccessCode} to unlock.`;
 
-          await AdminService.notifications.create(clientId as string, {
-            clientId: clientId as string,
-            galleryId: finalGalleryId,
-            type: 'gallery_ready',
-            title: compiledTitle,
-            body: compiledBody,
-            data: { galleryId: finalGalleryId, accessCode: finalAccessCode, clientName: resolvedName }
-          });
-        } catch (notifError: any) {
-          console.warn('Notification sending failed (non-critical):', notifError?.message);
+        // In-App Notification
+        if (deliveryMethods.includes('in_app')) {
+          try {
+            const templates = await SMSService.templates.list();
+            const titleTpl = templates?.find(t => t.name === 'In-App Notification Title')?.body
+              || `Hello ${resolvedName}, your ${galleryName} gallery is ready!`;
+            const bodyTpl = templates?.find(t => t.name === 'In-App Notification Body')?.body
+              || `Your photos from ${galleryName} are now available. Tap to view your gallery.`;
+            const compiledTitle = SMSService.utils.compileTemplate(titleTpl, {
+              client_name: resolvedName, gallery_name: galleryName,
+              access_code: finalAccessCode, app_link: appLinkBase, business_name: 'Epix Visuals Studios'
+            });
+            const compiledBody = SMSService.utils.compileTemplate(bodyTpl, {
+              client_name: resolvedName, gallery_name: galleryName,
+              access_code: finalAccessCode, app_link: appLinkBase, business_name: 'Epix Visuals Studios'
+            });
+            await AdminService.notifications.create(clientId as string, {
+              clientId: clientId as string, galleryId: finalGalleryId,
+              type: 'gallery_ready', title: compiledTitle, body: compiledBody,
+              data: { galleryId: finalGalleryId, accessCode: finalAccessCode, clientName: resolvedName }
+            });
+            await supabase.rpc('update_delivery_status', {
+              p_gallery_id: finalGalleryId, p_client_id: clientId, p_field: 'notification_sent', p_value: true
+            });
+          } catch (e: any) { console.warn('In-app notification failed:', e?.message); }
         }
-      }
 
-      // 5. Auto-SMS
-      try {
-        const autoSms = await AsyncStorage.getItem('admin_autoSmsOnUpload');
-        if (autoSms === 'true' && phoneNumber && finalAccessCode) {
-          setUploadStatus('Sending SMS...');
-          const templates = await SMSService.templates.list();
-          const smsTpl = templates?.find(t => t.name === 'Gallery Ready (SMS)')?.body
-            || 'Hello {client_name}, your photos are ready!\n\nDirect Link: {app_link}{access_code}\n\nUse code: {access_code} to unlock if the link doesn\'t open.\n\n{business_name}';
-          const links = await SMSService.utils.getAdminLinks();
-          const appLinkBase = links?.access_code_delivery_link || links?.share_app_link || accessLink;
-          const compiledSms = SMSService.utils.compileTemplate(smsTpl, {
-            client_name: clientData?.name || resolveClientName(),
-            access_code: finalAccessCode,
-            gallery_name: galleryName,
-            app_link: appLinkBase,
-            business_name: 'Epix Visuals Studios.co'
-          });
-          
-          await supabase.functions.invoke('send_sms', {
-            body: { phoneNumber, message: compiledSms }
-          });
-          
-          await supabase.from('sms_logs').insert({
-            owner_admin_id: user?.id,
-            client_id: clientId,
-            phone_number: phoneNumber,
-            message: compiledSms,
-            status: 'sent',
-          });
+        // SMS
+        if (deliveryMethods.includes('sms') && phoneNumber) {
+          try {
+            const templates = await SMSService.templates.list();
+            const smsTpl = templates?.find(t => t.name === 'Gallery Ready (SMS)')?.body || smsBody;
+            const compiledSms = SMSService.utils.compileTemplate(smsTpl, {
+              client_name: resolvedName, access_code: finalAccessCode,
+              gallery_name: galleryName, app_link: appLinkBase, business_name: 'Epix Visuals Studios'
+            });
+            await supabase.functions.invoke('send_sms', {
+              body: { phoneNumber, message: compiledSms }
+            });
+            await supabase.from('sms_logs').insert({
+              owner_admin_id: user?.id, client_id: clientId,
+              phone_number: phoneNumber, message: compiledSms, status: 'sent',
+            });
+            await supabase.rpc('update_delivery_status', {
+              p_gallery_id: finalGalleryId, p_client_id: clientId, p_field: 'sms_sent', p_value: true
+            });
+          } catch (e: any) { console.warn('SMS failed:', e?.message); }
         }
-      } catch (smsError) {
-        console.warn('Auto-SMS failed:', smsError);
+
+        // WhatsApp
+        if (deliveryMethods.includes('whatsapp') && phoneNumber) {
+          try {
+            await supabase.functions.invoke('send-whatsapp', {
+              body: {
+                phone_number: phoneNumber, message: whatsappBody,
+                photographer_id: user?.id, client_id: clientId, gallery_id: finalGalleryId,
+              }
+            });
+          } catch (e: any) { console.warn('WhatsApp failed:', e?.message); }
+        }
       }
 
       setAccessCode(finalAccessCode);
@@ -932,14 +1056,27 @@ export default function ClientPhotoUploadScreen() {
   };
 
   // Render Helpers
-  const renderPhotoItem = ({ item }: { item: Photo }) => (
+  const renderPhotoItem = ({ item, index }: { item: Photo; index: number }) => (
     <View style={styles.photoItem}>
-      <Image source={{ uri: item.uri }} style={styles.photoThumb} resizeMode="contain" />
+      <Image source={{ uri: item.uri }} style={styles.photoThumb} resizeMode="cover" />
+      <View style={styles.photoIndex}>
+        <Text style={styles.photoIndexText}>{index + 1}</Text>
+      </View>
+      {item.compressed && (
+        <View style={styles.compressedBadge}>
+          <Text style={styles.compressedBadgeText}>ZIP</Text>
+        </View>
+      )}
+      {uploadProgress.currentFile && uploadProgress.currentFile.includes(item.fileName) && (
+        <View style={styles.photoUploading}>
+          <ActivityIndicator size="small" color={Colors.gold} />
+        </View>
+      )}
       <Pressable
         style={styles.removePhotoBtn}
         onPress={() => removePhoto(item.id)}
       >
-        <X size={12} color="#FFF" />
+        <X size={10} color="#FFF" />
       </Pressable>
     </View>
   );
@@ -952,22 +1089,37 @@ export default function ClientPhotoUploadScreen() {
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <ArrowLeft size={24} color={Colors.white} />
+          <ArrowLeft size={22} color={Colors.white} />
         </Pressable>
-        <View>
-          <Text style={styles.headerTitle}>Upload Client Photos</Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>Upload Photos</Text>
           <Text style={styles.headerSub}>Create or update gallery</Text>
         </View>
         <View style={[styles.statusBadge, !netInfo.isConnected && styles.statusBadgeOffline]}>
           {netInfo.isConnected ? (
-            <Wifi size={14} color={Colors.success} />
+            <View style={styles.statusDotOnline} />
           ) : (
-            <WifiOff size={14} color={Colors.error} />
+            <View style={styles.statusDotOffline} />
           )}
           <Text style={[styles.statusText, !netInfo.isConnected && styles.statusTextOffline]}>
             {netInfo.isConnected ? 'Online' : 'Offline'}
           </Text>
         </View>
+      </View>
+
+      {/* Step Progress Bar */}
+      <View style={styles.progressSteps}>
+        {([1, 2, 3] as const).map((s) => (
+          <View key={s} style={styles.progressStepRow}>
+            <View style={[styles.progressDot, step >= s && styles.progressDotActive, step === s && styles.progressDotCurrent]}>
+              {step > s ? <Check size={12} color={Colors.background} /> : <Text style={[styles.progressDotText, step >= s && styles.progressDotTextActive]}>{s}</Text>}
+            </View>
+            <Text style={[styles.progressLabel, step >= s && styles.progressLabelActive]}>
+              {s === 1 ? 'Client' : s === 2 ? 'Gallery' : 'Photos'}
+            </Text>
+            {s < 3 && <View style={[styles.progressLine, step > s && styles.progressLineActive]} />}
+          </View>
+        ))}
       </View>
 
       <KeyboardAvoidingView
@@ -978,563 +1130,751 @@ export default function ClientPhotoUploadScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Outdoor Mode Toggle */}
-          <View style={styles.modeToggleContainer}>
-            <View style={styles.modeInfo}>
-              <Cloud size={20} color={outdoorMode ? Colors.gold : Colors.textMuted} />
-              <View>
-                <Text style={[styles.modeTitle, outdoorMode && { color: Colors.gold }]}>Outdoor Shoot Mode</Text>
-                <Text style={styles.modeSub}>Field optimized, offline-first</Text>
-              </View>
+          {/* ─── STEP 1: Client ─── */}
+          {step === 1 && (
+            <>
+          {/* Offline Mode Card */}
+          <Pressable
+            style={[styles.offlineCard, outdoorMode && styles.offlineCardActive]}
+            onPress={() => setOutdoorMode(v => !v)}
+          >
+            <View style={[styles.offlineIconWrap, outdoorMode && styles.offlineIconWrapActive]}>
+              {outdoorMode ? (
+                <WifiOff size={20} color={Colors.gold} />
+              ) : (
+                <Wifi size={20} color={Colors.success} />
+              )}
+            </View>
+            <View style={styles.offlineCardContent}>
+              <Text style={[styles.offlineCardTitle, outdoorMode && { color: Colors.gold }]}>
+                {outdoorMode ? 'Offline Mode' : 'Online Mode'}
+              </Text>
+              <Text style={styles.offlineCardSub}>
+                {outdoorMode
+                  ? `${pendingCount} client${pendingCount !== 1 ? 's' : ''} queued for sync`
+                  : pendingCount > 0
+                    ? `${pendingCount} client${pendingCount !== 1 ? 's' : ''} pending sync`
+                    : 'Connected — photos upload in real-time'}
+              </Text>
             </View>
             <Switch
               value={outdoorMode}
               onValueChange={setOutdoorMode}
-              trackColor={{ false: '#333', true: Colors.gold }}
-              thumbColor="#FFF"
+              trackColor={{ false: 'rgba(255,255,255,0.1)', true: 'rgba(212,175,55,0.4)' }}
+              thumbColor={outdoorMode ? Colors.gold : '#666'}
             />
-          </View>
+          </Pressable>
 
+          {/* Client Search Card */}
+          <View style={styles.stepCard}>
+            <View style={styles.stepCardHeader}>
+              <View style={styles.stepCardIcon}>
+                <User size={16} color={Colors.gold} />
+              </View>
+              <Text style={styles.stepCardTitle}>Client Info</Text>
+              {clientData && (
+                <View style={styles.stepCardBadge}>
+                  <Check size={10} color={Colors.background} />
+                  <Text style={styles.stepCardBadgeText}>Selected</Text>
+                </View>
+              )}
+            </View>
 
-
-          {/* Client Identification */}
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>CLIENT IDENTIFICATION</Text>
-            <View style={styles.inputWrapper}>
-              <Phone size={20} color={Colors.textMuted} style={styles.inputIcon} />
+            {/* Phone Input */}
+            <View style={styles.modernInputWrap}>
+              <Phone size={16} color={Colors.textMuted} />
               <TextInput
-                style={styles.input}
-                placeholder="Client Phone Number"
-                placeholderTextColor={Colors.textMuted}
+                style={styles.modernInput}
+                placeholder="Phone number"
+                placeholderTextColor="rgba(255,255,255,0.25)"
                 keyboardType="phone-pad"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
-                autoFocus={true}
+                autoFocus
               />
               {checkingClient && <ActivityIndicator size="small" color={Colors.gold} />}
             </View>
 
-            <View style={styles.inputWrapper}>
-              <User size={20} color={Colors.textMuted} style={styles.inputIcon} />
+            {/* Client Name */}
+            <View style={styles.modernInputWrap}>
+              <User size={16} color={Colors.textMuted} />
               <TextInput
-                style={styles.input}
-                placeholder="Temporary Client Name"
-                placeholderTextColor={Colors.textMuted}
+                style={styles.modernInput}
+                placeholder="Client name"
+                placeholderTextColor="rgba(255,255,255,0.25)"
                 value={temporaryClientName}
                 onChangeText={setTemporaryClientName}
               />
             </View>
 
-            <View style={styles.inputWrapper}>
-              <Search size={20} color={Colors.textMuted} style={styles.inputIcon} />
+            {/* Quick Client Search */}
+            <View style={styles.modernInputWrap}>
+              <Search size={16} color={Colors.textMuted} />
               <TextInput
-                style={styles.input}
-                placeholder="Search clients by name or phone"
-                placeholderTextColor={Colors.textMuted}
+                style={styles.modernInput}
+                placeholder="Search existing clients..."
+                placeholderTextColor="rgba(255,255,255,0.25)"
                 value={clientSearch}
                 onChangeText={setClientSearch}
               />
               {loadingClients && <ActivityIndicator size="small" color={Colors.gold} />}
             </View>
 
-            <View style={styles.clientsHeader}>
-              <Text style={styles.clientsHeaderText}>Clients</Text>
-              <View style={styles.clientsHeaderRight}>
-                <View style={styles.clientCountBadge}>
-                  <Text style={styles.clientCountText}>{selectedClientLabel}</Text>
+            {/* Client List */}
+            {clientSearch.length > 0 && filteredClients.length > 0 && (
+              <View style={styles.modernClientList}>
+                {filteredClients.slice(0, 5).map((client) => (
+                  <Pressable
+                    key={client.id}
+                    style={[styles.modernClientItem, clientData?.id === client.id && styles.modernClientItemActive]}
+                    onPress={() => selectClient(client)}
+                  >
+                    <View style={styles.modernClientAvatar}>
+                      <Text style={styles.modernClientAvatarText}>
+                        {(client.name || 'C')[0].toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.modernClientInfo}>
+                      <Text style={styles.modernClientName}>{client.name}</Text>
+                      <Text style={styles.modernClientPhone}>{client.phone || 'No phone'}</Text>
+                    </View>
+                    <Text style={[styles.modernClientAction, clientData?.id === client.id && { color: Colors.gold }]}>
+                      {clientData?.id === client.id ? 'Selected' : 'Use'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {/* Selected Client Card */}
+            {clientData && (
+              <View style={styles.selectedClientCard}>
+                <View style={styles.selectedClientAvatar}>
+                  <Text style={styles.selectedClientAvatarText}>
+                    {(clientData.name || 'C')[0].toUpperCase()}
+                  </Text>
                 </View>
-                <Pressable
-                  onPress={() => setIsClientListExpanded(prev => !prev)}
-                  accessibilityRole="button"
-                  accessibilityLabel={isClientListExpanded ? 'Collapse clients list' : 'Expand clients list'}
-                  accessibilityState={{ expanded: isClientListExpanded }}
-                  accessibilityHint="Toggles the clients list visibility"
-                >
-                  {isClientListExpanded ? (
-                    <ChevronUp size={18} color={Colors.textMuted} />
-                  ) : (
-                    <ChevronDown size={18} color={Colors.textMuted} />
-                  )}
+                <View style={styles.selectedClientInfo}>
+                  <Text style={styles.selectedClientName}>{clientData.name}</Text>
+                  <Text style={styles.selectedClientMeta}>
+                    {clientData.phone} • {clientData.totalGalleries || 0} galleries
+                  </Text>
+                </View>
+                <Pressable onPress={() => { setClientData(null); setPhoneNumber(''); }}>
+                  <X size={16} color={Colors.textMuted} />
                 </Pressable>
               </View>
-            </View>
-
-            <View
-              style={[
-                styles.clientsCollapsible,
-                !isClientListExpanded && styles.clientsCollapsibleCollapsed
-              ]}
-              nativeID="clients-list-collapsible"
-              accessibilityElementsHidden={!isClientListExpanded}
-              pointerEvents={isClientListExpanded ? 'auto' : 'none'}
-            >
-              {filteredClients.length > 0 && (
-                <ScrollView 
-                  style={styles.clientList} 
-                  nestedScrollEnabled={true}
-                  showsVerticalScrollIndicator={true}
-                >
-                  {filteredClients.map((client) => (
-                    <Pressable
-                      key={client.id}
-                      style={styles.clientListItem}
-                      onPress={() => selectClient(client)}
-                    >
-                      <View>
-                        <Text style={styles.clientListName}>{client.name}</Text>
-                        <Text style={styles.clientListPhone}>{client.phone || 'No phone'}</Text>
-                      </View>
-                      <Text style={styles.clientListAction}>Use</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              )}
-
-              {normalizedClientSearch.length > 0 && filteredClients.length === 0 && (
-                <View style={styles.clientEmpty}>
-                  <Text style={styles.clientEmptyText}>No matching clients</Text>
-                </View>
-              )}
-            </View>
-
-            {clientData && (
-              <View style={styles.clientCard}>
-                <View style={styles.clientInfo}>
-                  <Text style={styles.clientName}>{clientData.name}</Text>
-                  <Text style={styles.clientMeta}>Last shoot: {clientData.lastShoot} • {clientData.totalGalleries} galleries</Text>
-                </View>
-                <View style={styles.clientBadge}>
-                  <Check size={14} color={Colors.background} />
-                  <Text style={styles.clientBadgeText}>Found</Text>
-                </View>
-
-                {/* Price Input */}
-                <View style={styles.inputWrapper}>
-                  <DollarSign size={20} color={Colors.textMuted} style={styles.inputIcon} />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Price (optional)"
-                    placeholderTextColor={Colors.textMuted}
-                    keyboardType="decimal-pad"
-                    value={price}
-                    onChangeText={setPrice}
-                  />
-                </View>
-              </View>
             )}
 
+            {/* New Client Prompt */}
             {isNewClient && !checkingClient && phoneNumber.length >= 10 && (
-              <View style={styles.newClientCard}>
-                <UserPlusBadge />
-                <View style={styles.newClientInfo}>
-                  <Text style={styles.newClientText}>No client found for this number</Text>
-                  <Pressable
-                    style={[styles.createClientBtn, creatingClient && styles.createClientBtnDisabled]}
-                    onPress={createClientFromPhone}
-                    disabled={creatingClient}
-                  >
-                    <Text style={styles.createClientBtnText}>{creatingClient ? 'Creating...' : 'Create Client'}</Text>
-                  </Pressable>
+              <View style={styles.newClientPrompt}>
+                <View style={styles.newClientPromptLeft}>
+                  <AlertTriangle size={14} color={Colors.gold} />
+                  <Text style={styles.newClientPromptText}>New client — will be created</Text>
                 </View>
               </View>
             )}
 
-            {/* Client Email (for new clients) */}
+            {/* Email (for new clients) */}
             {isNewClient && (
-              <View style={styles.inputWrapper}>
-                <Mail size={20} color={Colors.textMuted} style={styles.inputIcon} />
+              <View style={[styles.modernInputWrap, { marginTop: 8 }]}>
+                <Mail size={16} color={Colors.textMuted} />
                 <TextInput
-                  style={styles.input}
-                  placeholder="Client Email (optional)"
-                  placeholderTextColor={Colors.textMuted}
+                  style={styles.modernInput}
+                  placeholder="Email (optional)"
+                  placeholderTextColor="rgba(255,255,255,0.25)"
                   keyboardType="email-address"
                   value={email}
                   onChangeText={setEmail}
                 />
               </View>
             )}
+
+            {/* Price */}
+            <View style={styles.modernInputWrap}>
+              <DollarSign size={16} color={Colors.textMuted} />
+              <TextInput
+                style={styles.modernInput}
+                placeholder="Price (optional)"
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                keyboardType="decimal-pad"
+                value={price}
+                onChangeText={setPrice}
+              />
+            </View>
           </View>
 
-          {/* Gallery Setup (Hidden in Outdoor Mode) */}
+          {/* Step 1 nav */}
+          <View style={styles.wizardNav}>
+            <Pressable style={styles.wizardNavBtn} onPress={() => router.back()}>
+              <Text style={styles.wizardNavBtnText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.wizardNavBtnPrimary, (!phoneNumber && !clientData?.id) && styles.primaryBtnDisabled]}
+              onPress={() => setStep(outdoorMode ? 3 : 2)}
+              disabled={!phoneNumber && !clientData?.id}
+            >
+              <Text style={styles.wizardNavBtnPrimaryText}>
+                {outdoorMode ? 'Next: Review →' : 'Next: Gallery →'}
+              </Text>
+            </Pressable>
+          </View>
+            </>
+          )}
+
+          {/* ─── STEP 2: Gallery ─── */}
+          {step === 2 && (
+            <>
           {!outdoorMode && (
             <>
-              <View style={styles.section}>
-                <Text style={styles.sectionLabel}>GALLERY DETAILS</Text>
-                <View style={styles.inputWrapper}>
-                  <FileText size={20} color={Colors.textMuted} style={styles.inputIcon} />
+              {/* Gallery Details Card */}
+              <View style={styles.stepCard}>
+                <View style={styles.stepCardHeader}>
+                  <View style={styles.stepCardIcon}>
+                    <Images size={16} color={Colors.gold} />
+                  </View>
+                  <Text style={styles.stepCardTitle}>Gallery Setup</Text>
+                  {initializedGallery && (
+                    <View style={styles.stepCardBadge}>
+                      <Check size={10} color={Colors.background} />
+                      <Text style={styles.stepCardBadgeText}>Ready</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Gallery Title */}
+                <View style={styles.modernInputWrap}>
+                  <FileText size={16} color={Colors.textMuted} />
                   <TextInput
-                    style={styles.input}
+                    style={styles.modernInput}
                     placeholder={`Title (e.g., Wedding - ${new Date().getFullYear()})`}
-                    placeholderTextColor={Colors.textMuted}
+                    placeholderTextColor="rgba(255,255,255,0.25)"
                     value={galleryTitle}
                     onChangeText={setGalleryTitle}
                   />
                 </View>
 
-                <View style={styles.typeSelector}>
-                  {(['wedding', 'portrait', 'event', 'commercial'] as ShootType[]).map((type) => (
-                    <Pressable
-                      key={type}
-                      style={[styles.typeChip, shootType === type && styles.typeChipActive]}
-                      onPress={() => {
-                        setShootType(type);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                    >
-                      <Text style={[styles.typeText, shootType === type && styles.typeTextActive]}>
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </Text>
-                    </Pressable>
-                  ))}
+                {/* Shoot Type Chips */}
+                <Text style={styles.chipLabel}>Shoot Type</Text>
+                <View style={styles.modernChipGrid}>
+                  {(['wedding', 'portrait', 'event', 'commercial'] as ShootType[]).map((type) => {
+                    const icons: Record<string, string> = { wedding: '💍', portrait: '📸', event: '🎉', commercial: '💼' };
+                    return (
+                      <Pressable
+                        key={type}
+                        style={[styles.modernChip, shootType === type && styles.modernChipActive]}
+                        onPress={() => {
+                          setShootType(type);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }}
+                      >
+                        <Text style={styles.modernChipIcon}>{icons[type]}</Text>
+                        <Text style={[styles.modernChipText, shootType === type && styles.modernChipTextActive]}>
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
 
-                {/* ─── Create Gallery Button ─── */}
+                {/* Access Code Display */}
+                {initializedGallery && (
+                  <View style={styles.accessCodeModern}>
+                    <View style={styles.accessCodeLeft}>
+                      <Text style={styles.accessCodeModernLabel}>ACCESS CODE</Text>
+                      <Text style={styles.accessCodeModernValue}>{initializedGallery.accessCode}</Text>
+                    </View>
+                    <View style={styles.accessCodeActions}>
+                      <Pressable style={styles.accessCodeBtn} onPress={copyAccessCode}>
+                        <Copy size={16} color={Colors.gold} />
+                      </Pressable>
+                      <Pressable style={styles.accessCodeBtn}>
+                        <Share2 size={16} color={Colors.gold} />
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+
+                {/* Create Gallery Button */}
                 {!initializedGallery ? (
                   <Pressable
                     style={[
-                      styles.setupGalleryBtn,
+                      styles.modernPrimaryBtn,
                       (isInitializing || (!phoneNumber && !clientData?.id)) && styles.primaryBtnDisabled
                     ]}
                     onPress={handleSetupGallery}
                     disabled={isInitializing || (!phoneNumber && !clientData?.id)}
                   >
                     {isInitializing ? (
-                      <ActivityIndicator color={Colors.background} size="small" />
+                      <View style={styles.btnLoadingRow}>
+                        <ActivityIndicator color={Colors.background} size="small" />
+                        <Text style={styles.modernPrimaryBtnText}>Creating...</Text>
+                      </View>
                     ) : (
                       <>
-                        <LinearGradient
-                          colors={!phoneNumber && !clientData?.id ? ['#333', '#333'] : ['#2563eb', '#1d4ed8']}
-                          style={StyleSheet.absoluteFillObject}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                        />
-                        <Hash size={18} color={Colors.white} />
-                        <Text style={styles.setupGalleryBtnText}>Create Gallery &amp; Get Access Code</Text>
+                        <Hash size={16} color={Colors.background} />
+                        <Text style={styles.modernPrimaryBtnText}>Create Gallery & Get Code</Text>
                       </>
                     )}
                   </Pressable>
                 ) : (
-                  <View style={styles.galleryReadyBadge}>
+                  <View style={styles.galleryReadyModern}>
                     <Check size={16} color={Colors.success} />
-                    <Text style={styles.galleryReadyText}>
-                      Gallery Ready — Code: {initializedGallery.accessCode}
-                    </Text>
-                    <Pressable onPress={copyAccessCode}>
-                      <Copy size={14} color={Colors.success} />
-                    </Pressable>
+                    <Text style={styles.galleryReadyModernText}>Gallery created successfully</Text>
                   </View>
                 )}
               </View>
 
-              <View style={styles.section}>
-                <Text style={styles.sectionLabel}>PHOTOS ({photos.length}) • {formatFileSize(getTotalFileSize())}</Text>
-                <Pressable
-                  style={styles.uploadArea}
-                  onPress={pickImages}
-                  disabled={isPicking}
-                >
+              {/* Auto Settings Card */}
+              <View style={styles.stepCard}>
+                <View style={styles.stepCardHeader}>
+                  <View style={styles.stepCardIcon}>
+                    <FileText size={16} color="#3B82F6" />
+                  </View>
+                  <Text style={styles.stepCardTitle}>Auto Settings</Text>
+                </View>
+
+                <View style={styles.settingRow}>
+                  <View style={styles.settingInfo}>
+                    <Shield size={16} color={Colors.textMuted} />
+                    <Text style={styles.settingLabel}>Auto-lock gallery</Text>
+                  </View>
+                  <View style={[styles.settingBadge, { backgroundColor: 'rgba(46,204,113,0.12)' }]}>
+                    <Text style={[styles.settingBadgeText, { color: Colors.success }]}>On</Text>
+                  </View>
+                </View>
+
+                <View style={styles.settingRow}>
+                  <View style={styles.settingInfo}>
+                    <FileText size={16} color={Colors.textMuted} />
+                    <Text style={styles.settingLabel}>Watermark unpaid photos</Text>
+                  </View>
+                  <View style={[styles.settingBadge, { backgroundColor: !isPaid ? 'rgba(212,175,55,0.12)' : 'rgba(255,255,255,0.06)' }]}>
+                    <Text style={[styles.settingBadgeText, { color: !isPaid ? Colors.gold : Colors.textMuted }]}>
+                      {isPaid ? 'Off' : 'On'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </>
+          )}
+
+          {/* Step 2 nav */}
+          <View style={styles.wizardNav}>
+            <Pressable style={styles.wizardNavBtn} onPress={() => setStep(1)}>
+              <Text style={styles.wizardNavBtnText}>← Back</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.wizardNavBtnPrimary, !initializedGallery && !outdoorMode && styles.primaryBtnDisabled]}
+              onPress={() => setStep(3)}
+              disabled={!initializedGallery && !outdoorMode}
+            >
+              <Text style={styles.wizardNavBtnPrimaryText}>
+                {outdoorMode ? 'Next: Photos →' : initializedGallery ? 'Next: Photos →' : 'Create Gallery first'}
+              </Text>
+            </Pressable>
+          </View>
+            </>
+          )}
+
+          {/* ─── STEP 3: Photos & Delivery ─── */}
+          {step === 3 && (
+            <>
+          {!outdoorMode && (
+            <>
+              {/* Photos Card */}
+              <View style={styles.stepCard}>
+                <View style={styles.stepCardHeader}>
+                  <View style={styles.stepCardIcon}>
+                    <Camera size={16} color={Colors.gold} />
+                  </View>
+                  <Text style={styles.stepCardTitle}>Photos</Text>
+                  {photos.length > 0 && (
+                    <View style={styles.stepCardBadge}>
+                      <Text style={styles.stepCardBadgeText}>{photos.length}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Video Upload Coming Soon Banner */}
+                <View style={styles.comingSoonBanner}>
+                  <Text style={styles.comingSoonBannerIcon}>🎬</Text>
+                  <View style={styles.comingSoonBannerContent}>
+                    <Text style={styles.comingSoonBannerTitle}>Video Upload Coming Soon</Text>
+                    <Text style={styles.comingSoonBannerDesc}>HD video upload with compression — arriving in a future update</Text>
+                  </View>
+                </View>
+
+                <Pressable style={styles.modernUploadArea} onPress={pickImages} disabled={isPicking}>
                   {isPicking ? (
-                    <ActivityIndicator size="small" color={Colors.gold} />
+                    <View style={styles.uploadAreaLoading}>
+                      <ActivityIndicator size="small" color={Colors.gold} />
+                      <Text style={styles.modernUploadText}>Processing...</Text>
+                    </View>
                   ) : (
                     <>
-                      <Camera size={32} color={Colors.gold} />
-                      <Text style={styles.uploadText}>Tap to select photos</Text>
-                      <Text style={styles.uploadSub}>Supports up to 100 photos</Text>
+                      <View style={styles.uploadIconWrap}>
+                        <Camera size={28} color={Colors.gold} />
+                      </View>
+                      <Text style={styles.modernUploadText}>Tap to select photos</Text>
+                      <Text style={styles.modernUploadSub}>RAW, JPEG, PNG — Up to 100 files</Text>
                     </>
                   )}
                 </Pressable>
 
                 {photos.length > 0 && (
-                  <View style={styles.photoList}>
+                  <View style={styles.photoGridContainer}>
                     <FlatList
                       data={photos}
-                      renderItem={renderPhotoItem}
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={{ paddingVertical: 10 }}
+                      renderItem={({ item, index }) => renderPhotoItem({ item, index })}
+                      numColumns={3}
+                      keyExtractor={(item) => item.id}
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={{ paddingVertical: 8 }}
+                      scrollEnabled={false}
                     />
-                    <View style={styles.photoStats}>
-                      <Text style={styles.photoStatsText}>
-                        {photos.length} photos • {formatFileSize(getTotalFileSize())}
+                    <View style={styles.photoGridFooter}>
+                      <Text style={styles.photoGridFooterText}>
+                        {photos.length} photo{photos.length !== 1 ? 's' : ''} • {formatFileSize(getTotalFileSize())}
+                        {photos.some(p => p.compressed) ? ` • ${photos.filter(p => p.compressed).length} compressed` : ''}
                       </Text>
                       <Pressable
-                        style={styles.clearPhotosBtn}
-                        onPress={() => {
-                          Alert.alert(
-                            'Clear All Photos',
-                            'Are you sure you want to remove all selected photos?',
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Clear All',
-                                style: 'destructive',
-                                onPress: () => setPhotos([])
-                              }
-                            ]
-                          );
-                        }}
+                        onPress={() => Alert.alert('Clear All', 'Remove all selected photos?', [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Clear', style: 'destructive', onPress: () => setPhotos([]) }
+                        ])}
                       >
-                        <Trash2 size={14} color={Colors.error} />
-                        <Text style={styles.clearPhotosText}>Clear All</Text>
+                        <Text style={styles.photoGridClear}>Clear All</Text>
                       </Pressable>
                     </View>
                   </View>
                 )}
               </View>
 
-              <View style={styles.section}>
-                <Text style={styles.sectionLabel}>SETTINGS & AUTOMATION</Text>
-
-                <View style={styles.settingRow}>
-                  <View style={styles.settingInfo}>
-                    <CreditCard size={18} color={isPaid ? Colors.success : Colors.textMuted} />
-                    <Text style={styles.settingLabel}>Payment Status</Text>
+              {/* Delivery Settings Card */}
+              <View style={[styles.stepCard, { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.06)' }]}>
+                <View style={styles.stepCardHeader}>
+                  <View style={[styles.stepCardIcon, { backgroundColor: 'rgba(59,130,246,0.15)' }]}>
+                    <Send size={16} color="#3B82F6" />
                   </View>
-                  <Pressable
-                    onPress={() => setIsPaid(!isPaid)}
-                    style={[styles.toggleBtn, isPaid && styles.toggleBtnActive]}
-                  >
-                    <Text style={styles.toggleText}>{isPaid ? 'PAID' : 'UNPAID'}</Text>
-                  </Pressable>
-                </View>
-
-                <View style={styles.settingRow}>
-                  <View style={styles.settingInfo}>
-                    <Send size={18} color={sendNotificationAfterUpload ? Colors.gold : Colors.textMuted} />
-                    <Text style={styles.settingLabel}>Send Notification After Upload</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.stepCardTitle}>Delivery</Text>
+                    <Text style={{ fontSize: 11, color: Colors.textMuted, marginTop: 2 }}>
+                      Configure how photos reach your client
+                    </Text>
                   </View>
-                  <Switch
-                    value={sendNotificationAfterUpload}
-                    onValueChange={setSendNotificationAfterUpload}
-                    trackColor={{ false: '#333', true: Colors.gold }}
-                  />
-                </View>
-
-                <View style={styles.settingRow}>
-                  <View style={styles.settingInfo}>
-                    <AlertTriangle size={18} color={requirePaymentBeforeDownload ? Colors.gold : Colors.textMuted} />
-                    <Text style={styles.settingLabel}>Require Payment Before Download</Text>
-                  </View>
-                  <Switch
-                    value={requirePaymentBeforeDownload}
-                    onValueChange={setRequirePaymentBeforeDownload}
-                    trackColor={{ false: '#333', true: Colors.gold }}
-                  />
-                </View>
-
-                {!isPaid && (
-                  <View style={styles.watermarkConfig}>
-                    <Shield size={16} color={Colors.gold} style={{ marginRight: 8 }} />
-                    <Text style={styles.watermarkText}>Watermark enabled for unpaid gallery</Text>
-                  </View>
-                )}
-
-                <View style={styles.divider} />
-
-                <View style={styles.settingRow}>
-                  <View style={styles.settingInfo}>
-                    <Calendar size={18} color={Colors.textMuted} />
-                    <Text style={styles.settingLabel}>Delayed Release</Text>
-                  </View>
-                  <Switch
-                    value={delayedDelivery}
-                    onValueChange={setDelayedDelivery}
-                    trackColor={{ false: '#333', true: Colors.gold }}
-                  />
-                </View>
-
-                <View style={styles.divider} />
-
-                {/* Delivery Methods */}
-                <View style={styles.deliverySection}>
-                  <Text style={styles.deliveryLabel}>DELIVERY METHODS</Text>
-                  <View style={styles.deliveryGrid}>
-                    <Pressable
-                      style={[styles.deliveryChip, deliveryMethods.includes('sms') && styles.deliveryChipActive]}
-                      onPress={() => toggleDeliveryMethod('sms')}
-                    >
-                      <MessageCircle size={16} color={deliveryMethods.includes('sms') ? Colors.white : Colors.textMuted} />
-                      <Text style={[styles.deliveryText, deliveryMethods.includes('sms') && styles.deliveryTextActive]}>
-                        SMS
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      style={[styles.deliveryChip, deliveryMethods.includes('whatsapp') && styles.deliveryChipActive]}
-                      onPress={() => toggleDeliveryMethod('whatsapp')}
-                    >
-                      <MessageCircle size={16} color={deliveryMethods.includes('whatsapp') ? Colors.white : Colors.textMuted} />
-                      <Text style={[styles.deliveryText, deliveryMethods.includes('whatsapp') && styles.deliveryTextActive]}>
-                        WhatsApp
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      style={[styles.deliveryChip, deliveryMethods.includes('email') && styles.deliveryChipActive]}
-                      onPress={() => toggleDeliveryMethod('email')}
-                    >
-                      <Mail size={16} color={deliveryMethods.includes('email') ? Colors.white : Colors.textMuted} />
-                      <Text style={[styles.deliveryText, deliveryMethods.includes('email') && styles.deliveryTextActive]}>
-                        Email
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      style={[styles.deliveryChip, deliveryMethods.includes('in_app') && styles.deliveryChipActive]}
-                      onPress={() => toggleDeliveryMethod('in_app')}
-                    >
-                      <Smartphone size={16} color={deliveryMethods.includes('in_app') ? Colors.white : Colors.textMuted} />
-                      <Text style={[styles.deliveryText, deliveryMethods.includes('in_app') && styles.deliveryTextActive]}>
-                        In-App
-                      </Text>
-                    </Pressable>
-
-                    <Pressable
-                      style={[styles.deliveryChip, deliveryMethods.includes('ussd') && styles.deliveryChipActive]}
-                      onPress={() => toggleDeliveryMethod('ussd')}
-                    >
-                      <Phone size={16} color={deliveryMethods.includes('ussd') ? Colors.white : Colors.textMuted} />
-                      <Text style={[styles.deliveryText, deliveryMethods.includes('ussd') && styles.deliveryTextActive]}>
-                        USSD
-                      </Text>
-                    </Pressable>
-                  </View>
-
-                  {deliveryMethods.includes('ussd') && (
-                    <View style={styles.ussdInfo}>
-                      <Text style={styles.ussdInfoText}>
-                        Client can access gallery by dialing *384*123*ACCESS_CODE# — no internet needed
-                      </Text>
+                  {isPaid && (
+                    <View style={{ backgroundColor: 'rgba(34,197,94,0.15)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                      <Text style={{ fontSize: 10, color: '#22C55E', fontWeight: '600' }}>PAID</Text>
+                    </View>
+                  )}
+                  {!isPaid && (
+                    <View style={{ backgroundColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                      <Text style={{ fontSize: 10, color: Colors.textMuted, fontWeight: '600' }}>FREE</Text>
                     </View>
                   )}
                 </View>
 
-                {/* Custom Message */}
-                {deliveryMethods.length > 0 && (
-                  <View style={styles.customMessageSection}>
-                    <Text style={styles.sectionLabel}>CUSTOM MESSAGE</Text>
-                    <TextInput
-                      style={[styles.input, styles.textArea]}
-                      placeholder="Custom notification message (optional)"
-                      placeholderTextColor={Colors.textMuted}
-                      value={customMessage}
-                      onChangeText={setCustomMessage}
-                      multiline
-                      numberOfLines={3}
-                    />
+                {/* Payment Status */}
+                <View style={[styles.settingRow, { backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginTop: 12 }]}>
+                  <View style={styles.settingInfo}>
+                    <CreditCard size={16} color={isPaid ? Colors.success : Colors.textMuted} />
+                    <View>
+                      <Text style={styles.settingLabel}>Payment Required</Text>
+                      <Text style={{ fontSize: 10, color: Colors.textMuted }}>
+                        {isPaid ? `Client pays KES ${price || '0'} to unlock clean photos` : 'Free gallery — all photos accessible'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={isPaid}
+                    onValueChange={setIsPaid}
+                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: 'rgba(34,197,94,0.4)' }}
+                    thumbColor={isPaid ? '#22C55E' : '#666'}
+                  />
+                </View>
+
+                {/* Price Input (shown when Paid) */}
+                {isPaid && (
+                  <View style={[styles.priceInputRow, { marginTop: 8 }]}>
+                    <View style={[styles.priceInputWrap, { flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(212,175,55,0.3)' }]}>
+                      <DollarSign size={16} color={Colors.gold} />
+                      <TextInput
+                        style={[styles.priceInput, { flex: 1 }]}
+                        placeholder="0.00"
+                        placeholderTextColor={Colors.textMuted}
+                        value={price}
+                        onChangeText={setPrice}
+                        keyboardType="decimal-pad"
+                      />
+                      <Text style={[styles.priceCurrency, { marginRight: 8 }]}>KES</Text>
+                    </View>
                   </View>
                 )}
 
-                <View style={styles.divider} />
+                {/* Custom Message */}
+                <View style={[styles.customMessageWrap, { marginTop: 12 }]}>
+                  <Text style={[styles.chipLabel, { marginBottom: 6 }]}>CUSTOM MESSAGE (OPTIONAL)</Text>
+                  <TextInput
+                    style={[styles.customMessageInput, { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', padding: 12 }]}
+                    placeholder="Add a personal note for the client..."
+                    placeholderTextColor={Colors.textMuted}
+                    value={customMessage}
+                    onChangeText={setCustomMessage}
+                    multiline
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                  />
+                </View>
 
-                {accessCode ? (
-                  <View style={styles.accessCodeContainer}>
+                {/* Notification Toggle */}
+                <View style={[styles.settingRow, { backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginTop: 10 }]}>
+                  <View style={styles.settingInfo}>
+                    <Send size={16} color={sendNotificationAfterUpload ? Colors.gold : Colors.textMuted} />
                     <View>
-                      <Text style={styles.accessCodeLabel}>ACCESS CODE</Text>
-                      <Text style={styles.accessCodeValue}>{accessCode}</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 12 }}>
-                      <Pressable style={styles.iconBtn} onPress={copyAccessCode}>
-                        <Copy size={20} color={Colors.gold} />
-                      </Pressable>
+                      <Text style={styles.settingLabel}>Notify client after upload</Text>
+                      <Text style={{ fontSize: 10, color: Colors.textMuted }}>
+                        {sendNotificationAfterUpload
+                          ? `Send via ${deliveryMethods.map(m => m === 'in_app' ? 'In-App' : m.charAt(0).toUpperCase() + m.slice(1)).join(', ')}`
+                          : 'No notification will be sent'}
+                      </Text>
                     </View>
                   </View>
-                ) : null}
+                  <Switch
+                    value={sendNotificationAfterUpload}
+                    onValueChange={setSendNotificationAfterUpload}
+                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: 'rgba(212,175,55,0.4)' }}
+                    thumbColor={sendNotificationAfterUpload ? Colors.gold : '#666'}
+                  />
+                </View>
+
+                {/* Require Payment Toggle */}
+                <View style={[styles.settingRow, { backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginTop: 6 }]}>
+                  <View style={styles.settingInfo}>
+                    <AlertTriangle size={16} color={requirePaymentBeforeDownload ? Colors.gold : Colors.textMuted} />
+                    <View>
+                      <Text style={styles.settingLabel}>Require payment before download</Text>
+                      <Text style={{ fontSize: 10, color: Colors.textMuted }}>
+                        {requirePaymentBeforeDownload ? 'Client must pay before downloading HD photos' : 'Downloads available immediately'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={requirePaymentBeforeDownload}
+                    onValueChange={setRequirePaymentBeforeDownload}
+                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: 'rgba(212,175,55,0.4)' }}
+                    thumbColor={requirePaymentBeforeDownload ? Colors.gold : '#666'}
+                  />
+                </View>
+
+                {/* Delayed Release Toggle */}
+                <View style={[styles.settingRow, { backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginTop: 6 }]}>
+                  <View style={styles.settingInfo}>
+                    <Calendar size={16} color={delayedDelivery ? Colors.gold : Colors.textMuted} />
+                    <View>
+                      <Text style={styles.settingLabel}>Delayed release</Text>
+                      <Text style={{ fontSize: 10, color: Colors.textMuted }}>
+                        {delayedDelivery ? `Release on ${releaseDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'Gallery available immediately'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={delayedDelivery}
+                    onValueChange={setDelayedDelivery}
+                    trackColor={{ false: 'rgba(255,255,255,0.1)', true: 'rgba(212,175,55,0.4)' }}
+                    thumbColor={delayedDelivery ? Colors.gold : '#666'}
+                  />
+                </View>
+
+                {/* Release Date Picker (shown when delayed) */}
+                {delayedDelivery && (
+                  <View style={[styles.releaseDateRow, { marginTop: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10, padding: 10 }]}>
+                    <Text style={styles.releaseDateLabel}>Release on</Text>
+                    <Pressable
+                      style={[styles.releaseDateBtn, { backgroundColor: 'rgba(212,175,55,0.1)', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }]}
+                      onPress={() => setShowDatePicker(true)}
+                    >
+                      <Calendar size={14} color={Colors.gold} />
+                      <Text style={[styles.releaseDateText, { marginLeft: 6 }]}>
+                        {releaseDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+
+                {/* Delivery Method Chips */}
+                <Text style={[styles.chipLabel, { marginTop: 14 }]}>DELIVERY CHANNELS</Text>
+                <View style={[styles.modernChipGrid, { gap: 8 }]}>
+                  {([
+                    { key: 'sms', icon: '💬', label: 'SMS', desc: 'Text message with link' },
+                    { key: 'whatsapp', icon: '📱', label: 'WhatsApp', desc: 'WhatsApp message' },
+                    { key: 'email', icon: '✉️', label: 'Email', desc: 'Email delivery', comingSoon: true },
+                    { key: 'in_app', icon: '🔔', label: 'In-App', desc: 'Push notification' },
+                  ] as const).map((method) => (
+                    <Pressable
+                      key={method.key}
+                      style={[
+                        styles.modernChip,
+                        deliveryMethods.includes(method.key) && styles.modernChipActive,
+                        method.comingSoon && styles.modernChipDisabled,
+                        { flex: 1, minWidth: '45%' }
+                      ]}
+                      onPress={() => {
+                        if (method.comingSoon) {
+                          Alert.alert('Coming Soon', 'Email delivery will be available in a future update.');
+                          return;
+                        }
+                        toggleDeliveryMethod(method.key);
+                      }}
+                    >
+                      <Text style={styles.modernChipIcon}>{method.icon}</Text>
+                      <Text style={[
+                        styles.modernChipText,
+                        deliveryMethods.includes(method.key) && styles.modernChipTextActive,
+                        method.comingSoon && styles.modernChipTextDisabled,
+                      ]}>
+                        {method.label}
+                      </Text>
+                      {method.comingSoon && (
+                        <View style={styles.comingSoonBadge}>
+                          <Text style={styles.comingSoonText}>SOON</Text>
+                        </View>
+                      )}
+                    </Pressable>
+                  ))}
+                </View>
+
+                {/* Access Code */}
+                {accessCode && (
+                  <View style={[styles.accessCodeModern, { marginTop: 14, backgroundColor: 'rgba(212,175,55,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(212,175,55,0.15)' }]}>
+                    <View style={styles.accessCodeLeft}>
+                      <Text style={styles.accessCodeModernLabel}>ACCESS CODE</Text>
+                      <Text style={[styles.accessCodeModernValue, { fontSize: 20, letterSpacing: 2 }]}>{accessCode}</Text>
+                    </View>
+                    <Pressable style={[styles.accessCodeBtn, { backgroundColor: 'rgba(212,175,55,0.12)' }]} onPress={copyAccessCode}>
+                      <Copy size={16} color={Colors.gold} />
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+
+              {/* Upload Progress (shown during upload) */}
+              {isUploading && (
+                <View style={styles.stepCard}>
+                  <View style={styles.stepCardHeader}>
+                    <View style={styles.stepCardIcon}>
+                      <Send size={16} color={Colors.gold} />
+                    </View>
+                    <Text style={styles.stepCardTitle}>Upload Progress</Text>
+                  </View>
+
+                  {uploadStatus ? (
+                    <Text style={styles.uploadStatusText}>{uploadStatus}</Text>
+                  ) : null}
+
+                  <View style={styles.progressBarBg}>
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        { width: uploadProgress.total > 0 ? `${(uploadProgress.completed / uploadProgress.total) * 100}%` : '0%' },
+                      ]}
+                    />
+                  </View>
+
+                  <View style={styles.progressInfoRow}>
+                    <Text style={styles.progressInfoText}>
+                      {uploadProgress.completed} / {uploadProgress.total} files
+                    </Text>
+                    <Text style={styles.progressInfoText}>
+                      {uploadSpeed > 0
+                        ? uploadSpeed >= 1
+                          ? `${uploadSpeed.toFixed(1)} MB/s`
+                          : `${(uploadSpeed * 1024).toFixed(0)} KB/s`
+                        : ''}
+                    </Text>
+                    {uploadEta ? (
+                      <Text style={styles.progressInfoText}>ETA: {uploadEta}</Text>
+                    ) : null}
+                  </View>
+
+                  {uploadBytes.total > 0 && (
+                    <View style={styles.progressInfoRow}>
+                      <Text style={styles.progressInfoText}>
+                        {(uploadBytes.uploaded / (1024 * 1024)).toFixed(1)} MB / {(uploadBytes.total / (1024 * 1024)).toFixed(1)} MB
+                      </Text>
+                    </View>
+                  )}
+
+                  {uploadProgress.currentFile ? (
+                    <Text style={styles.progressCurrentFile} numberOfLines={1}>
+                      {uploadProgress.currentFile}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+
+              {/* Upload Actions */}
+              <View style={styles.actions}>
+                <Pressable
+                  style={[
+                    styles.modernPrimaryBtn,
+                    (isUploading || (photos.length === 0 && !outdoorMode)) && styles.primaryBtnDisabled
+                  ]}
+                  onPress={handleUpload}
+                  disabled={isUploading || (photos.length === 0 && !outdoorMode)}
+                >
+                  {isUploading ? (
+                    <View style={styles.btnLoadingRow}>
+                      <ActivityIndicator color={Colors.gold} size="small" />
+                      <Text style={styles.modernPrimaryBtnText}>Uploading...</Text>
+                    </View>
+                  ) : (
+                    <>
+                      <Send size={16} color={Colors.background} />
+                      <Text style={styles.modernPrimaryBtnText}>
+                        {initializedGallery
+                          ? `Upload ${photos.length} Photo${photos.length !== 1 ? 's' : ''}`
+                          : `Upload & Create Gallery`}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
               </View>
             </>
           )}
 
-          {/* SMS Preview */}
-          <View style={styles.smsPreview}>
-            <Smartphone size={16} color={Colors.textMuted} />
-            <Text style={styles.smsText} numberOfLines={2}>
-              SMS: Hello {clientData?.name || '{Client}'}, your photos are ready! Code: {accessCode}. View at epixvisualsstudios.co
-            </Text>
-          </View>
+          {/* Outdoor Mode: Save Client Button */}
+          {outdoorMode && (
+            <View style={styles.actions}>
+              <Pressable
+                style={[styles.modernPrimaryBtn, isUploading && styles.primaryBtnDisabled]}
+                onPress={handleUpload}
+                disabled={isUploading}
+              >
+                {isUploading ? (
+                  <View style={styles.btnLoadingRow}>
+                    <ActivityIndicator color={Colors.gold} size="small" />
+                    <Text style={styles.modernPrimaryBtnText}>Saving...</Text>
+                  </View>
+                ) : (
+                  <>
+                    <User size={16} color={Colors.background} />
+                    <Text style={styles.modernPrimaryBtnText}>Save Client Offline</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+          )}
 
-          {/* Upload Progress */}
-          {(isUploading || isInitializing) && (() => {
-            const pct = uploadProgress.total > 0
-              ? Math.round((uploadProgress.completed / uploadProgress.total) * 100)
-              : 0;
-            const isCreatingGallery = uploadStatus.toLowerCase().includes('creating') || uploadStatus.toLowerCase().includes('client') || uploadStatus.toLowerCase().includes('initializ');
-            return (
-              <View style={styles.uploadProgressContainer}>
-                {/* Status label */}
-                <Text style={styles.uploadStatus}>{uploadStatus || 'Starting...'}</Text>
-
-                {/* Big percentage */}
-                <Text style={styles.uploadPct}>{pct}%</Text>
-
-                {/* Progress bar */}
-                <View style={styles.progressBar}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      isCreatingGallery && styles.progressFillSetup,
-                      { width: `${isCreatingGallery ? 5 : pct}%` }
-                    ]}
-                  />
-                </View>
-
-                {/* Photo counter */}
-                <Text style={styles.progressText}>
-                  {isCreatingGallery
-                    ? 'Preparing gallery record...'
-                    : `${uploadProgress.completed} of ${uploadProgress.total} photos uploaded`}
-                </Text>
-
-                {/* Current file */}
-                {uploadProgress.currentFile ? (
-                  <Text style={styles.currentFile} numberOfLines={1}>
-                    {uploadProgress.currentFile}
-                  </Text>
-                ) : null}
-              </View>
-            );
-          })()}
-
-          {/* Actions */}
-          <View style={styles.actions}>
-            <Pressable
-              style={[
-                styles.primaryBtn,
-                (isUploading || (photos.length === 0 && !outdoorMode)) && styles.primaryBtnDisabled
-              ]}
-              onPress={handleUpload}
-              disabled={isUploading || (photos.length === 0 && !outdoorMode)}
-            >
-              {isUploading ? (
-                <ActivityIndicator color={Colors.background} />
-              ) : (
-                <LinearGradient
-                  colors={
-                    (photos.length === 0 && !outdoorMode)
-                      ? ['#333', '#333']
-                      : initializedGallery
-                        ? [Colors.success, '#16a34a']
-                        : [Colors.gold, Colors.goldDark]
-                  }
-                  style={StyleSheet.absoluteFillObject}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                />
-              )}
-              {!isUploading && (
-                <Text style={styles.primaryBtnText}>
-                  {outdoorMode
-                    ? 'Save Shoot & Sync Later'
-                    : initializedGallery
-                      ? `Upload ${photos.length} Photo${photos.length !== 1 ? 's' : ''} → (Fast)`
-                      : 'Upload & Create Gallery'}
-                </Text>
-              )}
-            </Pressable>
-
-            <Pressable style={styles.secondaryBtn} onPress={() => router.back()}>
-              <Text style={styles.secondaryBtnText}>Cancel</Text>
+          {/* Step 3 nav */}
+          <View style={styles.wizardNav}>
+            <Pressable style={styles.wizardNavBtn} onPress={() => setStep(outdoorMode ? 1 : 2)}>
+              <Text style={styles.wizardNavBtnText}>← Back</Text>
             </Pressable>
           </View>
+            </>
+          )}
 
           <View style={{ height: 40 }} />
         </ScrollView>
@@ -1549,19 +1889,46 @@ export default function ClientPhotoUploadScreen() {
             </View>
             <Text style={styles.successTitle}>Gallery Uploaded!</Text>
             <Text style={styles.successMessage}>
-              Your gallery is live and notifications are queued.
+              {deliveryMethods.length > 0
+                ? `Sent via ${deliveryMethods.map(m => m === 'in_app' ? 'In-App' : m.charAt(0).toUpperCase() + m.slice(1)).join(', ')}`
+                : 'Gallery is live. Send access code manually.'}
             </Text>
 
-            <View style={styles.successActions}>
-              <Pressable style={styles.actionBtnRow} onPress={handleSendSMS}>
-                <Send size={16} color={Colors.white} />
-                <Text style={styles.actionBtnText}>Send SMS natively</Text>
-              </Pressable>
+            {accessCode && (
+              <View style={styles.successAccessCode}>
+                <Text style={styles.successAccessLabel}>Access Code</Text>
+                <Text style={styles.successAccessValue}>{accessCode}</Text>
+                <Pressable onPress={copyAccessCode}>
+                  <Copy size={16} color={Colors.gold} />
+                </Pressable>
+              </View>
+            )}
 
-              <Pressable style={[styles.actionBtnRow, { backgroundColor: '#25D366', borderColor: '#25D366' }]} onPress={handleSendWhatsApp}>
-                <MessageCircle size={16} color={Colors.white} />
-                <Text style={styles.actionBtnText}>Send via WhatsApp</Text>
-              </Pressable>
+            {accessCode && (
+              <View style={styles.qrWrapper}>
+                <QRCode
+                  value={`${accessLink}${accessCode}`}
+                  size={120}
+                  color={Colors.white}
+                  backgroundColor="transparent"
+                />
+                <Text style={styles.qrHint}>Scan to open gallery</Text>
+              </View>
+            )}
+
+            <View style={styles.successActions}>
+              {!deliveryMethods.includes('sms') && (
+                <Pressable style={styles.actionBtnRow} onPress={handleSendSMS}>
+                  <Send size={16} color={Colors.white} />
+                  <Text style={styles.actionBtnText}>Send SMS</Text>
+                </Pressable>
+              )}
+              {!deliveryMethods.includes('whatsapp') && (
+                <Pressable style={[styles.actionBtnRow, { backgroundColor: '#25D366', borderColor: '#25D366' }]} onPress={handleSendWhatsApp}>
+                  <MessageCircle size={16} color={Colors.white} />
+                  <Text style={styles.actionBtnText}>Send WhatsApp</Text>
+                </Pressable>
+              )}
             </View>
 
             <Pressable
@@ -1573,6 +1940,69 @@ export default function ClientPhotoUploadScreen() {
             >
               <Text style={styles.doneBtnText}>Done</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Simple Date Picker Modal */}
+      <Modal visible={showDatePicker} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.datePickerModal}>
+            <View style={styles.stepCardHeader}>
+              <View style={styles.stepCardIcon}>
+                <Calendar size={16} color={Colors.gold} />
+              </View>
+              <Text style={styles.stepCardTitle}>Select Release Date</Text>
+              <Pressable onPress={() => setShowDatePicker(false)}>
+                <X size={18} color={Colors.textMuted} />
+              </Pressable>
+            </View>
+
+            <View style={styles.dateOptions}>
+              {[
+                { label: '1 Week', days: 7 },
+                { label: '2 Weeks', days: 14 },
+                { label: '1 Month', days: 30 },
+                { label: '2 Months', days: 60 },
+                { label: '3 Months', days: 90 },
+              ].map((opt) => {
+                const d = new Date();
+                d.setDate(d.getDate() + opt.days);
+                const isSelected = releaseDate.toDateString() === d.toDateString();
+                return (
+                  <Pressable
+                    key={opt.label}
+                    style={[styles.dateOptionBtn, isSelected && styles.dateOptionBtnActive]}
+                    onPress={() => {
+                      setReleaseDate(d);
+                      setShowDatePicker(false);
+                    }}
+                  >
+                    <Text style={[styles.dateOptionLabel, isSelected && styles.dateOptionLabelActive]}>
+                      {opt.label}
+                    </Text>
+                    <Text style={[styles.dateOptionDate, isSelected && styles.dateOptionDateActive]}>
+                      {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.customDateRow}>
+              <Text style={styles.chipLabel}>CUSTOM DATE</Text>
+              <TextInput
+                style={styles.customDateInput}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor={Colors.textMuted}
+                value={releaseDate.toISOString().split('T')[0]}
+                onChangeText={(text) => {
+                  const d = new Date(text);
+                  if (!isNaN(d.getTime())) setReleaseDate(d);
+                }}
+                keyboardType="numbers-and-punctuation"
+              />
+            </View>
           </View>
         </View>
       </Modal>
@@ -1595,48 +2025,66 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
   backBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: '#1A1A1A',
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  headerCenter: {
+    flex: 1,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     color: Colors.white,
+    letterSpacing: -0.3,
   },
   headerSub: {
     fontSize: 12,
-    color: Colors.textMuted,
+    color: 'rgba(255,255,255,0.35)',
+    marginTop: 2,
   },
   statusBadge: {
-    marginLeft: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(46, 204, 113, 0.1)',
+    backgroundColor: 'rgba(46, 204, 113, 0.08)',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(46, 204, 113, 0.2)',
+    borderColor: 'rgba(46, 204, 113, 0.15)',
   },
   statusBadgeOffline: {
-    backgroundColor: 'rgba(231, 76, 60, 0.1)',
-    borderColor: 'rgba(231, 76, 60, 0.2)',
+    backgroundColor: 'rgba(231, 76, 60, 0.08)',
+    borderColor: 'rgba(231, 76, 60, 0.15)',
+  },
+  statusDotOnline: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: Colors.success,
+  },
+  statusDotOffline: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: Colors.error,
   },
   statusText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: Colors.success,
   },
@@ -1650,12 +2098,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#1A1A1A',
+    backgroundColor: 'rgba(255,255,255,0.03)',
     padding: 16,
     borderRadius: 16,
-    marginBottom: 24,
+    marginBottom: 20,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   modeInfo: {
     flexDirection: 'row',
@@ -1672,8 +2120,8 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
   section: {
-    marginBottom: 28,
-    backgroundColor: '#161616',
+    marginBottom: 20,
+    backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
@@ -1683,9 +2131,33 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: Colors.textMuted,
-    marginBottom: 16,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  sectionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  photoCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  photoCountText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  photoSizeText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.3)',
+    fontWeight: '500',
   },
   toolsGrid: {
     gap: 12,
@@ -1727,13 +2199,13 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0A0A0A',
-    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.06)',
     paddingHorizontal: 16,
-    height: 56,
-    marginBottom: 12,
+    height: 52,
+    marginBottom: 10,
   },
   inputIcon: {
     marginRight: 12,
@@ -1945,66 +2417,127 @@ const styles = StyleSheet.create({
   },
   uploadArea: {
     height: 140,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: 'rgba(212,175,55,0.03)',
     borderRadius: 16,
-    borderWidth: 2,
-    borderColor: Colors.border,
+    borderWidth: 1.5,
+    borderColor: 'rgba(212,175,55,0.15)',
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
   },
+  uploadAreaLoading: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  uploadAreaContent: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  uploadIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.15)',
+  },
   uploadText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: Colors.gold,
-    marginTop: 12,
-    marginBottom: 4,
   },
   uploadSub: {
     fontSize: 12,
-    color: Colors.textMuted,
-    marginTop: 4,
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 2,
   },
   photoList: {
-    height: 80,
+    flex: 1,
   },
   photoStats: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 12,
-    paddingHorizontal: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.05)',
+  },
+  photoStatsLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   photoStatsText: {
     fontSize: 12,
-    color: Colors.textMuted,
+    color: 'rgba(255,255,255,0.4)',
+    fontWeight: '500',
+  },
+  statsDivider: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.15)',
   },
   clearPhotosBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    padding: 6,
-    borderRadius: 6,
-    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(231, 76, 60, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(231, 76, 60, 0.15)',
   },
   clearPhotosText: {
     fontSize: 12,
     color: Colors.error,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   photoItem: {
-    width: 80,
-    height: 80,
+    flex: 1,
+    aspectRatio: 1,
     borderRadius: 12,
-    marginRight: 8,
+    margin: 4,
     overflow: 'hidden',
     position: 'relative',
+    backgroundColor: Colors.card,
   },
   photoThumb: {
     width: '100%',
     height: '100%',
     backgroundColor: Colors.card,
+  },
+  photoIndex: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoIndexText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+  photoUploading: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(212,175,55,0.8)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   deliverySection: {
     marginBottom: 20,
@@ -2053,19 +2586,6 @@ const styles = StyleSheet.create({
   customMessageSection: {
     marginBottom: 20,
   },
-  ussdInfo: {
-    marginTop: 8,
-    padding: 10,
-    backgroundColor: 'rgba(212,175,55,0.08)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.2)',
-  },
-  ussdInfoText: {
-    fontSize: 12,
-    color: Colors.gold,
-    lineHeight: 16,
-  },
   removePhotoBtn: {
     position: 'absolute',
     top: 4,
@@ -2073,9 +2593,11 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   settingRow: {
     flexDirection: 'row',
@@ -2174,70 +2696,141 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     height: 56,
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
   },
   primaryBtnDisabled: {
-    opacity: 0.5,
+    opacity: 0.4,
+    shadowOpacity: 0,
   },
   primaryBtnText: {
     fontSize: 16,
     fontWeight: '700',
     color: Colors.background,
+    letterSpacing: 0.3,
+  },
+  btnLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   secondaryBtn: {
     height: 56,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255,255,255,0.03)',
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   secondaryBtnText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: Colors.textMuted,
+    color: 'rgba(255,255,255,0.4)',
   },
   uploadProgressContainer: {
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
     padding: 20,
-    borderRadius: 12,
-    marginBottom: 24,
+    borderRadius: 16,
+    marginBottom: 20,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   uploadStatus: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: Colors.white,
+    color: 'rgba(255,255,255,0.6)',
     marginBottom: 8,
     textAlign: 'center',
   },
   currentFile: {
     fontSize: 12,
-    color: Colors.textMuted,
+    color: 'rgba(255,255,255,0.3)',
     marginBottom: 12,
     textAlign: 'center',
   },
   progressBar: {
     width: '100%',
-    height: 4,
-    backgroundColor: Colors.border,
-    borderRadius: 2,
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 3,
     overflow: 'hidden',
     marginBottom: 8,
   },
   progressFill: {
     height: '100%',
     backgroundColor: Colors.gold,
-    borderRadius: 2,
+    borderRadius: 3,
   },
   progressText: {
     fontSize: 12,
-    color: Colors.textMuted,
+    color: 'rgba(255,255,255,0.4)',
     textAlign: 'center',
+  },
+  uploadSpeedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  uploadSpeedText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+    fontWeight: '500',
+  },
+  uploadSpeedDot: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.2)',
+  },
+  uploadFileList: {
+    width: '100%',
+    marginTop: 12,
+    gap: 6,
+  },
+  uploadFileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderRadius: 8,
+  },
+  uploadFileDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadFileDotDone: {
+    backgroundColor: Colors.success,
+  },
+  uploadFileDotCurrent: {
+    backgroundColor: Colors.gold,
+  },
+  uploadFileName: {
+    flex: 1,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+  },
+  uploadFileNameDone: {
+    color: Colors.success,
+  },
+  uploadFileSize: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.2)',
   },
   setupGalleryBtn: {
     height: 50,
@@ -2323,8 +2916,43 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.textMuted,
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: 20,
     lineHeight: 22,
+  },
+  successAccessCode: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 24,
+    width: '100%',
+  },
+  successAccessLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  successAccessValue: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.gold,
+    letterSpacing: 2,
+  },
+  qrWrapper: {
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 8,
+  },
+  qrHint: {
+    fontSize: 11,
+    color: Colors.textMuted,
   },
   successActions: {
     width: '100%',
@@ -2356,5 +2984,685 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textMuted,
     textAlign: 'center',
+  },
+  progressSteps: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    gap: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+  },
+  progressStepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  progressDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  progressDotActive: {
+    backgroundColor: Colors.gold,
+    borderColor: Colors.gold,
+  },
+  progressDotCurrent: {
+    borderColor: Colors.gold,
+    backgroundColor: 'rgba(212,175,55,0.15)',
+  },
+  progressDotText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.3)',
+  },
+  progressDotTextActive: {
+    color: Colors.background,
+  },
+  progressLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.25)',
+    minWidth: 48,
+  },
+  progressLabelActive: {
+    color: Colors.gold,
+  },
+  progressLine: {
+    width: 32,
+    height: 2,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: 4,
+  },
+  progressLineActive: {
+    backgroundColor: Colors.gold,
+  },
+  wizardNav: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  wizardNavBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+  },
+  wizardNavBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  wizardNavBtnPrimary: {
+    flex: 2,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: Colors.gold,
+    alignItems: 'center',
+  },
+  wizardNavBtnPrimaryText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.background,
+  },
+  // ── Modern Step 1 Styles ──
+  offlineCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  offlineCardActive: {
+    backgroundColor: 'rgba(212,175,55,0.06)',
+    borderColor: 'rgba(212,175,55,0.2)',
+  },
+  offlineIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(46,204,113,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineIconWrapActive: {
+    backgroundColor: 'rgba(212,175,55,0.12)',
+  },
+  offlineCardContent: {
+    flex: 1,
+  },
+  offlineCardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.white,
+    marginBottom: 2,
+  },
+  offlineCardSub: {
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  stepCard: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  stepCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+  },
+  stepCardIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepCardTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  stepCardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.success,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  stepCardBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.background,
+  },
+  modernInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 48,
+    marginBottom: 10,
+  },
+  modernInput: {
+    flex: 1,
+    fontSize: 15,
+    color: Colors.white,
+    paddingVertical: 0,
+  },
+  modernClientList: {
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  modernClientItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  modernClientItemActive: {
+    backgroundColor: 'rgba(212,175,55,0.06)',
+  },
+  modernClientAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(212,175,55,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modernClientAvatarText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  modernClientInfo: {
+    flex: 1,
+  },
+  modernClientName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  modernClientPhone: {
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  modernClientAction: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.gold,
+  },
+  selectedClientCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(46,204,113,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(46,204,113,0.2)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  selectedClientAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(46,204,113,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedClientAvatarText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.success,
+  },
+  selectedClientInfo: {
+    flex: 1,
+  },
+  selectedClientName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  selectedClientMeta: {
+    fontSize: 12,
+    color: Colors.textMuted,
+  },
+  newClientPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(212,175,55,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.15)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  newClientPromptLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  newClientPromptText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.gold,
+  },
+  // ── Modern Step 2 & 3 Styles ──
+  chipLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    letterSpacing: 0.8,
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  modernChipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  modernChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  modernChipActive: {
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    borderColor: 'rgba(212,175,55,0.3)',
+  },
+  modernChipIcon: {
+    fontSize: 14,
+  },
+  modernChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  modernChipTextActive: {
+    color: Colors.gold,
+  },
+  accessCodeModern: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(212,175,55,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.15)',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 12,
+  },
+  accessCodeLeft: { flex: 1 },
+  accessCodeModernLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  accessCodeModernValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: Colors.gold,
+    letterSpacing: 2,
+  },
+  accessCodeActions: { flexDirection: 'row', gap: 8 },
+  accessCodeBtn: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  modernPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: Colors.gold,
+    marginTop: 14,
+  },
+  modernPrimaryBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.background,
+  },
+  galleryReadyModern: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(46,204,113,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(46,204,113,0.2)',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 14,
+  },
+  galleryReadyModernText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.success,
+  },
+  settingBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  settingBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  modernUploadArea: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 28,
+    borderWidth: 1.5,
+    borderColor: 'rgba(212,175,55,0.2)',
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    backgroundColor: 'rgba(212,175,55,0.03)',
+    marginBottom: 12,
+  },
+  modernUploadText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.white,
+    marginTop: 8,
+  },
+  modernUploadSub: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 4,
+  },
+  photoGridContainer: {
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+    overflow: 'hidden',
+  },
+  photoGridFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.04)',
+  },
+  photoGridFooterText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  photoGridClear: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.error,
+  },
+  compressedBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: Colors.gold,
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  compressedBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: Colors.background,
+  },
+  priceInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  priceInputWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  priceInput: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.white,
+    padding: 0,
+  },
+  priceCurrency: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  customMessageWrap: {
+    marginTop: 12,
+  },
+  customMessageInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: Colors.white,
+    minHeight: 70,
+    marginTop: 8,
+  },
+  releaseDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 4,
+    marginLeft: 28,
+  },
+  releaseDateLabel: {
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  releaseDateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  releaseDateText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.gold,
+  },
+  datePickerModal: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    margin: 20,
+    padding: 20,
+    maxHeight: '70%',
+  },
+  dateOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 16,
+  },
+  dateOptionBtn: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  dateOptionBtnActive: {
+    backgroundColor: 'rgba(212,175,55,0.15)',
+    borderColor: Colors.gold,
+  },
+  dateOptionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textMuted,
+  },
+  dateOptionLabelActive: {
+    color: Colors.gold,
+  },
+  dateOptionDate: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  dateOptionDateActive: {
+    color: Colors.gold,
+  },
+  customDateRow: {
+    marginTop: 16,
+  },
+  customDateInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: Colors.white,
+    marginTop: 8,
+  },
+  uploadStatusText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 10,
+  },
+  progressBarBg: {
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: Colors.gold,
+    borderRadius: 3,
+  },
+  progressInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  progressInfoText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  progressCurrentFile: {
+    fontSize: 11,
+    color: Colors.gold,
+    marginTop: 6,
+  },
+  comingSoonBadge: {
+    backgroundColor: 'rgba(212,175,55,0.15)',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    marginLeft: 6,
+  },
+  comingSoonText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: Colors.gold,
+    letterSpacing: 0.5,
+  },
+  modernChipDisabled: {
+    opacity: 0.5,
+  },
+  modernChipTextDisabled: {
+    color: Colors.textMuted,
+  },
+  comingSoonBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(212,175,55,0.06)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.15)',
+    borderStyle: 'dashed',
+    padding: 12,
+    gap: 10,
+    marginBottom: 12,
+  },
+  comingSoonBannerIcon: {
+    fontSize: 22,
+  },
+  comingSoonBannerContent: {
+    flex: 1,
+  },
+  comingSoonBannerTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  comingSoonBannerDesc: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
   },
 });

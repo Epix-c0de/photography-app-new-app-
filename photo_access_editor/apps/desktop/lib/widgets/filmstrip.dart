@@ -11,6 +11,7 @@ class Filmstrip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final photos = ref.watch(filteredPhotosProvider);
     final selectedPhoto = ref.watch(selectedPhotoProvider);
+    final controller = ScrollController();
 
     return Container(
       height: AppTheme.filmstripHeight,
@@ -19,13 +20,9 @@ class Filmstrip extends ConsumerWidget {
         border: Border(top: BorderSide(color: AppTheme.border)),
       ),
       child: photos.isEmpty
-          ? const Center(
-              child: Text(
-                'No photos',
-                style: TextStyle(color: AppTheme.textTertiary, fontSize: 12),
-              ),
-            )
+          ? const Center(child: Text('No photos', style: TextStyle(color: AppTheme.textTertiary, fontSize: 12)))
           : ListView.builder(
+              controller: controller,
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               itemCount: photos.length,
@@ -34,9 +31,7 @@ class Filmstrip extends ConsumerWidget {
                 final isSelected = selectedPhoto?.photoId == photo.photoId;
 
                 return GestureDetector(
-                  onTap: () {
-                    ref.read(selectedPhotoProvider.notifier).state = photo;
-                  },
+                  onTap: () => ref.read(selectedPhotoProvider.notifier).state = photo,
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     width: 80,
@@ -53,14 +48,11 @@ class Filmstrip extends ConsumerWidget {
                       child: Image.file(
                         File(photo.filePath),
                         fit: BoxFit.cover,
+                        gaplessPlayback: true,
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
                             color: AppTheme.surfaceLight,
-                            child: const Icon(
-                              Icons.image_outlined,
-                              size: 20,
-                              color: AppTheme.textTertiary,
-                            ),
+                            child: const Icon(Icons.image_outlined, size: 20, color: AppTheme.textTertiary),
                           );
                         },
                       ),

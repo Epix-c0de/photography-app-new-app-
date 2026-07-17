@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator, FlatList, Modal, Dimensions } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -49,6 +49,8 @@ export default function ClientGalleryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedImage, setSelectedImage] = useState<GalleryPhoto | null>(null);
   const PAGE_SIZE = 50;
+
+  const loadClientPhotosRef = useRef<((reset?: boolean) => Promise<void>) | null>(null);
 
   const loadClientPhotos = useCallback(async (reset = false) => {
     try {
@@ -133,32 +135,8 @@ export default function ClientGalleryScreen() {
 
       const urlMap = new Map(signedUrls?.map(s => [s.path, s.signedUrl]) || []);
 
-      // Fetch thumbnails in parallel
-      const thumbnailPromises = galleryPhotos.map(async (photo: any) => {
-        const photoNameParts = photo.photo_url.split('.');
-        const photoNameNoExt = photoNameParts.slice(0, -1).join('.');
-        const thumbnailPath = `${photoNameNoExt}_thumb.png`;
-        
-        try {
-          const { data: thumbData, error: thumbError } = await supabase.storage
-            .from('thumbnails')
-            .createSignedUrl(thumbnailPath, 3600);
-
-          if (!thumbError && thumbData?.signedUrl) {
-            console.log(`[Admin Gallery] ✓ Loaded thumbnail for ${photo.file_name}`);
-            return thumbData.signedUrl;
-          }
-        } catch (err) {
-          console.warn(`[Admin Gallery] Thumbnail not found for ${photo.file_name}`);
-        }
-        
-        // Fallback to full image
-        return urlMap.get(photo.photo_url) || '';
-      });
-
-      const thumbnailUrls = await Promise.all(thumbnailPromises);
-
-      const mappedPhotos = galleryPhotos.map((photo: any, index: number) => {
+      // Use full signed images (skip thumbnail bucket which may not exist)
+      const mappedPhotos = galleryPhotos.map((photo: any) => {
         const gallery = galleryMap.get(photo.gallery_id);
         const url = urlMap.get(photo.photo_url) || '';
         
@@ -167,7 +145,7 @@ export default function ClientGalleryScreen() {
           gallery_id: photo.gallery_id,
           storage_path: photo.photo_url,
           url: url,
-          thumbnailUrl: thumbnailUrls[index] || url,
+          thumbnailUrl: url,
           filename: photo.file_name || photo.photo_url.split('/').pop() || 'photo.jpg',
           size: photo.file_size || 0,
           uploaded_at: photo.created_at,
@@ -196,6 +174,9 @@ export default function ClientGalleryScreen() {
       setRefreshing(false);
     }
   }, [clientId, clientName, page, hasMore, loadingMore]);
+
+  // Keep ref current so subscription callback always calls latest version
+  loadClientPhotosRef.current = loadClientPhotos;
 
   const togglePhotoSelection = useCallback((photoId: string) => {
     setSelectedPhotos(prev => 
@@ -326,6 +307,7 @@ export default function ClientGalleryScreen() {
   useEffect(() => {
     let unsub: (() => void) | undefined;
     let mounted = true;
+    let connectTimer: ReturnType<typeof setTimeout> | undefined;
 
     (async () => {
       const ok = await verifyAdminGuard('upload_galleries');
@@ -335,20 +317,31 @@ export default function ClientGalleryScreen() {
       }
       
       if (mounted) {
-        loadClientPhotos(true);
+        // Use ref to avoid re-triggering this effect when loadClientPhotos changes
+        loadClientPhotosRef.current?.(true);
         
-        unsub = AdminService.gallery.subscribeToPhotos(() => {
-          // simple refresh on update
-          loadClientPhotos(true);
-        });
+        // Delay subscription to avoid WebSocket connecting during unmount
+        connectTimer = setTimeout(() => {
+          if (!mounted) return;
+          const channelName = `gallery-photos-${clientId || 'all'}-${Date.now()}`;
+          const channel = supabase
+            .channel(channelName)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'gallery_photos' }, () => {
+              // Use ref so we always call the latest version without re-subscribing
+              if (mounted) loadClientPhotosRef.current?.(true);
+            })
+            .subscribe();
+          unsub = () => supabase.removeChannel(channel);
+        }, 500);
       }
     })();
 
     return () => {
       mounted = false;
+      if (connectTimer) clearTimeout(connectTimer);
       if (unsub) unsub();
     };
-  }, [router, verifyAdminGuard, loadClientPhotos]);
+  }, [router, verifyAdminGuard, clientId]);
 
   const renderHeader = () => (
     <View>

@@ -43,7 +43,11 @@ async function generateUniqueAccessCode(maxAttempts = 10): Promise<string> {
   throw new Error('Failed to generate unique access code after multiple attempts');
 }
 
+let cachedAdminUser: any = null;
+
 async function ensureAdminProfile() {
+  if (cachedAdminUser) return cachedAdminUser;
+
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
@@ -59,23 +63,18 @@ async function ensureAdminProfile() {
     .maybeSingle();
 
   if (existingProfile) {
-    // Profile exists. Force role to 'admin' — this function is ONLY called in admin contexts.
-    // If the stored role is 'client', it means the DB was never properly updated.
-    // We self-heal here so manual SQL fixes are not required.
     if ((existingProfile.role as string) !== 'admin' && (existingProfile.role as string) !== 'super_admin') {
       await supabase
         .from('user_profiles')
         .update({ role: 'admin', name, email: user.email || null })
         .eq('id', user.id);
     } else {
-      // Role is already admin; just update non-critical fields
       await supabase
         .from('user_profiles')
         .update({ name, email: user.email || null })
         .eq('id', user.id);
     }
   } else {
-    // No profile exists yet. The JWT role from app_metadata is most trustworthy.
     const jwtRole = appMetadata?.role || metadata?.role;
     const role = (jwtRole === 'super_admin' || jwtRole === 'admin') ? jwtRole : 'admin';
 
@@ -95,6 +94,7 @@ async function ensureAdminProfile() {
     }
   }
 
+  cachedAdminUser = user;
   return user;
 }
 
@@ -120,6 +120,10 @@ const adminDataCache: Record<string, any> = {
  * Implements the "Admin" portion of the Master API Contract.
  */
 export const AdminService = {
+
+  getDashboardStats: async (userId: string) => {
+    return AdminService.dashboard.getAnalytics();
+  },
 
   cache: {
     get: (key: 'threads' | 'clients' | 'galleries' | 'messages' | 'dashboard') => adminDataCache[key],
@@ -623,39 +627,45 @@ export const AdminService = {
       accessCode?: string;
       isLocked?: boolean;
     }) => {
-      const user = await ensureAdminProfile();
-      const accessCode = data.accessCode || await generateUniqueAccessCode();
+      // Run admin profile + access code generation in parallel
+      const [user, accessCode] = await Promise.all([
+        ensureAdminProfile(),
+        data.accessCode ? Promise.resolve(data.accessCode) : generateUniqueAccessCode(),
+      ]);
 
-      // Resolve clientId - might be a user_profile ID or a clients table ID.
+      // Resolve clientId — run all 3 lookups in parallel
       let finalClientId = data.clientId;
       const strippedId = data.clientId.replace('temp-', '');
-      
-      const { data: clientCheck } = await supabase.from('clients').select('id').eq('id', strippedId).maybeSingle();
-      
-      if (!clientCheck) {
-        const { data: linkedClient } = await supabase.from('clients').select('id').eq('user_id', strippedId).maybeSingle();
-        if (linkedClient) {
-          finalClientId = linkedClient.id;
+
+      const [clientById, clientByUserId] = await Promise.all([
+        supabase.from('clients').select('id').eq('id', strippedId).maybeSingle(),
+        supabase.from('clients').select('id').eq('user_id', strippedId).maybeSingle(),
+      ]);
+
+      if (clientById.data) {
+        finalClientId = clientById.data.id;
+      } else if (clientByUserId.data) {
+        finalClientId = clientByUserId.data.id;
+      } else {
+        // No client record found — create one from user_profiles
+        const { data: userProfile } = await supabase.from('user_profiles').select('*').eq('id', strippedId).maybeSingle();
+        if (userProfile) {
+          const { data: newClient, error: clientError } = await supabase.from('clients').insert({
+            owner_admin_id: user.id,
+            user_id: userProfile.id,
+            name: userProfile.name || 'App User',
+            phone: userProfile.phone || '',
+            email: userProfile.email || '',
+            total_paid: 0,
+          }).select('id').single();
+          if (clientError) throw clientError;
+          finalClientId = newClient!.id;
         } else {
-          // It's a user_profile ID without a client record, create one!
-          const { data: userProfile } = await supabase.from('user_profiles').select('*').eq('id', strippedId).maybeSingle();
-          if (userProfile) {
-            const { data: newClient, error: clientError } = await supabase.from('clients').insert({
-              owner_admin_id: user.id,
-              user_id: userProfile.id,
-              name: userProfile.name || 'App User',
-              phone: userProfile.phone || '',
-              email: userProfile.email || '',
-              total_paid: 0,
-            }).select('id').single();
-            if (clientError) throw clientError;
-            finalClientId = newClient!.id;
-          } else {
-             throw new Error('Provided client ID does not exist in clients or user_profiles.');
-          }
+          throw new Error('Provided client ID does not exist in clients or user_profiles.');
         }
       }
 
+      const isFree = !(data.isPaid ?? false) && !(data.price ?? 0);
       const { data: gallery, error } = await supabase
         .from('galleries')
         .insert({
@@ -664,10 +674,10 @@ export const AdminService = {
           created_by_admin_id: user.id,
           name: data.name,
           access_code: accessCode,
-          price: data.price ?? 0,
+          price: data.isPaid ? (data.price ?? 0) : 0,
           shoot_type: data.shootType ?? 'portrait',
           is_paid: data.isPaid ?? false,
-          is_locked: data.isLocked !== undefined ? data.isLocked : !(data.isPaid ?? false),
+          is_locked: isFree ? false : (data.isLocked !== undefined ? data.isLocked : !(data.isPaid ?? false)),
           is_active: true,
         })
         .select()
@@ -677,7 +687,7 @@ export const AdminService = {
       return {
         id: gallery.id,
         access_code: gallery.access_code,
-        session_id: gallery.id, // use gallery id as session for direct uploads
+        session_id: gallery.id,
       };
     },
 
@@ -685,12 +695,22 @@ export const AdminService = {
      * Direct photo upload — bypasses Edge Functions entirely.
      * Uploads to Supabase Storage and inserts into gallery_photos.
      */
-    uploadPhotoDirect: async (galleryId: string, file: any, isWatermarked = false, uploadOrder = 0) => {
+    uploadPhotoDirect: async (galleryId: string, file: any, isWatermarked = false, uploadOrder = 0, clientId?: string) => {
       if (USE_MOCK) return 'mock-path';
-      await ensureAdminProfile();
+      const photoLabel = file?.fileName || file?.name || 'unknown';
+      console.log(`[Upload] ▶ Starting photo ${uploadOrder}: ${photoLabel}`);
+
+      try {
+        await ensureAdminProfile();
+        console.log(`[Upload] ✓ Admin profile verified for photo ${uploadOrder}`);
+      } catch (e: any) {
+        const msg = `Admin profile check failed for "${photoLabel}": ${e?.message || e}`;
+        console.error(`[Upload] ✗ ${msg}`);
+        throw new Error(msg);
+      }
 
       if (!file?.uri) {
-        throw new Error('Selected photo is missing a file URI.');
+        throw new Error(`Photo "${photoLabel}" is missing a file URI.`);
       }
 
       const ext = (file.uri.split('.').pop()?.split('?')[0] || 'jpg').toLowerCase();
@@ -700,34 +720,86 @@ export const AdminService = {
       const fileNameWithVariant = isWatermarked ? `${baseName}_watermarked.${ext}` : safeFileName;
       const contentType = file.mimeType || file.type || `image/${ext}`;
       
-      // Path format: clients/CLIENT_ID/GALLERY_ID/images/FILENAME
-      const { data: gallery } = await supabase
-        .from('galleries')
-        .select('client_id')
-        .eq('id', galleryId)
-        .single();
-      
-      const clientId = gallery?.client_id || 'unknown';
-      const storagePath = `clients/${clientId}/${galleryId}/images/${Date.now()}-${fileNameWithVariant}`;
+      // Use provided clientId or fall back to DB lookup
+      let resolvedClientId = clientId;
+      if (!resolvedClientId) {
+        console.log(`[Upload] No clientId provided, looking up gallery ${galleryId}`);
+        const { data: gallery, error: galleryErr } = await supabase
+          .from('galleries')
+          .select('client_id')
+          .eq('id', galleryId)
+          .single();
+        if (galleryErr) {
+          console.error(`[Upload] ✗ Gallery lookup failed:`, galleryErr);
+          throw new Error(`Gallery lookup failed for "${photoLabel}": ${galleryErr.message}`);
+        }
+        resolvedClientId = gallery?.client_id || 'unknown';
+        console.log(`[Upload] Resolved clientId: ${resolvedClientId}`);
+      }
+      const storagePath = `clients/${resolvedClientId}/${galleryId}/images/${Date.now()}-${fileNameWithVariant}`;
+      console.log(`[Upload] Storage path: ${storagePath}`);
 
-      // Upload to Supabase Storage with Blob using supabase-js (reliable in Expo RN)
-      const blob = await fetch(file.uri).then(res => res.blob());
+      // Convert file to blob with correct content type
+      let blob: Blob;
+      try {
+        console.log(`[Upload] Converting file to blob (type: ${contentType})...`);
+        const arrayBuffer = await fetch(file.uri).then(res => res.arrayBuffer());
+        blob = new Blob([arrayBuffer], { type: contentType });
+        console.log(`[Upload] ✓ Blob size: ${(blob.size / 1024).toFixed(1)}KB, type: ${blob.type}`);
+      } catch (e: any) {
+        const msg = `Blob conversion failed for "${photoLabel}" (URI: ${file.uri?.substring(0, 60)}...): ${e?.message || e}`;
+        console.error(`[Upload] ✗ ${msg}`);
+        throw new Error(msg);
+      }
+
+      // Warn if blob is suspiciously large
+      if (blob.size > 10 * 1024 * 1024) {
+        console.warn(`[Upload] ⚠ Blob is ${(blob.size / (1024 * 1024)).toFixed(1)}MB — upload will be slow`);
+      }
+
+      // Upload to Supabase Storage with retry + timeout
+      // Scale timeout based on file size: 60s for <5MB, 120s for <15MB, 300s for larger
+      const sizeMB = blob.size / (1024 * 1024);
+      const UPLOAD_TIMEOUT_MS = sizeMB > 15 ? 300_000 : sizeMB > 5 ? 120_000 : 60_000;
       let uploadError: any = null;
       for (let attempt = 0; attempt < 3; attempt++) {
-        const result = await supabase
+        console.log(`[Upload] Storage upload attempt ${attempt + 1}/3 for "${photoLabel}" (${(blob.size / 1024).toFixed(0)}KB, type: ${blob.type})...`);
+        
+        const uploadPromise = supabase
           .storage
           .from('client-photos')
           .upload(storagePath, blob, { contentType, upsert: true });
-        if (!result.error) { uploadError = null; break; }
-        uploadError = result.error;
-        if (attempt < 2) await new Promise(r => setTimeout(r, (2 ** attempt) * 1000));
-      }
-      if (uploadError) throw uploadError;
+        
+        const timeoutPromise = new Promise<any>((_, reject) =>
+          setTimeout(() => reject(new Error(`Upload timed out after ${UPLOAD_TIMEOUT_MS / 1000}s`)), UPLOAD_TIMEOUT_MS)
+        );
 
+        try {
+          const result = await Promise.race([uploadPromise, timeoutPromise]);
+          if (result?.error) throw result.error;
+          uploadError = null;
+          console.log(`[Upload] ✓ Storage upload succeeded on attempt ${attempt + 1}`);
+          break;
+        } catch (e: any) {
+          uploadError = e;
+          console.error(`[Upload] ✗ Storage upload attempt ${attempt + 1} failed:`, e?.message || JSON.stringify(e));
+          if (attempt < 2) {
+            const delay = (2 ** attempt) * 1000;
+            console.log(`[Upload] Retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+          }
+        }
+      }
+      if (uploadError) {
+        const msg = `Storage upload failed for "${photoLabel}" after 3 attempts: ${uploadError?.message || JSON.stringify(uploadError)}`;
+        console.error(`[Upload] ✗ ${msg}`);
+        throw new Error(msg);
+      }
 
       const fileSize = file.fileSize || file.size || (blob as any)?.size || 0;
 
       // Insert database record
+      console.log(`[Upload] Inserting DB record for "${photoLabel}"...`);
       const { error: insertError } = await supabase
         .from('gallery_photos')
         .insert({
@@ -743,17 +815,34 @@ export const AdminService = {
         });
 
       if (insertError) {
-        // Clean up storage if DB insert fails
+        console.error(`[Upload] ✗ DB insert failed for "${photoLabel}":`, JSON.stringify(insertError));
         await supabase.storage.from('client-photos').remove([storagePath]);
-        throw insertError;
+        throw new Error(`DB insert failed for "${photoLabel}": ${insertError.message} (code: ${insertError.code})`);
+      }
+      console.log(`[Upload] ✓ DB record inserted for "${photoLabel}"`);
+
+      // Fire-and-forget: generate thumbnail + watermarked version via Edge Function
+      supabase.functions.invoke('image_pipeline', {
+        body: {
+          sourceBucket: 'client-photos',
+          sourcePath: storagePath,
+          galleryId,
+        },
+      }).then(({ error }) => {
+        if (error) console.warn('[Upload] Image pipeline failed for', storagePath, error.message);
+      }).catch((e) => console.warn('[Upload] Image pipeline invoke error:', e));
+
+      // Only update cover_photo_url for the first photo
+      if (uploadOrder <= 1) {
+        const { error: coverErr } = await supabase
+          .from('galleries')
+          .update({ cover_photo_url: storagePath })
+          .eq('id', galleryId)
+          .is('cover_photo_url', null);
+        if (coverErr) console.warn('[Upload] Cover photo update failed:', coverErr.message);
       }
 
-      await supabase
-        .from('galleries')
-        .update({ cover_photo_url: storagePath })
-        .eq('id', galleryId)
-        .is('cover_photo_url', null);
-
+      console.log(`[Upload] ✓ Photo ${uploadOrder} complete: ${photoLabel} (${(fileSize / 1024).toFixed(1)}KB)`);
       return storagePath;
     },
 
@@ -1246,22 +1335,30 @@ export const AdminService = {
       if (!user) throw new Error('Not authenticated');
 
       const [
-        { count: clientCount },
-        { count: galleryCount },
-        { count: paidGalleryCount },
-        { data: payments },
-        { data: smsBalance },
-        { data: btsStats },
-        { data: clientGalleries }
-      ] = await Promise.all([
+        clientResult,
+        galleryResult,
+        paidGalleryResult,
+        paymentsResult,
+        smsBalanceResult,
+        btsStatsResult,
+        clientGalleriesResult
+      ] = await Promise.allSettled([
         supabase.from('clients').select('*', { count: 'exact', head: true }).eq('owner_admin_id', user.id),
         supabase.from('galleries').select('*', { count: 'exact', head: true }).eq('owner_admin_id', user.id),
         supabase.from('galleries').select('*', { count: 'exact', head: true }).eq('owner_admin_id', user.id).eq('is_paid', true),
         supabase.from('payments').select('amount, created_at').eq('owner_admin_id', user.id).eq('status', 'paid'),
         (supabase as any).from('admin_resources').select('sms_balance').eq('admin_id', user.id).single(),
-        supabase.from('bts_posts').select('views_count, clicks_count, likes_count, comments_count').eq('admin_id', user.id).eq('is_active', true),
+        supabase.from('bts_posts').select('views_count, clicks_count, likes_count, comments_count').eq('created_by', user.id).eq('is_active', true),
         supabase.from('galleries').select('client_id').eq('owner_admin_id', user.id)
       ]);
+
+      const clientCount = clientResult.status === 'fulfilled' ? clientResult.value.count : 0;
+      const galleryCount = galleryResult.status === 'fulfilled' ? galleryResult.value.count : 0;
+      const paidGalleryCount = paidGalleryResult.status === 'fulfilled' ? paidGalleryResult.value.count : 0;
+      const payments = paymentsResult.status === 'fulfilled' ? paymentsResult.value.data : [];
+      const smsBalance = smsBalanceResult.status === 'fulfilled' ? smsBalanceResult.value : null;
+      const btsStats = btsStatsResult.status === 'fulfilled' ? btsStatsResult.value.data : [];
+      const clientGalleries = clientGalleriesResult.status === 'fulfilled' ? clientGalleriesResult.value.data : [];
 
       const totalRevenue = payments?.reduce((sum, p) => sum + p.amount, 0) || 0;
       const totalViews = btsStats?.reduce((sum, p) => sum + (p.views_count || 0), 0) || 0;
@@ -1337,31 +1434,47 @@ export const AdminService = {
    */
   notifications: {
     create: async (targetId: string, payload: { type: string; title: string; body: string; data?: any; clientId?: string; galleryId?: string }) => {
-      let resolvedUserId = targetId;
+      let resolvedUserId: string | null = null;
 
       const { data: clientCheck } = await supabase.from('clients').select('user_id').eq('id', targetId).maybeSingle();
       if (clientCheck && clientCheck.user_id) {
          resolvedUserId = clientCheck.user_id;
       }
 
-      const { data: userCheck } = await supabase.from('user_profiles').select('id').eq('id', resolvedUserId).maybeSingle();
-      if (!userCheck) {
-         console.warn('Cannot create notification: User profile not found for targetId/clientId:', targetId);
-         return false; // Skip inserting to avoid FK error
+      if (resolvedUserId) {
+        const { data: userCheck } = await supabase.from('user_profiles').select('id').eq('id', resolvedUserId).maybeSingle();
+        if (!userCheck) {
+          resolvedUserId = null;
+        }
+      }
+
+      const insertPayload: any = {
+        client_id: payload.clientId || targetId,
+        gallery_id: payload.galleryId || null,
+        type: payload.type,
+        title: payload.title,
+        body: payload.body,
+        data: payload.data ?? null
+      };
+
+      if (resolvedUserId) {
+        insertPayload.user_id = resolvedUserId;
       }
 
       const { error } = await supabase
         .from('notifications')
-        .insert({
-          user_id: resolvedUserId,
-          client_id: payload.clientId || null,
-          gallery_id: payload.galleryId || null,
-          type: payload.type,
-          title: payload.title,
-          body: payload.body,
-          data: payload.data ?? null
-        });
-      if (error) throw error;
+        .insert(insertPayload);
+      if (error) {
+        console.warn('[Notification] Insert failed, retrying without user_id:', error.message);
+        delete insertPayload.user_id;
+        const { error: retryError } = await supabase
+          .from('notifications')
+          .insert(insertPayload);
+        if (retryError) {
+          console.error('[Notification] Final insert failed:', retryError.message);
+          throw retryError;
+        }
+      }
       return true;
     },
 
@@ -1407,29 +1520,73 @@ export const AdminService = {
           created_at,
           content,
           sender_role,
-          is_read,
-          user_profiles:client_id ( id, name, phone, avatar_url )
+          is_read
         `)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
 
+      // Collect all unique client_ids that don't look like user_profiles IDs
+      // by checking the clients table to resolve to user_id (which is user_profiles.id)
+      const rawClientIds = [...new Set((data || []).map((m: any) => m.client_id).filter(Boolean))];
+      const resolveMap = new Map<string, string>(); // raw → resolved user_profiles.id
+
+      if (rawClientIds.length > 0) {
+        // Check which client_ids exist in user_profiles
+        const { data: profileChecks } = await supabase
+          .from('user_profiles')
+          .select('id')
+          .in('id', rawClientIds);
+
+        const profileIds = new Set((profileChecks || []).map((p: any) => p.id));
+        const unresolvedIds = rawClientIds.filter(id => !profileIds.has(id));
+
+        if (unresolvedIds.length > 0) {
+          // These might be clients.id — resolve to clients.user_id
+          const { data: clientRows } = await supabase
+            .from('clients')
+            .select('id, user_id')
+            .in('id', unresolvedIds);
+
+          (clientRows || []).forEach((c: any) => {
+            if (c.user_id) {
+              resolveMap.set(c.id, c.user_id);
+            }
+          });
+        }
+      }
+
+      const resolveClientId = (rawId: string): string => resolveMap.get(rawId) || rawId;
+
+      // Also fetch profiles for all resolved user IDs
+      const allResolvedIds = [...new Set(rawClientIds.map(resolveClientId))];
+      let profileMap = new Map<string, any>();
+      if (allResolvedIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, name, phone, avatar_url')
+          .in('id', allResolvedIds);
+        (profiles || []).forEach((p: any) => profileMap.set(p.id, p));
+      }
+
       const threads = new Map<string, any>();
       data.forEach((msg: any) => {
-        if (!threads.has(msg.client_id)) {
-          threads.set(msg.client_id, {
-            id: msg.client_id,
-            clientId: msg.client_id,
-            clientName: msg.user_profiles?.name || 'Unknown',
-            clientAvatar: msg.user_profiles?.avatar_url || null,
+        const resolvedId = resolveClientId(msg.client_id);
+        if (!threads.has(resolvedId)) {
+          const profile = profileMap.get(resolvedId);
+          threads.set(resolvedId, {
+            id: resolvedId,
+            clientId: resolvedId,
+            clientName: profile?.name || 'Unknown',
+            clientAvatar: profile?.avatar_url || null,
             lastMessage: msg.content,
             unread: 0,
             timestamp: msg.created_at,
             isOnline: false,
-            clientPhone: msg.user_profiles?.phone,
+            clientPhone: profile?.phone,
           });
         }
-        const thread = threads.get(msg.client_id)!;
+        const thread = threads.get(resolvedId)!;
         if (msg.sender_role === 'client' && msg.is_read === false) {
           thread.unread += 1;
         }
@@ -1443,11 +1600,31 @@ export const AdminService = {
     getMessages: async (clientId: string) => {
       if (USE_MOCK) return [];
       const user = await ensureAdminProfile();
+
+      // Resolve clientId to user_profiles.id if needed
+      let resolvedClientId = clientId;
+      const { data: profileCheck } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('id', clientId)
+        .maybeSingle();
+      if (!profileCheck) {
+        const { data: clientRow } = await supabase
+          .from('clients')
+          .select('user_id')
+          .eq('id', clientId)
+          .maybeSingle();
+        if (clientRow?.user_id) {
+          resolvedClientId = clientRow.user_id;
+        }
+      }
+
+      // Fetch messages matching either the resolved ID or the original clientId (for old data)
+      const idsToFetch = [...new Set([resolvedClientId, clientId].filter(Boolean))];
       const { data, error } = await supabase
         .from('messages')
         .select('*')
-        // .eq('owner_admin_id', user.id) // Removed filter
-        .eq('client_id', clientId)
+        .in('client_id', idsToFetch)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -1457,11 +1634,31 @@ export const AdminService = {
 
     sendMessage: async (clientId: string, content: string) => {
       const user = await ensureAdminProfile();
+
+      // clientId should be user_profiles.id (messages.client_id FK points to user_profiles).
+      // If it's actually a clients.id (old data), resolve to user_id.
+      let resolvedClientId = clientId;
+      const { data: profileCheck } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('id', clientId)
+        .maybeSingle();
+      if (!profileCheck) {
+        const { data: clientRow } = await supabase
+          .from('clients')
+          .select('user_id')
+          .eq('id', clientId)
+          .maybeSingle();
+        if (clientRow?.user_id) {
+          resolvedClientId = clientRow.user_id;
+        }
+      }
+
       const { error } = await supabase
         .from('messages')
         .insert({
           owner_admin_id: user.id,
-          client_id: clientId,
+          client_id: resolvedClientId,
           sender_role: 'admin',
           content
         });
@@ -1483,6 +1680,25 @@ export const AdminService = {
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, callback)
         .subscribe();
       return () => supabase.removeChannel(channel);
+    },
+
+    markAsRead: async (clientId: string) => {
+      const { error } = await supabase
+        .from('messages')
+        .update({ is_read: true })
+        .eq('client_id', clientId)
+        .eq('sender_role', 'client')
+        .eq('is_read', false);
+      if (error) console.warn('[AdminChat] markAsRead error:', error);
+    },
+
+    markAllRead: async () => {
+      const { error } = await supabase
+        .from('messages')
+        .update({ is_read: true })
+        .eq('sender_role', 'client')
+        .eq('is_read', false);
+      if (error) console.warn('[AdminChat] markAllRead error:', error);
     }
   },
 

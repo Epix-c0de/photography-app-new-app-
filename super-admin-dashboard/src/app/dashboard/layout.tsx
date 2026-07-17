@@ -17,6 +17,7 @@ const navItems = [
   { href: '/dashboard/fraud', label: 'Fraud Detection', icon: '🛡️' },
   { href: '/dashboard/health', label: 'Platform Health', icon: '💓' },
   { href: '/dashboard/features', label: 'Feature Flags', icon: '🚩' },
+  { href: '/dashboard/sms-credits', label: 'SMS Credits', icon: '💳' },
   { href: '/dashboard/bulk-sms', label: 'Bulk SMS', icon: '📲' },
   { href: '/dashboard/moderation', label: 'Moderation', icon: '👁️' },
   { href: '/dashboard/chat', label: 'Chat', icon: '💬' },

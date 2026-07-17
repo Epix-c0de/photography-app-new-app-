@@ -24,7 +24,13 @@ export default function Downloads() {
 
   const loadDownloads = useCallback(async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      let user: any = null;
+      try {
+        const result = await supabase.auth.getUser();
+        user = result.data?.user;
+      } catch {
+        throw new Error('Failed to get user');
+      }
       if (!user) return;
 
       const { data, error } = await supabase

@@ -77,6 +77,37 @@ Deno.serve(async (req: Request) => {
             .from('galleries')
             .update({ is_paid: true, is_locked: false })
             .eq('id', transaction.gallery_id);
+
+          // Create payment success notification for the client
+          try {
+            const { data: gallery } = await supabase
+              .from('galleries')
+              .select('client_id, name, access_code')
+              .eq('id', transaction.gallery_id)
+              .single();
+
+            if (gallery?.client_id) {
+              const { data: client } = await supabase
+                .from('clients')
+                .select('user_id')
+                .eq('id', gallery.client_id)
+                .single();
+
+              if (client?.user_id) {
+                await supabase.from('notifications').insert({
+                  user_id: client.user_id,
+                  client_id: gallery.client_id,
+                  gallery_id: transaction.gallery_id,
+                  type: 'payment_success',
+                  title: 'Payment Confirmed!',
+                  body: `Your payment for "${gallery.name}" has been received. Your gallery is now unlocked.`,
+                  data: { galleryId: transaction.gallery_id, accessCode: gallery.access_code },
+                });
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to create payment notification:', e);
+          }
         }
       } else {
         await supabase
@@ -186,6 +217,37 @@ Deno.serve(async (req: Request) => {
         console.error('Failed to unlock gallery:', unlockError);
       } else {
         console.log(`Gallery ${manualPayment.gallery_id} unlocked automatically via C2B callback`);
+
+        // Create payment success notification for the client
+        try {
+          const { data: gallery } = await supabase
+            .from('galleries')
+            .select('client_id, name, access_code')
+            .eq('id', manualPayment.gallery_id)
+            .single();
+
+          if (gallery?.client_id) {
+            const { data: client } = await supabase
+              .from('clients')
+              .select('user_id')
+              .eq('id', gallery.client_id)
+              .single();
+
+            if (client?.user_id) {
+              await supabase.from('notifications').insert({
+                user_id: client.user_id,
+                client_id: gallery.client_id,
+                gallery_id: manualPayment.gallery_id,
+                type: 'payment_success',
+                title: 'Payment Confirmed!',
+                body: `Your payment for "${gallery.name}" has been received. Your gallery is now unlocked.`,
+                data: { galleryId: manualPayment.gallery_id, accessCode: gallery.access_code },
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to create C2B payment notification:', e);
+        }
       }
 
       // Create payment record in global payments table

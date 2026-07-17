@@ -12,10 +12,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
+  RefreshControl,
   Image as RNImage,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Video, ResizeMode } from 'expo-av';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   Eye,
   Heart,
@@ -27,6 +29,12 @@ import {
   ShieldCheck,
   Play,
   Trash2,
+  RefreshCw,
+  TrendingUp,
+  Clock,
+  Users,
+  Zap,
+  ExternalLink,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -93,6 +101,8 @@ export default function PostDetailsScreen() {
   const [postingReply, setPostingReply] = useState(false);
   const [activeSection, setActiveSection] = useState<'likes' | 'comments' | 'views' | 'shares' | 'saved' | null>('likes');
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [engagementRate, setEngagementRate] = useState(0);
   const videoRef = useRef<Video>(null);
 
   const tableMap: Record<PostType, string> = {
@@ -131,18 +141,42 @@ export default function PostDetailsScreen() {
     portfolio: 'portfolio_item_id',
   };
 
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      await Promise.all([loadPost(), loadStats(), loadComments(), loadLikesUsers()]);
+      // Increment views count on load, then refresh stats
+      try {
+        await supabase.rpc('increment_views', { row_id: id, table_name: tableMap[postType] });
+        await loadStats();
+      } catch (_) {}
+    } finally {
+      setLoading(false);
+    }
+  }, [id, postType]);
+
   useEffect(() => {
     if (!id || !type) { router.back(); return; }
     loadAll();
   }, [id, type]);
 
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      await Promise.all([loadPost(), loadStats(), loadComments(), loadLikesUsers()]);
-    } finally {
-      setLoading(false);
-    }
+  // Pull to refresh
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadAll();
+    setRefreshing(false);
+  }, [loadAll]);
+
+  // Real-time subscription for live updates
+  useEffect(() => {
+    if (!id || !type) return;
+    const channel = supabase
+      .channel(`post_details_${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: likeTableMap[postType], filter: `${likeIdFieldMap[postType]}=eq.${id}` }, () => loadStats())
+      .on('postgres_changes', { event: '*', schema: 'public', table: commentTableMap[postType], filter: `${idFieldMap[postType]}=eq.${id}` }, () => { loadStats(); loadComments(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: bookmarkTableMap[postType], filter: `${likeIdFieldMap[postType]}=eq.${id}` }, () => loadStats())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [id, postType]);
 
   const loadPost = async () => {
@@ -160,7 +194,7 @@ export default function PostDetailsScreen() {
       const likeField = likeIdFieldMap[postType];
       const bookmarkField = likeIdFieldMap[postType];
 
-      const [likesRes, commentsRes, bookmarksRes] = await Promise.allSettled([
+      const [likesRes, commentsRes, bookmarksRes, postRes] = await Promise.allSettled([
         supabase
           .from(likeTableMap[postType])
           .select('*', { count: 'exact', head: true })
@@ -173,18 +207,25 @@ export default function PostDetailsScreen() {
           .from(bookmarkTableMap[postType])
           .select('*', { count: 'exact', head: true })
           .eq(bookmarkField, id),
+        supabase
+          .from(tableMap[postType])
+          .select('views_count, shares_count')
+          .eq('id', id)
+          .single(),
       ]);
 
-      // Fetch real likes from bts_likes or announcement_likes
-      // Note: we're using the count from the query above
+      const views = postRes.status === 'fulfilled' ? ((postRes.value.data as any)?.views_count || 0) : (post?.views_count || 0);
+      const likes = likesRes.status === 'fulfilled' ? (likesRes.value.count ?? 0) : 0;
+      const comments = commentsRes.status === 'fulfilled' ? (commentsRes.value.count ?? 0) : 0;
+      const shares = postRes.status === 'fulfilled' ? ((postRes.value.data as any)?.shares_count || 0) : (post?.shares_count || 0);
+      const bookmarks = bookmarksRes.status === 'fulfilled' ? (bookmarksRes.value.count ?? 0) : 0;
 
-      setStats({
-        views: post?.views_count || 0,
-        likes: likesRes.status === 'fulfilled' ? (likesRes.value.count ?? 0) : 0,
-        comments: commentsRes.status === 'fulfilled' ? (commentsRes.value.count ?? 0) : 0,
-        shares: (post?.shares_count || 0),
-        bookmarks: bookmarksRes.status === 'fulfilled' ? (bookmarksRes.value.count ?? 0) : 0,
-      });
+      setStats({ views, likes, comments, shares, bookmarks });
+
+      if (views > 0) {
+        const engagement = ((likes + comments + shares + bookmarks) / views) * 100;
+        setEngagementRate(Math.round(engagement * 10) / 10);
+      }
     } catch (e) {
       console.error('[Stats]', e);
     }
@@ -444,28 +485,37 @@ export default function PostDetailsScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* ── Page Header ── */}
-      <View style={styles.pageHeader}>
+      {/* ── Premium Header ── */}
+      <LinearGradient
+        colors={[Colors.card, Colors.background]}
+        style={styles.pageHeader}
+      >
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <ChevronLeft size={24} color={Colors.text} />
+          <ChevronLeft size={22} color={Colors.text} />
         </Pressable>
-        <Text style={styles.pageTitle}>Post Details</Text>
-        <Pressable onPress={handleDeletePost} style={styles.backBtn}>
-          <Trash2 size={24} color={Colors.error} />
+        <View style={styles.headerCenter}>
+          <Text style={styles.pageTitle}>Post Details</Text>
+          <Text style={styles.headerSubtitle}>{postType.charAt(0).toUpperCase() + postType.slice(1)}</Text>
+        </View>
+        <Pressable onPress={handleDeletePost} style={styles.deleteBtn}>
+          <Trash2 size={18} color={Colors.error} />
         </Pressable>
-      </View>
+      </LinearGradient>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.gold} />}
+        >
 
           {/* ══ SECTION A: Master Post ══ */}
           <View style={styles.masterPost}>
             {/* Media */}
             {mediaUri ? (
-              <View style={[styles.mediaBox, aspectRatio ? { aspectRatio } : { minHeight: 240 }]}>
+              <View style={[styles.mediaBox, aspectRatio ? { aspectRatio } : { minHeight: 280 }]}>
                 {isVideo ? (
                   <>
                     <Video
@@ -487,7 +537,7 @@ export default function PostDetailsScreen() {
                         onPress={() => videoRef.current?.playAsync()}
                       >
                         <View style={styles.playBtn}>
-                          <Play size={30} color={Colors.white} fill={Colors.white} />
+                          <Play size={28} color={Colors.white} fill={Colors.white} />
                         </View>
                       </Pressable>
                     )}
@@ -496,7 +546,7 @@ export default function PostDetailsScreen() {
                   <Image
                     source={{ uri: mediaUri }}
                     style={{ width: '100%', height: '100%' }}
-                    contentFit="contain"
+                    contentFit="cover"
                   />
                 )}
               </View>
@@ -508,34 +558,94 @@ export default function PostDetailsScreen() {
               {post.description && (
                 <Text style={styles.postDescription}>{post.description}</Text>
               )}
-              <Text style={styles.postDate}>
-                {new Date(post.created_at).toLocaleDateString('en-US', {
-                  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-                  hour: '2-digit', minute: '2-digit',
-                })}
-              </Text>
-              {(post.tag || post.shoot_type) && (
-                <View style={styles.tagChip}>
-                  <Text style={styles.tagChipText}>{post.tag || post.shoot_type}</Text>
-                </View>
-              )}
+              <View style={styles.postMeta}>
+                <Clock size={12} color={Colors.textMuted} />
+                <Text style={styles.postDate}>
+                  {new Date(post.created_at).toLocaleDateString('en-US', {
+                    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+                  })}
+                </Text>
+                {(post.tag || post.shoot_type) && (
+                  <View style={styles.tagChip}>
+                    <Zap size={10} color={Colors.gold} />
+                    <Text style={styles.tagChipText}>{post.tag || post.shoot_type}</Text>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
 
           {/* ══ SECTION B: Analytics Grid ══ */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📊 Analytics</Text>
+            <View style={styles.sectionHeader}>
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.sectionIconWrap}>
+                  <TrendingUp size={14} color={Colors.gold} />
+                </View>
+                <Text style={styles.sectionTitle}>Analytics</Text>
+              </View>
+              {engagementRate > 0 && (
+                <View style={styles.engagementBadge}>
+                  <Text style={styles.engagementText}>{engagementRate}%</Text>
+                </View>
+              )}
+            </View>
             <View style={styles.statsGrid}>
               {STAT_CONFIGS.map(renderStatCard)}
+            </View>
+          </View>
+
+          {/* ══ SECTION B1.5: Post Metadata ══ */}
+          <View style={styles.section}>
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionIconWrap}>
+                <Eye size={14} color={Colors.gold} />
+              </View>
+              <Text style={styles.sectionTitle}>Overview</Text>
+            </View>
+            <View style={styles.metadataCard}>
+              <View style={styles.metadataItem}>
+                <Clock size={14} color={Colors.textMuted} />
+                <Text style={styles.metadataLabel}>Posted</Text>
+                <Text style={styles.metadataValue}>{relativeTime(post.created_at)}</Text>
+              </View>
+              <View style={styles.metadataDivider} />
+              <View style={styles.metadataItem}>
+                <Eye size={14} color={Colors.textMuted} />
+                <Text style={styles.metadataLabel}>Views</Text>
+                <Text style={styles.metadataValue}>{stats.views.toLocaleString()}</Text>
+              </View>
+              <View style={styles.metadataDivider} />
+              <View style={styles.metadataItem}>
+                <Users size={14} color={Colors.textMuted} />
+                <Text style={styles.metadataLabel}>Engagement</Text>
+                <Text style={[styles.metadataValue, { color: engagementRate > 5 ? '#34D399' : engagementRate > 0 ? Colors.gold : Colors.textMuted }]}>
+                  {engagementRate}%
+                </Text>
+              </View>
+              <View style={styles.metadataDivider} />
+              <View style={styles.metadataItem}>
+                <TrendingUp size={14} color={Colors.textMuted} />
+                <Text style={styles.metadataLabel}>Reach</Text>
+                <Text style={styles.metadataValue}>{(stats.likes + stats.comments + stats.shares).toLocaleString()}</Text>
+              </View>
             </View>
           </View>
 
           {/* ══ SECTION B2: Dynamic Detail Section ══ */}
           {activeSection === 'likes' && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>❤️ Likes ({stats.likes})</Text>
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.sectionIconWrap}>
+                  <Heart size={14} color={Colors.error} />
+                </View>
+                <Text style={styles.sectionTitle}>Likes ({stats.likes})</Text>
+              </View>
               {likesUsers.length === 0 ? (
-                <Text style={styles.noComments}>No likes yet.</Text>
+                <View style={styles.emptyDetailCard}>
+                  <Heart size={24} color={Colors.textMuted} />
+                  <Text style={styles.emptyDetailText}>No likes yet</Text>
+                </View>
               ) : (
                 <View style={styles.likesList}>
                   {likesUsers.map(u => (
@@ -557,15 +667,18 @@ export default function PostDetailsScreen() {
 
           {activeSection === 'comments' && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                💬 Comments ({stats.comments})
-              </Text>
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.sectionIconWrap}>
+                  <MessageCircle size={14} color={Colors.gold} />
+                </View>
+                <Text style={styles.sectionTitle}>Comments ({stats.comments})</Text>
+              </View>
 
-              {/* Global admin reply input (no parent) */}
+              {/* Global admin reply input */}
               <View style={styles.globalReplyContainer}>
                 <TextInput
                   style={styles.globalReplyInput}
-                  placeholder="Post an admin reply to the community…"
+                  placeholder="Post an admin reply to the community..."
                   placeholderTextColor={Colors.textMuted}
                   value={replyingToId === '__global__' ? replyText : ''}
                   onChangeText={setReplyText}
@@ -596,7 +709,10 @@ export default function PostDetailsScreen() {
               {loadingComments ? (
                 <ActivityIndicator style={{ marginTop: 20 }} color={Colors.gold} />
               ) : comments.length === 0 ? (
-                <Text style={styles.noComments}>No comments yet.</Text>
+                <View style={styles.emptyDetailCard}>
+                  <MessageCircle size={24} color={Colors.textMuted} />
+                  <Text style={styles.emptyDetailText}>No comments yet</Text>
+                </View>
               ) : (
                 <FlatList
                   data={comments}
@@ -611,7 +727,10 @@ export default function PostDetailsScreen() {
           
           {['views', 'shares', 'bookmarks'].includes(activeSection as string) && (
              <View style={styles.section}>
-               <Text style={styles.noComments}>Detailed tracking for {activeSection} coming soon.</Text>
+               <View style={styles.emptyDetailCard}>
+                 <ExternalLink size={24} color={Colors.textMuted} />
+                 <Text style={styles.emptyDetailText}>Detailed tracking coming soon</Text>
+               </View>
              </View>
           )}
 
@@ -635,25 +754,47 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(212,175,55,0.15)',
   },
-  backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  pageTitle: { fontSize: 18, fontWeight: '700', color: Colors.text },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerCenter: { alignItems: 'center' },
+  pageTitle: { fontSize: 17, fontWeight: '700', color: Colors.text },
+  headerSubtitle: { fontSize: 11, color: Colors.textMuted, marginTop: 1 },
+  deleteBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(239,68,68,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
-  // Master Post (Section A)
+  // Master Post
   masterPost: {
     backgroundColor: Colors.card,
     marginHorizontal: 12,
     marginTop: 14,
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(212,175,55,0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
   },
   mediaBox: {
     width: '100%',
-    backgroundColor: Colors.cardDark,
+    backgroundColor: '#0A0A12',
     overflow: 'hidden',
     position: 'relative',
   },
@@ -661,90 +802,164 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   playBtn: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(212,175,55,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  postInfo: { padding: 16, gap: 8 },
+  postTitle: { fontSize: 20, fontWeight: '800', color: Colors.text, lineHeight: 28, letterSpacing: -0.3 },
+  postDescription: { fontSize: 14, color: Colors.textSecondary, lineHeight: 22 },
+  postMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  postDate: { fontSize: 12, color: Colors.textMuted, flex: 1 },
+  tagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  tagChipText: { fontSize: 11, fontWeight: '700', color: Colors.gold },
+
+  // Section
+  section: { paddingHorizontal: 12, marginTop: 20 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  sectionIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: 'rgba(212,175,55,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  postInfo: { padding: 16, gap: 6 },
-  postTitle: { fontSize: 20, fontWeight: '700', color: Colors.text, lineHeight: 28 },
-  postDescription: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22 },
-  postDate: { fontSize: 12, color: Colors.textMuted, marginTop: 4 },
-  tagChip: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.goldMuted,
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, letterSpacing: -0.2 },
+  engagementBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(212,175,55,0.12)',
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 8,
-    marginTop: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
   },
-  tagChipText: { fontSize: 12, fontWeight: '600', color: Colors.gold },
+  engagementText: { fontSize: 12, fontWeight: '800', color: Colors.gold },
 
-  // Analytics (Section B)
-  section: { paddingHorizontal: 12, marginTop: 20 },
-  sectionTitle: { fontSize: 17, fontWeight: '700', color: Colors.text, marginBottom: 12 },
+  // Stats Grid
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
     justifyContent: 'space-between',
   },
-  likesList: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 10,
-    gap: 8,
-  },
-  likeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  likeAvatar: { width: 28, height: 28, borderRadius: 14 },
-  likeAvatarPlaceholder: {
-    backgroundColor: Colors.cardLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  likeAvatarInitial: { color: Colors.gold, fontSize: 12, fontWeight: '700' },
-  likeName: { color: Colors.text, fontSize: 13, fontWeight: '600' },
   statCard: {
     flex: 1,
     minWidth: '28%',
     backgroundColor: Colors.card,
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 14,
     alignItems: 'center',
     gap: 6,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
   },
   statIconWrapper: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  statValue: { fontSize: 20, fontWeight: '800', color: Colors.text },
-  statLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '500' },
+  statValue: { fontSize: 22, fontWeight: '800', color: Colors.text, letterSpacing: -0.5 },
+  statLabel: { fontSize: 11, color: Colors.textSecondary, fontWeight: '600' },
 
-  // Comments (Section C)
+  // Metadata Card
+  metadataCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
+  },
+  metadataItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  metadataDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginLeft: 36,
+  },
+  metadataLabel: { fontSize: 13, color: Colors.textMuted, fontWeight: '500', flex: 1 },
+  metadataValue: { fontSize: 13, color: Colors.text, fontWeight: '700' },
+
+  // Likes
+  likesList: {
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 12,
+    gap: 8,
+  },
+  likeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  likeAvatar: { width: 32, height: 32, borderRadius: 16 },
+  likeAvatarPlaceholder: {
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  likeAvatarInitial: { color: Colors.gold, fontSize: 13, fontWeight: '700' },
+  likeName: { color: Colors.text, fontSize: 14, fontWeight: '600' },
+
+  // Empty detail card
+  emptyDetailCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 28,
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyDetailText: { color: Colors.textMuted, fontSize: 14, fontWeight: '500' },
+
+  // Comments
   globalReplyContainer: {
     backgroundColor: Colors.card,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
-    padding: 12,
+    borderColor: 'rgba(212,175,55,0.15)',
+    padding: 14,
     gap: 10,
     marginBottom: 14,
   },
   globalReplyInput: {
     fontSize: 14,
     color: Colors.text,
-    minHeight: 64,
+    minHeight: 60,
     textAlignVertical: 'top',
   },
   globalReplyBtn: {
@@ -753,29 +968,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 7,
     backgroundColor: Colors.gold,
-    paddingVertical: 10,
+    paddingVertical: 11,
     borderRadius: 10,
   },
   globalReplyBtnText: { fontSize: 13, fontWeight: '700', color: Colors.background },
 
-  noComments: { color: Colors.textMuted, textAlign: 'center', marginTop: 20, fontSize: 14 },
-
   commentCard: {
     backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   adminReplyCard: {
-    backgroundColor: '#1C1A0E', // warm gold tint for admin replies
-    borderColor: Colors.gold + '44',
+    backgroundColor: 'rgba(212,175,55,0.05)',
+    borderColor: 'rgba(212,175,55,0.2)',
   },
   commentRow: { flexDirection: 'row', gap: 10 },
   commentAvatarWrapper: { flexShrink: 0 },
   commentAvatar: { width: 36, height: 36, borderRadius: 18 },
   commentAvatarPlaceholder: {
-    backgroundColor: Colors.cardLight,
+    backgroundColor: 'rgba(212,175,55,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -787,15 +1000,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: Colors.goldMuted,
+    backgroundColor: 'rgba(212,175,55,0.12)',
     borderRadius: 6,
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  adminCommentBadgeText: { fontSize: 9, fontWeight: '700', color: Colors.gold },
+  adminCommentBadgeText: { fontSize: 10, fontWeight: '700', color: Colors.gold },
   commentTime: { fontSize: 11, color: Colors.textMuted },
   commentText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
-  replyTrigger: { fontSize: 12, color: Colors.gold, fontWeight: '600', marginTop: 6 },
+  replyTrigger: { fontSize: 12, color: Colors.gold, fontWeight: '700', marginTop: 6 },
 
   replyInputRow: {
     flexDirection: 'row',
@@ -805,20 +1018,20 @@ const styles = StyleSheet.create({
   },
   replyInput: {
     flex: 1,
-    backgroundColor: Colors.inputBg,
-    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: 'rgba(255,255,255,0.08)',
     padding: 10,
     color: Colors.text,
     fontSize: 14,
-    minHeight: 56,
+    minHeight: 52,
     textAlignVertical: 'top',
   },
   replySendBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 12,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

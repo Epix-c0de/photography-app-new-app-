@@ -96,8 +96,8 @@ export default function SettingsHub() {
       icon: Bell,
       color: '#F59E0B',
       items: [
-        { label: 'SMS Management', description: 'Auto-send access codes', route: '/(admin)/settings/sms-management' },
-        { label: 'Message Templates', description: 'Customize notifications', route: '/(admin)/settings/sms-management' },
+        { label: 'SMS Management', description: 'Auto-send access codes', route: '/(admin)/settings/messaging' },
+        { label: 'Message Templates', description: 'Customize notifications', route: '/(admin)/settings/messaging' },
       ],
     },
   ];

@@ -17,20 +17,12 @@ import {
   Palette,
   Truck,
   Package,
-  Droplets,
   ChevronRight,
   LogOut,
   Shield,
-  Moon,
-  HelpCircle,
-  Settings as SettingsIcon,
   Bell,
-  Globe,
-  Key,
-  Receipt,
   Smartphone,
   History,
-  Image as ImageIcon,
   Star,
   Gift,
   Headphones,
@@ -89,7 +81,7 @@ const settingsGroups: SettingsGroup[] = [
       {
         icon: Palette,
         label: 'Branding',
-        subtitle: 'Logo, colors, receipts',
+        subtitle: 'Logo, colors, watermark',
         route: '/(admin)/settings/branding',
         color: Colors.gold,
       },
@@ -108,32 +100,11 @@ const settingsGroups: SettingsGroup[] = [
         color: '#3B82F6',
       },
       {
-        icon: Droplets,
-        label: 'Watermark',
-        subtitle: 'Photo protection',
-        route: '/(admin)/settings/watermark',
-        color: '#06B6D4',
-      },
-      {
-        icon: Receipt,
-        label: 'Receipt Settings',
-        subtitle: 'Payment receipts, templates',
-        route: '/(admin)/settings/receipt-settings',
-        color: '#EC4899',
-      },
-      {
         icon: Smartphone,
         label: 'USSD Settings',
-        subtitle: 'Client access menu',
-        route: '/(admin)/settings/ussd-settings/page',
+        subtitle: 'Coming soon',
+        route: '__coming_soon',
         color: '#14B8A6',
-      },
-      {
-        icon: ImageIcon,
-        label: 'Portfolio',
-        subtitle: 'Showcase your work',
-        route: '/(admin)/portfolio',
-        color: '#8B5CF6',
       },
       {
         icon: Star,
@@ -216,7 +187,13 @@ export default function SettingsScreen() {
                     pressed && styles.menuItemPressed,
                     itemIndex < group.items.length - 1 && styles.menuItemBorder,
                   ]}
-                  onPress={() => router.push(item.route as any)}
+                  onPress={() => {
+                    if (item.route === '__coming_soon') {
+                      Alert.alert('Coming Soon', `${item.label} will be available in a future update.`);
+                      return;
+                    }
+                    router.push(item.route as any);
+                  }}
                 >
                   <View style={[styles.menuIcon, { backgroundColor: item.color + '18' }]}>
                     <item.icon size={20} color={item.color} strokeWidth={2} />
@@ -240,6 +217,7 @@ export default function SettingsScreen() {
           <View style={styles.groupCard}>
             <Pressable
               style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed, styles.menuItemBorder]}
+              onPress={() => router.push('/(admin)/settings/security')}
             >
               <View style={[styles.menuIcon, { backgroundColor: '#3B82F618' }]}>
                 <Shield size={20} color="#3B82F6" strokeWidth={2} />
@@ -253,6 +231,7 @@ export default function SettingsScreen() {
 
             <Pressable
               style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed, styles.menuItemBorder]}
+              onPress={() => router.push('/(admin)/settings/notifications')}
             >
               <View style={[styles.menuIcon, { backgroundColor: '#F59E0B18' }]}>
                 <Bell size={20} color="#F59E0B" strokeWidth={2} />

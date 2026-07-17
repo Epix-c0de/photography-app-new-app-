@@ -24,6 +24,7 @@ type PaymentSettings = {
 
 type PlatformSettings = {
   id: string;
+  platform_domain: string;
   admin_app_android_link: string;
   admin_app_ios_link: string;
   user_app_android_link: string;
@@ -71,6 +72,7 @@ export default function SettingsPage() {
   });
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings>({
     id: 'platform',
+    platform_domain: '',
     admin_app_android_link: '',
     admin_app_ios_link: '',
     user_app_android_link: '',
@@ -123,6 +125,7 @@ export default function SettingsPage() {
         platformData.forEach((row: any) => { kvMap[row.key] = row.value ?? ''; });
         setPlatformSettings({
           id: 'platform',
+          platform_domain: kvMap['platform_domain'] ?? '',
           admin_app_android_link: kvMap['platform_admin_app_android_link'] ?? '',
           admin_app_ios_link: kvMap['platform_admin_app_ios_link'] ?? '',
           user_app_android_link: kvMap['platform_app_android_link'] ?? '',
@@ -197,6 +200,7 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       const keyMap: Record<keyof Omit<PlatformSettings, 'id'>, string> = {
+        platform_domain: 'platform_domain',
         admin_app_android_link: 'platform_admin_app_android_link',
         admin_app_ios_link: 'platform_admin_app_ios_link',
         user_app_android_link: 'platform_app_android_link',
@@ -204,16 +208,21 @@ export default function SettingsPage() {
         photographer_signup_url: 'platform_photographer_signup_url',
         deep_link_scheme: 'platform_deep_link_scheme',
       };
-      await Promise.all(Object.entries(keyMap).map(([field, dbKey]) =>
+      const results = await Promise.all(Object.entries(keyMap).map(([field, dbKey]) =>
         supabase.from('platform_settings').upsert(
           { key: dbKey, value: String((platformSettings as any)[field] ?? '') },
           { onConflict: 'key' }
         )
       ));
-      alert('Platform settings saved successfully!');
-    } catch (e) {
+      const dbError = results.find(r => r.error);
+      if (dbError) {
+        console.error('App links save error:', dbError.error);
+        throw dbError.error;
+      }
+      alert('App links saved successfully!');
+    } catch (e: any) {
       console.error(e);
-      alert('Failed to save platform settings');
+      alert(`Failed to save app links: ${e?.message || 'Unknown error'}`);
     } finally {
       setSaving(false);
     }
@@ -526,11 +535,30 @@ export default function SettingsPage() {
       {activeTab === 'links' && (
         <div className="bg-[#111118] border border-white/5 rounded-2xl p-6 space-y-6">
           <div>
-            <h2 className="font-bold text-xl mb-1">Application Download Links</h2>
+            <h2 className="font-bold text-xl mb-1">Application Links</h2>
             <p className="text-sm text-gray-500 mb-6">
-              These links are displayed in the photographer dashboard's <strong className="text-gray-300">Settings → Download Admin App</strong> section
-              and in the success page after signup. User app links are included in the invite messages sent to clients.
+              Configure how the platform appears to users and photographers. Set your platform domain first — it controls all share links (announcements, galleries, BTS).
             </p>
+
+            {/* Platform Domain */}
+            <div className="space-y-4 mb-8">
+              <h3 className="font-semibold text-sm text-purple-400 uppercase tracking-wider">
+                🌐 Platform Domain
+              </h3>
+              <div>
+                <label className="text-sm font-semibold text-gray-400 block mb-2">Base Domain URL</label>
+                <input
+                  type="url"
+                  value={platformSettings.platform_domain}
+                  onChange={e => setPlatformSettings({ ...platformSettings, platform_domain: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                  placeholder="https://epixvisuals.co.ke"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  The main domain used for all share links (announcements, galleries, BTS, referrals). Falls back to epixvisuals.co.ke if empty.
+                </p>
+              </div>
+            </div>
 
             {/* Admin App Links */}
             <div className="space-y-4 mb-8">
@@ -538,29 +566,29 @@ export default function SettingsPage() {
                 📱 Admin App (for photographers)
               </h3>
               <div>
-                <label className="text-sm font-semibold text-gray-400 block mb-2">Android Download Link (Google Play)</label>
+                <label className="text-sm font-semibold text-gray-400 block mb-2">Android Download Link</label>
                 <input
                   type="url"
                   value={platformSettings.admin_app_android_link}
                   onChange={e => setPlatformSettings({ ...platformSettings, admin_app_android_link: e.target.value })}
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
-                  placeholder="https://play.google.com/store/apps/details?id=com.epixvisuals.admin"
+                  placeholder="https://play.google.com/store/apps/details?id=... or APK URL"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Shown to photographers after signup and on the dashboard Settings page
+                  Google Play Store URL or direct APK download link
                 </p>
               </div>
               <div>
-                <label className="text-sm font-semibold text-gray-400 block mb-2">iOS Download Link (App Store)</label>
+                <label className="text-sm font-semibold text-gray-400 block mb-2">iOS Download Link</label>
                 <input
                   type="url"
                   value={platformSettings.admin_app_ios_link}
                   onChange={e => setPlatformSettings({ ...platformSettings, admin_app_ios_link: e.target.value })}
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
-                  placeholder="https://apps.apple.com/app/epixvisuals-admin/id000000000"
+                  placeholder="https://apps.apple.com/app/... or TestFlight link"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Shown to photographers after signup and on the dashboard Settings page
+                  App Store URL or TestFlight / direct install link
                 </p>
               </div>
             </div>
@@ -571,29 +599,29 @@ export default function SettingsPage() {
                 📲 User App (for clients)
               </h3>
               <div>
-                <label className="text-sm font-semibold text-gray-400 block mb-2">Android Download Link (Google Play)</label>
+                <label className="text-sm font-semibold text-gray-400 block mb-2">Android Download Link</label>
                 <input
                   type="url"
                   value={platformSettings.user_app_android_link}
                   onChange={e => setPlatformSettings({ ...platformSettings, user_app_android_link: e.target.value })}
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
-                  placeholder="https://play.google.com/store/apps/details?id=com.epixvisuals.client"
+                  placeholder="https://play.google.com/store/apps/details?id=... or APK URL"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Included in access code invite messages sent to non-existing clients
+                  Google Play Store URL or direct APK download link
                 </p>
               </div>
               <div>
-                <label className="text-sm font-semibold text-gray-400 block mb-2">iOS Download Link (App Store)</label>
+                <label className="text-sm font-semibold text-gray-400 block mb-2">iOS Download Link</label>
                 <input
                   type="url"
                   value={platformSettings.user_app_ios_link}
                   onChange={e => setPlatformSettings({ ...platformSettings, user_app_ios_link: e.target.value })}
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
-                  placeholder="https://apps.apple.com/app/epixvisuals/id000000000"
+                  placeholder="https://apps.apple.com/app/... or TestFlight link"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Included in access code invite messages sent to non-existing clients
+                  App Store URL or TestFlight / direct install link
                 </p>
               </div>
             </div>

@@ -146,6 +146,7 @@ export default function SignupScreen() {
           email,
           password,
           options: {
+            emailRedirectTo: 'epix-visuals://auth/callback',
             data: {
               display_name: fullName,
               phone,

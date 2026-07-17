@@ -145,7 +145,23 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
         return;
       }
 
-      // Fallback to simple settings
+      // Check full Daraja credentials (payment_settings) — enables STK push
+      const { data: advanced } = await supabase
+        .from('payment_settings')
+        .select('*')
+        .eq('admin_id', gallery.owner_admin_id)
+        .maybeSingle();
+
+      if (advanced) {
+        setPaymentSettings(advanced);
+        setRecipientName(advanced.payment_recipient_display_name || `Paybill: ${advanced.mpesa_shortcode || advanced.shortcode}`);
+        if (advanced.is_active === false) {
+          updatePaymentState('manual_payment');
+        }
+        return;
+      }
+
+      // Fallback to simple settings (no API credentials — manual payment only)
       const { data: simple } = await supabase
         .from('simple_payment_settings')
         .select('*')
@@ -155,25 +171,10 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       if (simple) {
         setPaymentSettings(simple);
         setRecipientName(simple.business_name || 'Photographer');
-        if (simple.mpesa_enabled === false) {
-          updatePaymentState('manual_payment');
-        }
+        // simple_payment_settings has no M-Pesa API credentials (consumer_key, passkey, etc.)
+        // so STK push cannot work — always use manual payment for this table
+        updatePaymentState('manual_payment');
         return;
-      }
-
-      // Fallback to advanced settings
-      const { data: advanced } = await supabase
-        .from('payment_settings')
-        .select('*')
-        .eq('admin_id', gallery.owner_admin_id)
-        .maybeSingle();
-
-      if (advanced) {
-        setPaymentSettings(advanced);
-        setRecipientName(`Paybill/Till: ${advanced.shortcode}`);
-        if (advanced.mpesa_enabled === false) {
-          updatePaymentState('manual_payment');
-        }
       }
     } catch (e) {
       console.error('Error loading payment settings:', e);
@@ -208,167 +209,8 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
   const handlePay = async () => {
     if (!gallery) return;
     
-    // Use new gateway system if available
-    if (paymentSettings?.use_new_gateway) {
-      if (!phoneNumber || !isValidKenyanPhone(phoneNumber)) {
-        Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number (e.g. 0712345678).');
-        return;
-      }
-
-      const normalizedPhone = normalizePhone(phoneNumber);
-      if (!normalizedPhone) {
-        Alert.alert('Invalid Phone', 'Could not normalize phone number. Please check and try again.');
-        return;
-      }
-
-      updatePaymentState('initiating');
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-      try {
-        // Check for duplicate payment
-        const isDuplicate = await checkDuplicatePayment(gallery.id, normalizedPhone);
-        if (isDuplicate) {
-          updatePaymentState('failed');
-          setErrorMessage('A recent payment was already initiated for this gallery. Please wait a few minutes before trying again.');
-          return;
-        }
-
-        const { data, error } = await supabase.functions.invoke('mpesa-stk-push', {
-          body: {
-            phone_number: normalizedPhone,
-            amount: gallery.price || 0,
-            gallery_id: gallery.id,
-            account_reference: gallery.access_code || gallery.name,
-            admin_id: gallery.owner_admin_id,
-          },
-        });
-
-        if (error) throw error;
-
-        const checkoutRequestId =
-          readString(data, 'checkout_request_id') ??
-          readString(data, 'CheckoutRequestID') ??
-          readString(data, 'mpesa_checkout_request_id');
-
-        if (!checkoutRequestId) {
-          throw new Error('Payment initiated but missing checkout request id.');
-        }
-
-        checkoutRequestIdRef.current = checkoutRequestId;
-        updatePaymentState('waiting');
-        startPolling(checkoutRequestId, gallery.id);
-
-      } catch (e: any) {
-        console.error('Payment initiation failed:', e);
-        updatePaymentState('failed');
-        setErrorMessage(e.message || 'Could not initiate payment.');
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      }
-      return;
-    }
-    
-    // Legacy flow - simple M-Pesa (manual payment)
-    if (paymentSettings?.mpesa_number && !paymentSettings?.shortcode) {
-      if (paymentSettings.auto_verification) {
-        if (!phoneNumber || !isValidKenyanPhone(phoneNumber)) {
-          Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number.');
-          return;
-        }
-
-        const normalizedPhone = normalizePhone(phoneNumber);
-        if (!normalizedPhone) {
-          Alert.alert('Invalid Phone', 'Could not normalize phone number. Please check and try again.');
-          return;
-        }
-
-        updatePaymentState('initiating');
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-        try {
-          const isDuplicate = await checkDuplicatePayment(gallery.id, normalizedPhone);
-          if (isDuplicate) {
-            updatePaymentState('failed');
-            setErrorMessage('A recent payment was already initiated. Please wait before trying again.');
-            return;
-          }
-
-          const { data, error } = await supabase.functions.invoke('client_payments_stkpush', {
-            body: {
-              phone_number: normalizedPhone,
-              amount: gallery.price || 0,
-              gallery_id: gallery.id,
-              reference: gallery.access_code || gallery.name,
-            },
-          });
-
-          if (error) throw error;
-
-          const checkoutRequestId =
-            readString(data, 'checkout_request_id') ??
-            readString(data, 'CheckoutRequestID') ??
-            readString(data, 'mpesa_checkout_request_id');
-
-          if (!checkoutRequestId) {
-            throw new Error('Payment initiated but missing checkout request id.');
-          }
-
-          checkoutRequestIdRef.current = checkoutRequestId;
-          updatePaymentState('waiting');
-          startPolling(checkoutRequestId, gallery.id);
-
-        } catch (e: any) {
-          console.error('Payment initiation failed:', e);
-          updatePaymentState('failed');
-          setErrorMessage(e.message || 'Could not initiate payment.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        }
-      } else {
-        // Manual verification
-        updatePaymentState('waiting');
-        setErrorMessage('');
-        
-        try {
-          const { error } = await supabase
-            .from('manual_payments')
-            .insert({
-              gallery_id: gallery.id,
-              client_id: gallery.client_id,
-              admin_id: gallery.owner_admin_id,
-              amount: gallery.price || 0,
-              phone_number: phoneNumber,
-              mpesa_number: paymentSettings.mpesa_number,
-              status: 'pending',
-            });
-        
-          if (error) throw error;
-        
-          Alert.alert(
-            'Payment Instructions',
-            `Send ${gallery.price} ${paymentSettings.currency || 'KES'} to:\n\n${paymentSettings.mpesa_number}\n\nOnce sent, the admin will verify and unlock your gallery.`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { 
-                text: 'I\'ve Sent It', 
-                onPress: () => {
-                  updatePaymentState('verifying');
-                  startManualPolling(gallery.id);
-                }
-              }
-            ]
-          );
-        } catch (e: any) {
-          console.error('Failed to create manual payment record:', e);
-          updatePaymentState('failed');
-          setErrorMessage('Could not initiate payment. Please try again.');
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        }
-      }
-      return;
-    }
-    
-    // Advanced M-PESA - STK push flow
     if (!phoneNumber || !isValidKenyanPhone(phoneNumber)) {
-      Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number.');
+      Alert.alert('Invalid Phone', 'Please enter a valid M-Pesa phone number (e.g. 0712345678).');
       return;
     }
 
@@ -385,18 +227,28 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
       const isDuplicate = await checkDuplicatePayment(gallery.id, normalizedPhone);
       if (isDuplicate) {
         updatePaymentState('failed');
-        setErrorMessage('A recent payment was already initiated. Please wait before trying again.');
+        setErrorMessage('A recent payment was already initiated for this gallery. Please wait a few minutes before trying again.');
         return;
       }
 
-      const { data, error } = await supabase.functions.invoke('client_payments_stkpush', {
-        body: {
-          phone_number: normalizedPhone,
-          amount: gallery.price,
-          gallery_id: gallery.id,
-          reference: gallery.access_code || gallery.name,
-        },
-      });
+      // Prefer new gateway if available, fall back to legacy
+      const edgeFunction = paymentSettings?.use_new_gateway ? 'mpesa-stk-push' : 'client_payments_stkpush';
+      const body = paymentSettings?.use_new_gateway
+        ? {
+            phone_number: normalizedPhone,
+            amount: gallery.price || 0,
+            gallery_id: gallery.id,
+            account_reference: gallery.access_code || gallery.name,
+            admin_id: gallery.owner_admin_id,
+          }
+        : {
+            phone_number: normalizedPhone,
+            amount: gallery.price || 0,
+            gallery_id: gallery.id,
+            reference: gallery.access_code || gallery.name,
+          };
+
+      const { data, error } = await supabase.functions.invoke(edgeFunction, { body });
 
       if (error) throw error;
 
@@ -416,7 +268,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
     } catch (e: any) {
       console.error('Payment initiation failed:', e);
       updatePaymentState('failed');
-      setErrorMessage(e.message || 'Could not initiate payment.');
+      setErrorMessage(e.message || 'Could not initiate payment. Please try again.');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   };
@@ -519,7 +371,7 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
 
       try {
         const { data, error } = await supabase
-          .from('manual_payments')
+          .from('manual_payment_verifications')
           .select('status')
           .eq('gallery_id', galleryId)
           .eq('client_id', gallery?.client_id)
@@ -694,61 +546,25 @@ export default function PaymentModal({ visible, onClose, gallery, clientPhone, o
                   </View>
                 ) : null}
 
-                {paymentSettings?.payment_mode === 'PAYBILL' || paymentSettings?.payment_mode === 'TILL_NUMBER' ? (
-                  <View style={styles.instructionContainer}>
-                    <Text style={styles.instructionTitle}>Manual Payment Instructions</Text>
-                    <View style={styles.instructionBox}>
-                      <Text style={styles.instructionStep}>1. Go to M-Pesa menu</Text>
-                      <Text style={styles.instructionStep}>2. Select Lipa na M-Pesa</Text>
-                      <Text style={styles.instructionStep}>
-                        3. Select {paymentSettings.payment_mode === 'PAYBILL' ? 'Paybill' : 'Buy Goods'}
-                      </Text>
-                      <Text style={styles.instructionStep}>
-                        4. {paymentSettings.payment_mode === 'PAYBILL' ? 'Enter Business No: ' : 'Enter Till No: '}
-                        <Text style={{ fontWeight: 'bold', color: Colors.gold }}>{paymentSettings.mpesa_number}</Text>
-                      </Text>
-                      {paymentSettings.payment_mode === 'PAYBILL' && (
-                        <Text style={styles.instructionStep}>
-                          5. Enter Account: <Text style={{ fontWeight: 'bold', color: Colors.gold }}>{gallery.access_code}</Text>
-                        </Text>
-                      )}
-                      <Text style={styles.instructionStep}>
-                        {paymentSettings.payment_mode === 'PAYBILL' ? '6.' : '5.'} Enter Amount: <Text style={{ fontWeight: 'bold', color: Colors.gold }}>{gallery.price}</Text>
-                      </Text>
-                    </View>
-                    <Text style={styles.instructionHint}>
-                      Your gallery will be unlocked automatically once the payment is confirmed.
-                    </Text>
-                    <Pressable 
-                      style={[styles.payButton, { backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.gold }]} 
-                      onPress={() => updatePaymentState('verifying')}
-                    >
-                      <Text style={[styles.payButtonText, { color: Colors.gold }]}>I have paid, check status</Text>
-                    </Pressable>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>M-Pesa Phone Number</Text>
+                  <View style={styles.inputWrapper}>
+                    <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      value={phoneNumber}
+                      onChangeText={setPhoneNumber}
+                      placeholder="e.g. 0712345678"
+                      placeholderTextColor={Colors.textMuted}
+                      keyboardType="phone-pad"
+                      autoFocus={false}
+                    />
                   </View>
-                ) : (
-                  <>
-                    <View style={styles.inputContainer}>
-                      <Text style={styles.inputLabel}>M-Pesa Phone Number</Text>
-                      <View style={styles.inputWrapper}>
-                        <Smartphone size={20} color={Colors.textMuted} style={styles.inputIcon} />
-                        <TextInput
-                          style={styles.input}
-                          value={phoneNumber}
-                          onChangeText={setPhoneNumber}
-                          placeholder="e.g. 0712345678"
-                          placeholderTextColor={Colors.textMuted}
-                          keyboardType="phone-pad"
-                          autoFocus={false}
-                        />
-                      </View>
-                    </View>
+                </View>
 
-                    <Pressable style={styles.payButton} onPress={handlePay}>
-                      <Text style={styles.payButtonText}>Pay via STK Push</Text>
-                    </Pressable>
-                  </>
-                )}
+                <Pressable style={styles.payButton} onPress={handlePay}>
+                  <Text style={styles.payButtonText}>Pay via STK Push</Text>
+                </Pressable>
               </>
             )}
 

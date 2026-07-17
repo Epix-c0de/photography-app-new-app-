@@ -142,8 +142,8 @@ function PackageCard({ pkg, index, isSelected, onSelect }: { pkg: Package; index
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 600, delay: index * 100, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 500, delay: index * 100, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, delay: index * 100, useNativeDriver: Platform.OS !== 'web' }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 500, delay: index * 100, useNativeDriver: Platform.OS !== 'web' }),
     ]).start();
   }, [fadeAnim, slideAnim, index]);
 
@@ -152,8 +152,8 @@ function PackageCard({ pkg, index, isSelected, onSelect }: { pkg: Package; index
   return (
     <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
       <Pressable
-        onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true }).start()}
-        onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()}
+        onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: Platform.OS !== 'web' }).start()}
+        onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: Platform.OS !== 'web' }).start()}
         onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onSelect(); }}
       >
         <Animated.View style={[styles.packageCard, pkg.is_popular && styles.packageCardPopular, isSelected && styles.packageCardSelected, { transform: [{ scale: scaleAnim }] }]}>
@@ -308,7 +308,8 @@ export default function BookingsScreen() {
   const [bookingStep, setBookingStep] = useState<number>(1);
   const [bookingTime, setBookingTime] = useState<string>('');
   const [bookingLocation, setBookingLocation] = useState<string>('');
-  const [packages, setPackages] = useState<Package[]>([]);
+  const stepAnim = useRef(new Animated.Value(0)).current;
+  const prevStepRef = useRef(1);  const [packages, setPackages] = useState<Package[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -328,6 +329,30 @@ export default function BookingsScreen() {
   const [paymentPhone, setPaymentPhone] = useState('');
   const [paymentState, setPaymentState] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [pendingBookingId, setPendingBookingId] = useState<string | null>(null);
+
+  const advanceStep = useCallback((toStep: number) => {
+    const fromStep = prevStepRef.current;
+    if (fromStep === toStep) return;
+    prevStepRef.current = toStep;
+
+    // Slide out current step to the left
+    stepAnim.setValue(0);
+    Animated.timing(stepAnim, {
+      toValue: 1,
+      duration: 200,
+      useNativeDriver: Platform.OS !== 'web',
+    }).start(() => {
+      setBookingStep(toStep);
+      // Slide in new step from the right
+      stepAnim.setValue(-1);
+      Animated.spring(stepAnim, {
+        toValue: 0,
+        tension: 65,
+        friction: 11,
+        useNativeDriver: Platform.OS !== 'web',
+      }).start();
+    });
+  }, [stepAnim]);
 
   useEffect(() => {
     async function loadData() {
@@ -640,7 +665,7 @@ export default function BookingsScreen() {
             style={[styles.toggleButton, activeSection === section && styles.toggleActive]}
             onPress={() => { 
               setActiveSection(section); 
-              if (section === 'book') setBookingStep(1);
+              if (section === 'book') advanceStep(1);
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); 
             }}
           >
@@ -669,7 +694,7 @@ export default function BookingsScreen() {
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       setActiveSection('book');
-                      setBookingStep(1);
+                      advanceStep(1);
                     }}
                   >
                     <Text style={styles.emptyBookingsPrimaryBtnText}>Book Now</Text>
@@ -813,7 +838,14 @@ export default function BookingsScreen() {
             </View>
 
             {bookingStep === 1 && (
-              <View style={styles.stepContent}>
+              <Animated.View style={[styles.stepContent, {
+                transform: [{
+                  translateX: stepAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -400],
+                  }),
+                }],
+              }]}>
                 <Text style={styles.stepTitle}>Select a Package</Text>
 
                 {/* Admin dropdown — only shown when user has multiple photographers */}
@@ -876,40 +908,52 @@ export default function BookingsScreen() {
                       pkg={pkg}
                       index={index}
                       isSelected={selectedPackage === pkg.id}
-                      onSelect={() => setSelectedPackage(pkg.id)}
+                      onSelect={() => {
+                        setSelectedPackage(pkg.id);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        setTimeout(() => advanceStep(2), 400);
+                      }}
                     />
                   ))}
-                <Pressable
-                  style={[styles.wizardButton, !selectedPackage && styles.wizardButtonDisabled]}
-                  onPress={() => setBookingStep(2)}
-                  disabled={!selectedPackage}
-                >
-                  <Text style={styles.wizardButtonText}>Next: Choose Date</Text>
-                </Pressable>
-              </View>
+              </Animated.View>
             )}
 
             {bookingStep === 2 && (
-              <View style={styles.stepContent}>
+              <Animated.View style={[styles.stepContent, {
+                transform: [{
+                  translateX: stepAnim.interpolate({
+                    inputRange: [-1, 0, 1],
+                    outputRange: [400, 0, -400],
+                  }),
+                }],
+              }]}>
                 <Text style={styles.stepTitle}>Select a Date</Text>
-                <MiniCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} busyDates={busyDates} />
+                <MiniCalendar
+                  selectedDate={selectedDate}
+                  onSelectDate={(day) => {
+                    setSelectedDate(day);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    setTimeout(() => advanceStep(3), 400);
+                  }}
+                  busyDates={busyDates}
+                />
                 <View style={styles.wizardRow}>
-                  <Pressable style={styles.wizardBackButton} onPress={() => setBookingStep(1)}>
+                  <Pressable style={styles.wizardBackButton} onPress={() => advanceStep(1)}>
                     <Text style={styles.wizardBackText}>Back</Text>
                   </Pressable>
-                  <Pressable
-                    style={[styles.wizardButton, { flex: 1 }, !selectedDate && styles.wizardButtonDisabled]}
-                    onPress={() => setBookingStep(3)}
-                    disabled={!selectedDate}
-                  >
-                    <Text style={styles.wizardButtonText}>Next: Details</Text>
-                  </Pressable>
                 </View>
-              </View>
+              </Animated.View>
             )}
 
             {bookingStep === 3 && (
-              <View style={styles.stepContent}>
+              <Animated.View style={[styles.stepContent, {
+                transform: [{
+                  translateX: stepAnim.interpolate({
+                    inputRange: [-1, 0, 1],
+                    outputRange: [400, 0, -400],
+                  }),
+                }],
+              }]}>
                 <Text style={styles.stepTitle}>Shoot Details</Text>
                 <View style={styles.formGroup}>
                   <Text style={styles.formLabel}>Preferred Time (Optional)</Text>
@@ -932,21 +976,28 @@ export default function BookingsScreen() {
                   />
                 </View>
                 <View style={styles.wizardRow}>
-                  <Pressable style={styles.wizardBackButton} onPress={() => setBookingStep(2)}>
+                  <Pressable style={styles.wizardBackButton} onPress={() => advanceStep(2)}>
                     <Text style={styles.wizardBackText}>Back</Text>
                   </Pressable>
                   <Pressable
                     style={[styles.wizardButton, { flex: 1 }]}
-                    onPress={() => setBookingStep(4)}
+                    onPress={() => advanceStep(4)}
                   >
                     <Text style={styles.wizardButtonText}>Next: Review</Text>
                   </Pressable>
                 </View>
-              </View>
+              </Animated.View>
             )}
 
             {bookingStep === 4 && selectedPkg && selectedDate && (
-              <View style={styles.stepContent}>
+              <Animated.View style={[styles.stepContent, {
+                transform: [{
+                  translateX: stepAnim.interpolate({
+                    inputRange: [-1, 0, 1],
+                    outputRange: [400, 0, -400],
+                  }),
+                }],
+              }]}>
                 <Text style={styles.stepTitle}>Review Booking</Text>
                 <View style={styles.bookingSummary}>
                   <Text style={styles.summaryTitle}>Booking Summary</Text>
@@ -989,7 +1040,7 @@ export default function BookingsScreen() {
                 </View>
 
                 <View style={styles.wizardRow}>
-                  <Pressable style={styles.wizardBackButton} onPress={() => setBookingStep(3)}>
+                  <Pressable style={styles.wizardBackButton} onPress={() => advanceStep(3)}>
                     <Text style={styles.wizardBackText}>Back</Text>
                   </Pressable>
 
@@ -1013,7 +1064,7 @@ export default function BookingsScreen() {
                     </LinearGradient>
                   </Pressable>
                 </View>
-              </View>
+              </Animated.View>
             )}
           </View>
         )}

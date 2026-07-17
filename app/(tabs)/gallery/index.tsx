@@ -2,7 +2,14 @@ import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Animated as RNAnimated, Dimensions, Alert, Share, ActivityIndicator, Platform, PermissionsAndroid, Linking, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import * as FileSystem from 'expo-file-system/legacy';
+let FileSystem: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    FileSystem = require('expo-file-system');
+  } catch (e) {
+    // FileSystem not available
+  }
+}
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';

@@ -237,35 +237,8 @@ export const ClientService = {
           if (!thumbnailsOnly) {
             fullUrl = await getFullPhotoUrl();
           }
-
-          // Try to sign thumbnail URL
-          // Thumbnail naming convention: remove extension and add _thumb.png
-          try {
-            const photoNameParts = p.photo_url.split('.');
-            // Handle case where no extension exists
-            const photoNameNoExt = photoNameParts.length > 1 ? photoNameParts.slice(0, -1).join('.') : p.photo_url;
-            const thumbnailPath = `${photoNameNoExt}_thumb.png`;
-            
-            // 1. Try 'thumbnails' bucket
-            let { data: thumbData, error: thumbError } = await supabase.storage
-              .from('thumbnails')
-              .createSignedUrl(thumbnailPath, 3600);
-
-            if (!thumbError && thumbData?.signedUrl) {
-              thumbnailUrl = thumbData.signedUrl;
-            } else {
-              // 2. Fallback: Try 'client-photos' bucket (stored alongside original)
-               const { data: thumbData2, error: thumbError2 } = await supabase.storage
-                  .from('client-photos')
-                  .createSignedUrl(thumbnailPath, 3600);
-               
-               if (!thumbError2 && thumbData2?.signedUrl) {
-                  thumbnailUrl = thumbData2.signedUrl;
-               }
-            }
-          } catch (err) {
-            // Suppress error to avoid log spam on 400 Bad Request
-          }
+          // Use full signed image as thumbnail (skip broken thumbnails bucket)
+          thumbnailUrl = fullUrl;
         }
         
         if (!thumbnailUrl) {

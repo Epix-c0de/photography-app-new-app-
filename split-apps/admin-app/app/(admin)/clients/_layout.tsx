@@ -12,6 +12,9 @@ export default function ClientsLayout() {
       }}
     >
       <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="new" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="gallery" options={{ headerShown: false }} />
     </Stack>
   );
 }
