@@ -310,19 +310,6 @@ export default function BookingsScreen() {
       setActiveSection(section);
     }
   }, [searchParams.section]);
-
-  // Handle preselectCategory from portfolio navigation
-  useEffect(() => {
-    const cat = searchParams.preselectCategory;
-    if (cat && packages.length > 0) {
-      const matchingPkg = packages.find(p => (p as any).category === cat);
-      if (matchingPkg) {
-        setSelectedPackage(matchingPkg.id);
-        setActiveSection('book');
-        advanceStep(1);
-      }
-    }
-  }, [searchParams.preselectCategory, packages]);
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<number | null>(null);
   const [bookingStep, setBookingStep] = useState<number>(1);
@@ -373,6 +360,19 @@ export default function BookingsScreen() {
       }).start();
     });
   }, [stepAnim]);
+
+  // Handle preselectCategory from portfolio navigation
+  useEffect(() => {
+    const cat = searchParams.preselectCategory;
+    if (cat && packages.length > 0) {
+      const matchingPkg = packages.find(p => (p as any).category === cat);
+      if (matchingPkg) {
+        setSelectedPackage(matchingPkg.id);
+        setActiveSection('book');
+        advanceStep(1);
+      }
+    }
+  }, [searchParams.preselectCategory, packages]);
 
   useEffect(() => {
     async function loadData() {

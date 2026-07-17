@@ -389,7 +389,7 @@ export default function PackageEditorScreen() {
                 <View style={styles.formRow}>
                   <Text style={styles.formLabel}>Category</Text>
                   <Text style={styles.formSub}>Link this package to a portfolio category</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
                     {PACKAGE_CATEGORIES.map(cat => (
                       <Pressable
                         key={cat}
@@ -411,7 +411,34 @@ export default function PackageEditorScreen() {
                         }}>{cat}</Text>
                       </Pressable>
                     ))}
+                    <Pressable
+                      onPress={() => setEditForm(prev => prev ? { ...prev, category: '' } : null)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 8,
+                        borderRadius: 20,
+                        marginRight: 8,
+                        backgroundColor: editForm?.category !== null && !PACKAGE_CATEGORIES.includes(editForm?.category || '') ? Colors.gold : 'rgba(255,255,255,0.08)',
+                        borderWidth: 1,
+                        borderColor: editForm?.category !== null && !PACKAGE_CATEGORIES.includes(editForm?.category || '') ? Colors.gold : 'rgba(255,255,255,0.12)',
+                      }}
+                    >
+                      <Text style={{
+                        color: editForm?.category !== null && !PACKAGE_CATEGORIES.includes(editForm?.category || '') ? '#000' : Colors.textMuted,
+                        fontWeight: '500',
+                        fontSize: 13,
+                      }}>Custom</Text>
+                    </Pressable>
                   </ScrollView>
+                  {editForm?.category !== null && !PACKAGE_CATEGORIES.includes(editForm?.category || '') && (
+                    <TextInput
+                      style={styles.formInput}
+                      value={editForm?.category || ''}
+                      onChangeText={text => setEditForm(prev => prev ? { ...prev, category: text } : null)}
+                      placeholder="e.g. Landscape, Product, Food"
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                  )}
                 </View>
 
                 <View style={styles.formRow}>
