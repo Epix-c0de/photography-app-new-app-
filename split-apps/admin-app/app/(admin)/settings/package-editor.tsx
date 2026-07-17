@@ -25,6 +25,8 @@ import type { Database } from '@/types/supabase';
 
 type Package = Database['public']['Tables']['packages']['Row'];
 
+const PACKAGE_CATEGORIES = ['Wedding', 'Portrait', 'Corporate', 'Event', 'Maternity', 'Newborn', 'Fashion', 'Other'];
+
 interface PackageFormState {
   name: string;
   price: number;
@@ -36,6 +38,7 @@ interface PackageFormState {
   detailed_description?: string;
   is_popular?: boolean;
   cover_image_url?: string | null;
+  category?: string | null;
 }
 
 export default function PackageEditorScreen() {
@@ -108,6 +111,7 @@ export default function PackageEditorScreen() {
         storage_limit_gb: 5,
         features: ['20 edited photos', 'Online gallery'],
         is_active: true,
+        category: null,
       };
       console.log('Inserting package:', newPkg);
 
@@ -134,6 +138,7 @@ export default function PackageEditorScreen() {
           storage_limit_gb: data.storage_limit_gb,
           features: featuresToArray(data.features),
           is_active: data.is_active,
+          category: (data as any).category || null,
         });
         console.log('editForm set:', {
           name: data.name,
@@ -142,6 +147,7 @@ export default function PackageEditorScreen() {
           storage_limit_gb: data.storage_limit_gb,
           features: featuresToArray(data.features),
           is_active: data.is_active,
+          category: (data as any).category || null,
         });
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
@@ -177,6 +183,7 @@ export default function PackageEditorScreen() {
           detailed_description: editForm.detailed_description,
           is_popular: editForm.is_popular,
           cover_image_url: editForm.cover_image_url,
+          category: editForm.category,
         })
         .eq('id', editingId);
       
@@ -196,6 +203,7 @@ export default function PackageEditorScreen() {
           detailed_description: editForm.detailed_description,
           is_popular: editForm.is_popular,
           cover_image_url: editForm.cover_image_url ?? null,
+          category: editForm.category ?? null,
         } : p
       ));
       
@@ -252,6 +260,7 @@ export default function PackageEditorScreen() {
       detailed_description: (pkg as any).detailed_description || '',
       is_popular: (pkg as any).is_popular || false,
       cover_image_url: (pkg as any).cover_image_url,
+      category: (pkg as any).category || null,
     });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -375,6 +384,34 @@ export default function PackageEditorScreen() {
                     placeholder="Wedding Gold"
                     placeholderTextColor={Colors.textMuted}
                   />
+                </View>
+
+                <View style={styles.formRow}>
+                  <Text style={styles.formLabel}>Category</Text>
+                  <Text style={styles.formSub}>Link this package to a portfolio category</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                    {PACKAGE_CATEGORIES.map(cat => (
+                      <Pressable
+                        key={cat}
+                        onPress={() => setEditForm(prev => prev ? { ...prev, category: cat } : null)}
+                        style={{
+                          paddingHorizontal: 14,
+                          paddingVertical: 8,
+                          borderRadius: 20,
+                          marginRight: 8,
+                          backgroundColor: editForm?.category === cat ? Colors.gold : 'rgba(255,255,255,0.08)',
+                          borderWidth: 1,
+                          borderColor: editForm?.category === cat ? Colors.gold : 'rgba(255,255,255,0.12)',
+                        }}
+                      >
+                        <Text style={{
+                          color: editForm?.category === cat ? '#000' : Colors.textMuted,
+                          fontWeight: editForm?.category === cat ? '700' : '500',
+                          fontSize: 13,
+                        }}>{cat}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
                 </View>
 
                 <View style={styles.formRow}>
@@ -528,6 +565,11 @@ export default function PackageEditorScreen() {
                       <View style={styles.popularBadge}>
                         <Star size={10} color={Colors.background} fill={Colors.background} />
                         <Text style={styles.popularText}>ACTIVE</Text>
+                      </View>
+                    )}
+                    {(pkg as any).category && (
+                      <View style={[styles.popularBadge, { backgroundColor: 'rgba(212,175,55,0.2)' }]}>
+                        <Text style={[styles.popularText, { color: Colors.gold }]}>{(pkg as any).category}</Text>
                       </View>
                     )}
                   </View>

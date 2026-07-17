@@ -23,6 +23,7 @@ type Package = Omit<DBPackage, 'features'> & {
   detailed_description?: string | null;
   duration?: string | null;
   cover_image_url?: string | null;
+  category?: string | null;
   features: string[];
   // Admin profile joined
   admin_profile?: { id: string; name: string | null; avatar_url: string | null } | null;
@@ -164,6 +165,11 @@ function PackageCard({ pkg, index, isSelected, onSelect }: { pkg: Package; index
               <Text style={styles.popularText}>Most Popular</Text>
             </View>
           )}
+          {pkg.category && (
+            <View style={[styles.popularBadge, { backgroundColor: 'rgba(212,175,55,0.2)', top: pkg.is_popular ? 36 : 12 }]}>
+              <Text style={[styles.popularText, { color: Colors.gold }]}>{pkg.category}</Text>
+            </View>
+          )}
           
           {/* Cover Image Section */}
           {pkg.cover_image_url ? (
@@ -292,7 +298,7 @@ function BookingCard({ booking }: { booking: Booking }) {
 
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
-  const searchParams = useLocalSearchParams<{ section?: string }>();
+  const searchParams = useLocalSearchParams<{ section?: string; preselectCategory?: string }>();
   const router = useRouter();
   const { user, isDemoMode } = useAuth();
   const { isAssigned, loading: assignmentLoading } = useAssignmentStatus();
@@ -304,6 +310,19 @@ export default function BookingsScreen() {
       setActiveSection(section);
     }
   }, [searchParams.section]);
+
+  // Handle preselectCategory from portfolio navigation
+  useEffect(() => {
+    const cat = searchParams.preselectCategory;
+    if (cat && packages.length > 0) {
+      const matchingPkg = packages.find(p => (p as any).category === cat);
+      if (matchingPkg) {
+        setSelectedPackage(matchingPkg.id);
+        setActiveSection('book');
+        advanceStep(1);
+      }
+    }
+  }, [searchParams.preselectCategory, packages]);
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<number | null>(null);
   const [bookingStep, setBookingStep] = useState<number>(1);

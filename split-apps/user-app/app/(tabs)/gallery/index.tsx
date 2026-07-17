@@ -390,9 +390,11 @@ export default function GalleryScreen() {
   const [paymentGallery, setPaymentGallery] = useState<GalleryRowWithCounts | null>(null);
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [portfolioCategory, setPortfolioCategory] = useState<string>('All');
   const [topRatedItems, setTopRatedItems] = useState<PortfolioItem[]>([]);
   const [topRatedLoading, setTopRatedLoading] = useState(false);
   const [selectedPortfolioItem, setSelectedPortfolioItem] = useState<PortfolioItem | null>(null);
+  const [portfolioPackages, setPortfolioPackages] = useState<any[]>([]);
   const [selectedPhotoItem, setSelectedPhotoItem] = useState<PhotoRow | null>(null);
   const [shareSheet, setShareSheet] = useState<ShareSheetPayload | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -449,6 +451,13 @@ export default function GalleryScreen() {
         .then(setPortfolioItems)
         .catch(console.error)
         .finally(() => setPortfolioLoading(false));
+
+      // Fetch active packages for "Book This" CTA
+      supabase.from('packages')
+        .select('id, name, price, category, cover_image_url, owner_admin_id')
+        .eq('is_active', true)
+        .then(({ data }) => setPortfolioPackages(data || []))
+        .catch(console.error);
     } else if (activeTab === 'top-rated') {
       setTopRatedLoading(true);
       ClientService.portfolio.listTopRated()
@@ -1936,8 +1945,32 @@ export default function GalleryScreen() {
             </View>
           ) : (
             <View style={{ flex: 1, minHeight: Dimensions.get('window').height * 0.8 }}>
+              {/* Category filter chips */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: PADDING, paddingVertical: 10, gap: 8 }}>
+                {['All', 'Wedding', 'Portrait', 'Corporate', 'Event', 'Maternity', 'Newborn', 'Fashion'].map(cat => (
+                  <Pressable
+                    key={cat}
+                    onPress={() => { setPortfolioCategory(cat); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+                    style={{
+                      paddingHorizontal: 14,
+                      paddingVertical: 7,
+                      borderRadius: 20,
+                      backgroundColor: portfolioCategory === cat ? Colors.gold : 'rgba(255,255,255,0.08)',
+                      borderWidth: 1,
+                      borderColor: portfolioCategory === cat ? Colors.gold : 'rgba(255,255,255,0.12)',
+                    }}
+                  >
+                    <Text style={{
+                      color: portfolioCategory === cat ? '#000' : Colors.textMuted,
+                      fontWeight: portfolioCategory === cat ? '700' : '500',
+                      fontSize: 13,
+                    }}>{cat}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+
               <FlashList
-                data={portfolioItems}
+                data={portfolioCategory === 'All' ? portfolioItems : portfolioItems.filter(p => p.category === portfolioCategory)}
                 numColumns={2}
                 {...{ estimatedItemSize: 250 }}
                 contentContainerStyle={{ paddingHorizontal: PADDING }}
@@ -1946,7 +1979,38 @@ export default function GalleryScreen() {
                     <PortfolioCard key={item.id} item={item} index={index} onLike={(id) => handleLikePhoto(id, true)} onPress={setSelectedPortfolioItem} />
                   </View>
                 )}
+                ListEmptyComponent={
+                  <View style={styles.stateContainer}>
+                    <Text style={styles.stateText}>No {portfolioCategory} portfolio items yet.</Text>
+                  </View>
+                }
               />
+
+              {/* Book This Package CTA */}
+              {portfolioCategory !== 'All' && portfolioPackages.some(p => p.category === portfolioCategory) && (
+                <Pressable
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    const pkg = portfolioPackages.find(p => p.category === portfolioCategory);
+                    router.push({ pathname: '/(tabs)/bookings', params: { preselectCategory: portfolioCategory } });
+                  }}
+                  style={{
+                    marginHorizontal: PADDING,
+                    marginBottom: 16,
+                    backgroundColor: Colors.gold,
+                    borderRadius: 14,
+                    paddingVertical: 14,
+                    paddingHorizontal: 20,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <ShoppingBag size={18} color="#000" />
+                  <Text style={{ color: '#000', fontWeight: '700', fontSize: 15 }}>Book {portfolioCategory} Package</Text>
+                </Pressable>
+              )}
             </View>
           )
         )}
@@ -2248,6 +2312,30 @@ export default function GalleryScreen() {
                   <Text style={styles.portfolioModalTitle}>{selectedPortfolioItem.title}</Text>
                   {selectedPortfolioItem.category && (
                     <Text style={styles.portfolioModalCategory}>{selectedPortfolioItem.category}</Text>
+                  )}
+                  {/* Book This Package button */}
+                  {selectedPortfolioItem.category && portfolioPackages.some(p => p.category === selectedPortfolioItem.category) && (
+                    <Pressable
+                      onPress={() => {
+                        setSelectedPortfolioItem(null);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        router.push({ pathname: '/(tabs)/bookings', params: { preselectCategory: selectedPortfolioItem.category } });
+                      }}
+                      style={{
+                        marginTop: 12,
+                        backgroundColor: Colors.gold,
+                        borderRadius: 12,
+                        paddingVertical: 12,
+                        paddingHorizontal: 20,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <ShoppingBag size={16} color="#000" />
+                      <Text style={{ color: '#000', fontWeight: '700', fontSize: 14 }}>Book {selectedPortfolioItem.category} Package</Text>
+                    </Pressable>
                   )}
                 </SafeAreaView>
               </LinearGradient>
