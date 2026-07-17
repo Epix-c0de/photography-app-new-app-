@@ -102,9 +102,11 @@ export default function PortfolioScreen() {
       if (uploadError) throw uploadError;
       const { data: { publicUrl } } = supabase.storage.from('portfolio').getPublicUrl(fileName);
       const { error: insertError } = await supabase.from('portfolio_items').insert({
+        admin_id: user.id,
         created_by: user.id,
         title: uploadTitle.trim(),
         description: uploadDesc.trim() || null,
+        photo_url: publicUrl,
         media_url: publicUrl,
         category: uploadCategory,
         is_featured: uploadFeatured,

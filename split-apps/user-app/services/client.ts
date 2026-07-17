@@ -29,6 +29,7 @@ export type PortfolioItem = {
   title: string | null;
   media_url: string;
   image_url: string | null;
+  photo_url: string | null;
   media_type: 'image' | 'video';
   category: string | null;
   content_type: 'bts' | 'portfolio';
@@ -578,16 +579,11 @@ export const ClientService = {
 
       let query = supabase
         .from('portfolio_items')
-        .select(`
-          *,
-          user_profiles:created_by (id, name, avatar_url)
-        `)
-        .eq('is_active', true)
-        .eq('is_public', true);
+        .select('*');
 
-      // If user has linked admins, filter by them; otherwise show all (public portfolio)
+      // If user has linked admins, filter by them; otherwise show all
       if (adminIds.length > 0) {
-        query = query.in('created_by', adminIds);
+        query = query.in('admin_id', adminIds);
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
@@ -612,11 +608,10 @@ export const ClientService = {
       let query = supabase
         .from('portfolio_items')
         .select('*')
-        .eq('is_active', true)
         .eq('content_type', contentType);
 
       if (adminIds.length > 0) {
-        query = query.in('created_by', adminIds);
+        query = query.in('admin_id', adminIds);
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
@@ -640,15 +635,11 @@ export const ClientService = {
 
       let query = supabase
         .from('portfolio_items')
-        .select(`
-          *,
-          user_profiles:created_by (id, name, avatar_url)
-        `)
-        .eq('is_active', true)
+        .select('*')
         .eq('is_top_rated', true);
 
       if (adminIds.length > 0) {
-        query = query.in('created_by', adminIds);
+        query = query.in('admin_id', adminIds);
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });

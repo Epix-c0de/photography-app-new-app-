@@ -316,7 +316,7 @@ export default function BookingsScreen() {
   const [bookingTime, setBookingTime] = useState<string>('');
   const [bookingLocation, setBookingLocation] = useState<string>('');
   const stepAnim = useRef(new Animated.Value(0)).current;
-  const prevStepRef = useRef(0);  const [packages, setPackages] = useState<Package[]>([]);
+  const prevStepRef = useRef(1);  const [packages, setPackages] = useState<Package[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -336,30 +336,41 @@ export default function BookingsScreen() {
   const [paymentPhone, setPaymentPhone] = useState('');
   const [paymentState, setPaymentState] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [pendingBookingId, setPendingBookingId] = useState<string | null>(null);
+  const [pendingStep, setPendingStep] = useState<number | null>(null);
 
   const advanceStep = useCallback((toStep: number) => {
     const fromStep = prevStepRef.current;
     if (fromStep === toStep) return;
     prevStepRef.current = toStep;
+    setPendingStep(toStep);
+  }, []);
 
-    // Slide out current step to the left
+  // Phase 1: slide out current step
+  useEffect(() => {
+    if (pendingStep === null) return;
     stepAnim.setValue(0);
     Animated.timing(stepAnim, {
       toValue: 1,
       duration: 200,
       useNativeDriver: Platform.OS !== 'web',
     }).start(() => {
-      setBookingStep(toStep);
-      // Slide in new step from the right
-      stepAnim.setValue(-1);
-      Animated.spring(stepAnim, {
-        toValue: 0,
-        tension: 65,
-        friction: 11,
-        useNativeDriver: Platform.OS !== 'web',
-      }).start();
+      setBookingStep(pendingStep);
     });
-  }, [stepAnim]);
+  }, [pendingStep, stepAnim]);
+
+  // Phase 2: after step mounts, slide in from right
+  useEffect(() => {
+    if (pendingStep === null || bookingStep !== pendingStep) return;
+    stepAnim.setValue(-1);
+    Animated.spring(stepAnim, {
+      toValue: 0,
+      tension: 65,
+      friction: 11,
+      useNativeDriver: Platform.OS !== 'web',
+    }).start(() => {
+      setPendingStep(null);
+    });
+  }, [bookingStep, pendingStep, stepAnim]);
 
   // Handle preselectCategory from portfolio navigation
   useEffect(() => {

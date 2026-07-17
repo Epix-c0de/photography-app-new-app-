@@ -170,12 +170,18 @@ export default function PostDetailsScreen() {
   // Real-time subscription for live updates
   useEffect(() => {
     if (!id || !type) return;
-    const channel = supabase
-      .channel(`post_details_${id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: likeTableMap[postType], filter: `${likeIdFieldMap[postType]}=eq.${id}` }, () => loadStats())
-      .on('postgres_changes', { event: '*', schema: 'public', table: commentTableMap[postType], filter: `${idFieldMap[postType]}=eq.${id}` }, () => { loadStats(); loadComments(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: bookmarkTableMap[postType], filter: `${likeIdFieldMap[postType]}=eq.${id}` }, () => loadStats())
-      .subscribe();
+
+    const channel = supabase.channel(`post_details_${id}`);
+
+    // Only subscribe to tables that exist (portfolio_* tables may not exist yet)
+    if (postType !== 'portfolio') {
+      channel
+        .on('postgres_changes', { event: '*', schema: 'public', table: likeTableMap[postType], filter: `${likeIdFieldMap[postType]}=eq.${id}` }, () => loadStats())
+        .on('postgres_changes', { event: '*', schema: 'public', table: commentTableMap[postType], filter: `${idFieldMap[postType]}=eq.${id}` }, () => { loadStats(); loadComments(); })
+        .on('postgres_changes', { event: '*', schema: 'public', table: bookmarkTableMap[postType], filter: `${likeIdFieldMap[postType]}=eq.${id}` }, () => loadStats());
+    }
+
+    channel.subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [id, postType]);
 

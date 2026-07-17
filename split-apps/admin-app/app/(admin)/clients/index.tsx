@@ -193,7 +193,7 @@ export default function ClientsScreen() {
         name: c.name || 'Unknown',
         avatar: c.avatar_url || '',
         phone: c.phone || '',
-        total_galleries: c.total_galleries ?? c.total_spent ?? 0,
+        total_galleries: c.total_galleries ?? 0,
         loyalty_level: c.loyalty_level || 'Bronze',
         created_at: c.created_at || new Date().toISOString(),
       }));

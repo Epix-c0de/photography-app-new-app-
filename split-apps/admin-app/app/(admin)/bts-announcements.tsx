@@ -428,9 +428,11 @@ export default function AdminBtsAnnouncementsScreen() {
       const { data: { publicUrl } } = supabase.storage.from('portfolio').getPublicUrl(filePath);
 
       const { error: dbErr } = await supabase.from('portfolio_items').insert({
+        admin_id: user.id,
         created_by: user.id,
         title: portfolioTitle || 'Untitled',
         description: portfolioDescription,
+        photo_url: publicUrl,
         media_url: publicUrl,
         category: portfolioCategory,
         is_featured: portfolioFeatured,
@@ -999,6 +1001,7 @@ export default function AdminBtsAnnouncementsScreen() {
         ListHeaderComponent={renderListHeader}
         contentContainerStyle={{ paddingBottom: 40 }}
         stickySectionHeadersEnabled={false}
+        keyboardShouldPersistTaps="handled"
         ListEmptyComponent={null}
         renderSectionFooter={() => null}
       />
