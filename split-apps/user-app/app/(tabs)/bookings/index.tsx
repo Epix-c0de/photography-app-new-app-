@@ -310,7 +310,7 @@ export default function BookingsScreen() {
   const [bookingTime, setBookingTime] = useState<string>('');
   const [bookingLocation, setBookingLocation] = useState<string>('');
   const stepAnim = useRef(new Animated.Value(0)).current;
-  const prevStepRef = useRef(1);  const [packages, setPackages] = useState<Package[]>([]);
+  const prevStepRef = useRef(0);  const [packages, setPackages] = useState<Package[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -395,10 +395,7 @@ export default function BookingsScreen() {
         // 3. Fetch packages — filter to user's linked admins (or all active if unlinked)
         const pkgQuery = supabase
           .from('packages')
-          .select(`
-            *,
-            user_profiles:owner_admin_id (id, name, avatar_url)
-          `)
+          .select('*')
           .eq('is_active', true)
           .order('price');
 
@@ -407,7 +404,11 @@ export default function BookingsScreen() {
           ? pkgQuery.in('owner_admin_id', myAdminIds)
           : pkgQuery;
 
-        const { data: packagesData } = await finalQuery;
+        const { data: packagesData, error: pkgError } = await finalQuery;
+
+        if (pkgError) {
+          console.error('[Bookings] Package fetch error:', pkgError);
+        }
 
         if (packagesData) {
           const normalized = packagesData.map((p: any) => ({
@@ -418,7 +419,7 @@ export default function BookingsScreen() {
             duration: p.duration ?? null,
             cover_image_url: p.cover_image_url ?? null,
             features: Array.isArray(p.features) ? (p.features as string[]) : [],
-            admin_profile: p.user_profiles ?? null,
+            admin_profile: null,
           }));
           setPackages(normalized);
         }
