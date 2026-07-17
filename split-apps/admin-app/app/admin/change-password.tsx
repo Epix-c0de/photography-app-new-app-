@@ -27,14 +27,14 @@ import {
   AlertTriangle
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { useAdminAuth } from '../../contexts/AdminAuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 
 const { width } = Dimensions.get('window');
 
 export default function AdminChangePasswordScreen() {
   const router = useRouter();
-  const { changePassword, logout } = useAdminAuth();
+  const { changePassword, logout } = useAuth();
   
   const [currentPassword, setCurrentPassword] = useState<string>('');
   const [newPassword, setNewPassword] = useState<string>('');

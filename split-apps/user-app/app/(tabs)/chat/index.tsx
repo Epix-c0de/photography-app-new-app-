@@ -13,6 +13,7 @@ import { demoMessages, demoProfile } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
 import { useAssignmentStatus } from '@/hooks/useAssignmentStatus';
 import UnassignedEmptyState from '@/components/UnassignedEmptyState';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 interface ChatMessage {
   id: string;
@@ -632,7 +633,7 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
     if (isDemoMode) return;
     if (!ownerAdminId) return;
 
-    // Poll admin profile every 5 seconds for faster updates
+    // Initial fetch
     const fetchAdminProfile = async () => {
       try {
         const { data } = await supabase
@@ -650,18 +651,14 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
       }
     };
 
-    // Initial fetch
     fetchAdminProfile();
-
-    // Poll every 5 seconds
-    const pollInterval = setInterval(fetchAdminProfile, 5000);
 
     // Refetch when app comes to foreground
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') fetchAdminProfile();
     });
 
-    // Also subscribe to realtime updates
+    // Subscribe to realtime updates (replaces polling)
     const channel = supabase
       .channel(`admin_profile_${ownerAdminId}`)
       .on(
@@ -682,7 +679,6 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
       .subscribe();
 
     return () => {
-      clearInterval(pollInterval);
       sub.remove();
       supabase.removeChannel(channel);
     };
@@ -933,6 +929,7 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
 
   // ─── RENDER ─────────────────────────────────────────────────────────────────
   return (
+    <ErrorBoundary label="Chat Screen">
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerTopRow}>
@@ -1087,6 +1084,7 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
         </View>
       </KeyboardAvoidingView>
     </View>
+    </ErrorBoundary>
   );
 }
 

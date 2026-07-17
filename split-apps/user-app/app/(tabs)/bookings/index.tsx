@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 import { useAssignmentStatus } from '@/hooks/useAssignmentStatus';
 import UnassignedEmptyState from '@/components/UnassignedEmptyState';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 type DBPackage = Database['public']['Tables']['packages']['Row'];
 type Package = Omit<DBPackage, 'features'> & {
@@ -636,22 +637,17 @@ export default function BookingsScreen() {
     );
   }
 
-  // Show unassigned state fast — while assignment is loading, show spinner.
-  // Once confirmed unassigned, show the card immediately (no data fetches run).
-  if (!isDemoMode) {
-    if (assignmentLoading) {
-      return (
-        <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-          <ActivityIndicator size="large" color={Colors.gold} />
-        </View>
-      );
-    }
-    if (!isAssigned) {
-      return <UnassignedEmptyState featureName="bookings and packages" />;
-    }
+  // Show loading while assignment status is being determined
+  if (!isDemoMode && assignmentLoading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={Colors.gold} />
+      </View>
+    );
   }
 
   return (
+    <ErrorBoundary label="Bookings Screen">
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Text style={styles.headerTitle}>Bookings</Text>
@@ -1175,6 +1171,7 @@ export default function BookingsScreen() {
         </View>
       </Modal>
     </View>
+    </ErrorBoundary>
   );
 }
 

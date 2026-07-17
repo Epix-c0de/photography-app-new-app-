@@ -1,9 +1,13 @@
 import createContextHook from '@nkzw/create-context-hook';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as ScreenCapture from 'expo-screen-capture';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Database } from '@/types/supabase';
+
+// Module-level cache for platform_settings (rarely changes, shared across mounts)
+let platformSettingsCache: { appLink: string; fetchedAt: number } | null = null;
+const PLATFORM_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export type BrandSettings = Database['public']['Tables']['brand_settings']['Row'];
 export type BrandSettingsUpdate = Database['public']['Tables']['brand_settings']['Update'];
@@ -152,17 +156,25 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       if (selectError) throw selectError;
 
       if (row) {
-        // If shareAppLink is not set in brand_settings, fetch from platform_settings
+        // If shareAppLink is not set in brand_settings, fetch from platform_settings (cached)
         if (!row.share_app_link) {
-          const { data: platformData } = await supabase
-            .from('platform_settings')
-            .select('key, value')
-            .in('key', ['platform_app_android_link', 'platform_app_ios_link']);
-          if (platformData && platformData.length > 0) {
-            const pMap: Record<string, string> = {};
-            platformData.forEach((r: any) => { pMap[r.key] = r.value ?? ''; });
-            row.share_app_link = pMap['platform_app_android_link'] || pMap['platform_app_ios_link'] || '';
+          let appLink = '';
+          const now = Date.now();
+          if (platformSettingsCache && (now - platformSettingsCache.fetchedAt) < PLATFORM_CACHE_TTL) {
+            appLink = platformSettingsCache.appLink;
+          } else {
+            const { data: platformData } = await supabase
+              .from('platform_settings')
+              .select('key, value')
+              .in('key', ['platform_app_android_link', 'platform_app_ios_link']);
+            if (platformData && platformData.length > 0) {
+              const pMap: Record<string, string> = {};
+              platformData.forEach((r: any) => { pMap[r.key] = r.value ?? ''; });
+              appLink = pMap['platform_app_android_link'] || pMap['platform_app_ios_link'] || '';
+            }
+            platformSettingsCache = { appLink, fetchedAt: now };
           }
+          row.share_app_link = appLink;
         }
         setSettings(row);
         return;

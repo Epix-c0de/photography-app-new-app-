@@ -279,19 +279,25 @@ export const DeliveryService = {
   },
 
   async refillCredits(amount: number) {
-    // Mock Payment Gateway Integration (Stripe/PayPal)
-    // In a real app, this would call a server-side function to process payment
+    // Call server-side Edge Function to process payment and add credits
+    // This ensures payment is verified before credits are added
     
-    const { data: current } = await supabase.from('delivery_credits').select('balance, id').single();
-    if (!current) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
 
-    await supabase
-      .from('delivery_credits')
-      .update({ balance: current.balance + amount })
-      .eq('id', current.id);
-      
-    // Log transaction (mock)
-    // await supabase.from('transactions').insert({...})
+    const { data, error } = await supabase.functions.invoke('admin-refill-credits', {
+      body: { amount },
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    if (error) {
+      console.error('Credit refill failed:', error);
+      throw new Error(error.message || 'Failed to process payment');
+    }
+
+    return data;
   },
 
   async getStats(): Promise<{ sent: number; failed: number; balance: number; successRate: string }> {
@@ -307,7 +313,7 @@ export const DeliveryService = {
 
     const { data: credits } = await supabase
       .from('delivery_credits')
-      .select('*')
+      .select('balance')
       .single();
 
     return {

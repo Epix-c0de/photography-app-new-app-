@@ -14,6 +14,7 @@ import { demoBookings, demoGalleries, demoPayments } from '@/lib/demo';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/types/supabase';
 import ProfileEditModal from '@/components/ProfileEditModal';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 import { useBranding } from '@/contexts/BrandingContext';
 
@@ -129,6 +130,8 @@ export default function ProfileScreen() {
 
         const allClientIds = (clientRows || []).map((c: any) => c.id).filter(Boolean);
 
+        // Fetch client galleries — use join fallback when no client IDs exist
+        let clientGalleries: any[] = [];
         if (allClientIds.length > 0) {
             const { data: paymentsData } = await supabase
               .from('payments')
@@ -138,10 +141,22 @@ export default function ProfileScreen() {
 
             if (paymentsData) setPayments(paymentsData);
 
-            const { data: clientGalleries } = await supabase
+            const { data } = await supabase
               .from('galleries')
               .select('*')
               .in('client_id', allClientIds);
+            clientGalleries = data || [];
+        } else {
+            // Fallback: join through clients table to find galleries for this user
+            const { data } = await supabase
+              .from('galleries')
+              .select('*, clients!inner(user_id)')
+              .eq('clients.user_id', user.id);
+            clientGalleries = (data || []).map((g: any) => {
+              const { clients, ...rest } = g;
+              return rest;
+            });
+        }
 
             const { data: unlockedGalleries } = await supabase
               .from('unlocked_galleries')
@@ -446,6 +461,7 @@ export default function ProfileScreen() {
   ];
 
   return (
+    <ErrorBoundary label="Profile Screen">
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 120, 160) }}>
         <BlurView intensity={80} tint="dark" style={[styles.premiumProfileHeader, { paddingTop: insets.top + 20 }]}>
@@ -676,6 +692,7 @@ export default function ProfileScreen() {
         hasCurrentPhoto={!!avatarUrl}
       />
     </View>
+    </ErrorBoundary>
   );
 }
 

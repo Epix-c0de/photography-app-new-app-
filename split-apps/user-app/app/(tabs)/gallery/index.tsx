@@ -65,7 +65,7 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
     RNAnimated.timing(cardFade, { toValue: 1, duration: 400, delay: index * 80, useNativeDriver: true }).start();
   }, [cardFade, index]);
 
-  const handleDoubleTap = useCallback(() => {
+  const handleLongPress = useCallback(() => {
     if (selectMode) return;
     if (isGalleryUnpaid) {
       Alert.alert('Payment Required', 'Please unlock this gallery to view photos without watermarks.');
@@ -138,7 +138,7 @@ function PhotoCard({ photo, index, onLike, onOpenPhoto, isLiked, showWatermark, 
 
   return (
     <RNAnimated.View style={[styles.photoCard, { opacity: cardFade, transform: [{ scale: isSelected ? 0.95 : 1 }] }]}>
-      <Pressable onPress={handleOpen} onLongPress={handleDoubleTap}>
+      <Pressable onPress={handleOpen} onLongPress={handleLongPress}>
         <Image
           source={{ uri: photo.thumbnailUrl || photo.url }}
           style={[styles.photoImage, { height: imageHeight, backgroundColor: Colors.cardLight }, isBlurred && { opacity: 0.7 }, isSelected && { opacity: 0.6 }]}
@@ -355,7 +355,15 @@ export default function GalleryScreen() {
   const searchParams = useLocalSearchParams();
   const [activeTab, setActiveTab] = useState<TabType>('my-galleries');
   const [accessCode, setAccessCode] = useState<string>((searchParams.accessCode as string) || '');
-  const [selectedGallery, setSelectedGallery] = useState<GalleryRowWithCounts | null>(null);
+
+  // Rate limiting for gallery unlock attempts (brute-force protection)
+  const unlockAttemptsRef = useRef<{ count: number; lastAttempt: number; blockedUntil: number }>({
+    count: 0,
+    lastAttempt: 0,
+    blockedUntil: 0,
+  });
+  const MAX_ATTEMPTS = 5;
+  const LOCKOUT_DURATION = 60 * 1000; // 1 minute lockout after max attempts  const [selectedGallery, setSelectedGallery] = useState<GalleryRowWithCounts | null>(null);
   const [likedPhotos, setLikedPhotos] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState<string>('');
   const unlockAnim = useRef(new RNAnimated.Value(0)).current;
@@ -483,6 +491,15 @@ export default function GalleryScreen() {
   }, [isDemoMode, user?.id]);
 
   const handleUnlock = useCallback(async (overrideCode?: string) => {
+    // Rate limiting check
+    const now = Date.now();
+    const attempts = unlockAttemptsRef.current;
+    if (now < attempts.blockedUntil) {
+      const waitSec = Math.ceil((attempts.blockedUntil - now) / 1000);
+      Alert.alert('Too Many Attempts', `Please wait ${waitSec} seconds before trying again.`);
+      return;
+    }
+
     const codeToUse = typeof overrideCode === 'string' ? overrideCode : accessCode;
     
     if (!codeToUse.trim()) {
@@ -525,6 +542,16 @@ export default function GalleryScreen() {
     );
 
     if (rpcError || !rpcResult?.success) {
+      // Track failed attempt for rate limiting
+      attempts.count++;
+      attempts.lastAttempt = now;
+      if (attempts.count >= MAX_ATTEMPTS) {
+        attempts.blockedUntil = now + LOCKOUT_DURATION;
+        attempts.count = 0;
+        Alert.alert('Too Many Failed Attempts', 'Please wait 1 minute before trying again.');
+        return;
+      }
+
       // Fallback: direct gallery lookup (works if user already has a client row)
       const { data: fallbackData, error: fallbackError } = await supabase
         .from('galleries')
@@ -534,6 +561,15 @@ export default function GalleryScreen() {
         .maybeSingle();
 
       if (fallbackError || !fallbackData) {
+        // Track failed attempt for rate limiting
+        attempts.count++;
+        attempts.lastAttempt = now;
+        if (attempts.count >= MAX_ATTEMPTS) {
+          attempts.blockedUntil = now + LOCKOUT_DURATION;
+          attempts.count = 0;
+          Alert.alert('Too Many Failed Attempts', 'Please wait 1 minute before trying again.');
+          return;
+        }
         Alert.alert('Invalid Code', 'We could not find a gallery for that access code.');
         return;
       }
@@ -550,7 +586,10 @@ export default function GalleryScreen() {
       return;
     }
 
-    // RPC succeeded — fetch the full gallery row so we have all fields
+    // RPC succeeded — reset rate limiting and fetch the full gallery row
+    attempts.count = 0;
+    attempts.blockedUntil = 0;
+
     const { data, error } = await supabase
       .from('galleries')
       .select('*')
@@ -748,13 +787,28 @@ export default function GalleryScreen() {
 
     const activeClientIds = clientIdsRef.current.length > 0 ? clientIdsRef.current : (await fetchAllClientIds());
 
-    // Fetch galleries where client_id matches ANY of the user's client records (multi-admin)
-    const { data: clientGalleries, error: clientError } = activeClientIds.length > 0
-      ? await supabase
-          .from('galleries')
-          .select('*')
-          .in('client_id', activeClientIds)
-      : { data: [], error: null };
+    let clientGalleries: any[] = [];
+    let clientError: any = null;
+
+    if (activeClientIds.length > 0) {
+      const result = await supabase
+        .from('galleries')
+        .select('*')
+        .in('client_id', activeClientIds);
+      clientGalleries = result.data || [];
+      clientError = result.error;
+    } else {
+      // Fallback: join through clients table to find galleries for this user
+      const result = await supabase
+        .from('galleries')
+        .select('*, clients!inner(user_id)')
+        .eq('clients.user_id', user.id);
+      clientGalleries = (result.data || []).map((g: any) => {
+        const { clients, ...rest } = g;
+        return rest;
+      });
+      clientError = result.error;
+    }
 
     // Fetch galleries from unlocked_galleries — only when user?.id is available
     const { data: unlockedGalleries, error: unlockedError } = user?.id
@@ -1076,6 +1130,10 @@ export default function GalleryScreen() {
   }, [brandName, openAdvancedShare, resolveGalleryLink]);
 
   const handleDownloadGallery = useCallback(async (gallery: GalleryRow) => {
+    if (!FileSystem) {
+      Alert.alert('Unavailable', 'Downloads are not available on this platform.');
+      return;
+    }
     const folderPath = `${FileSystem.documentDirectory}galleries/${gallery.id}/`;
     const activePhotos =
       selectedGallery?.id === gallery.id && photos.length > 0
@@ -1150,6 +1208,10 @@ export default function GalleryScreen() {
   const handleDownloadFavorites = useCallback(async () => {
     if (favoritesCount === 0) {
       Alert.alert('No Favorites', 'You haven\'t favorited any photos yet. Double-tap a photo to like it.');
+      return;
+    }
+    if (!FileSystem) {
+      Alert.alert('Unavailable', 'Downloads are not available on this platform.');
       return;
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1250,6 +1312,11 @@ export default function GalleryScreen() {
       if (signedData?.signedUrl) {
         downloadUrl = signedData.signedUrl;
       }
+    }
+
+    if (!FileSystem) {
+      Alert.alert('Unavailable', 'Downloads are not available on this platform.');
+      return;
     }
 
     const folderPath = `${FileSystem.documentDirectory}photos/${selectedGallery?.id || 'gallery'}/`;
@@ -1514,12 +1581,7 @@ export default function GalleryScreen() {
     }
   }, [selectedPhotoIds, photos, selectedGallery, downloadOnWeb]);
 
-  // Show unassigned empty state for non-demo users without a photographer —
-  // but only if they have no galleries (e.g. from unlocked_galleries).
-  if (!isDemoMode && !assignmentLoading && !isAssigned && galleries.length === 0) {
-    return <UnassignedEmptyState featureName="your galleries" />;
-  }
-
+  // Show loading while assignment status is being determined
   if (!isDemoMode && assignmentLoading) {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' }}>

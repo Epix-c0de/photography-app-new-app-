@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { supabase } from './supabase';
 
 let ImageManipulator: any = null;
 try {
@@ -117,5 +118,3 @@ export async function uploadWithRetry(
   }
   return { error: lastError };
 }
-
-import { supabase } from './supabase';

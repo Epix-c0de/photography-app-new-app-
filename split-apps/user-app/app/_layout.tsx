@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useRef, useState } from 'react';
@@ -14,11 +13,10 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { BrandingProvider } from '@/contexts/BrandingContext';
 import { UpdateProvider } from '@/components/UpdateProvider';
 import SecurityGuard from '@/components/SecurityGuard';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import Colors from '@/constants/colors';
 
 SplashScreen.preventAutoHideAsync();
-
-const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   return (
@@ -221,21 +219,21 @@ function RootLayout() {
   }
   
   return (
-    <QueryClientProvider client={queryClient}>
       <GestureHandlerRootView style={{ flex: 1, backgroundColor: Colors.background }}>
         <SafeAreaProvider>
           <AuthProvider>
             <BrandingProvider>
               <UpdateProvider>
                 <SecurityGuard userId={session?.user?.id || null}>
-                  <RootLayoutNav />
+                  <ErrorBoundary label="App">
+                    <RootLayoutNav />
+                  </ErrorBoundary>
                 </SecurityGuard>
               </UpdateProvider>
             </BrandingProvider>
           </AuthProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
-    </QueryClientProvider>
   );
 }
 

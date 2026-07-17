@@ -9,6 +9,10 @@ import { useRouter, useLocalSearchParams, usePathname } from 'expo-router';
 import { Bell, ChevronRight, Camera, Unlock, CreditCard, Zap, Play, Heart, Star } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { TrustBanner } from '@/components/home/TrustBanner';
+import { QuickActions } from '@/components/home/QuickActions';
+import { PaymentAlert } from '@/components/home/PaymentAlert';
+import { GalleryPreviewSection } from '@/components/home/GalleryPreviewSection';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
@@ -682,12 +686,28 @@ export default function HomeScreen() {
 
     const activeClientIds = clientIds.length > 0 ? clientIds : (await fetchAllClientIds());
 
-    const { data: clientGalleries, error: clientError } = activeClientIds.length > 0
-      ? await supabase
-          .from('galleries')
-          .select('*')
-          .in('client_id', activeClientIds)
-      : { data: [], error: null };
+    let clientGalleries: any[] = [];
+    let clientError: any = null;
+
+    if (activeClientIds.length > 0) {
+      const result = await supabase
+        .from('galleries')
+        .select('*')
+        .in('client_id', activeClientIds);
+      clientGalleries = result.data || [];
+      clientError = result.error;
+    } else {
+      // Fallback: join through clients table to find galleries for this user
+      const result = await supabase
+        .from('galleries')
+        .select('*, clients!inner(user_id)')
+        .eq('clients.user_id', user.id);
+      clientGalleries = (result.data || []).map((g: any) => {
+        const { clients, ...rest } = g;
+        return rest;
+      });
+      clientError = result.error;
+    }
 
     // Only fetch unlocked galleries when user?.id is available
     const { data: unlockedGalleries, error: unlockedError } = user?.id
@@ -934,12 +954,31 @@ export default function HomeScreen() {
     });
     (async () => {
       try {
+        // Scope trust stats to the user's linked photographers only
+        const { data: authUser } = await supabase.auth.getUser();
+        if (!authUser?.user) return;
+
+        const { data: myClients } = await supabase
+          .from('clients')
+          .select('id, owner_admin_id')
+          .eq('user_id', authUser.user.id);
+        const myClientIds = (myClients || []).map((c: any) => c.id).filter(Boolean);
+        const adminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
+
+        if (myClientIds.length === 0) {
+          setTrustStats({ clientCount: 0, avgRating: 0 });
+          return;
+        }
+
         const { count: clientCount } = await supabase
           .from('clients')
-          .select('id', { count: 'exact', head: true });
+          .select('id', { count: 'exact', head: true })
+          .in('owner_admin_id', adminIds);
+
         const { data: ratingData } = await supabase
           .from('reviews')
-          .select('rating');
+          .select('rating')
+          .in('client_id', myClientIds);
         const ratings = (ratingData || []).map((r: any) => r.rating).filter(Boolean);
         const avgRating = ratings.length > 0 ? (ratings.reduce((a: number, b: number) => a + b, 0) / ratings.length).toFixed(1) : '0.0';
         setTrustStats({ clientCount: clientCount ?? 0, avgRating: parseFloat(avgRating) });
@@ -963,10 +1002,9 @@ export default function HomeScreen() {
   // Subscribe to realtime updates only once on mount
   useEffect(() => {
     if (isDemoMode) return;
-    // Use unique channel name to avoid conflicts with any existing channels
-    const channelName = `user_app_home_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Use stable channel name to avoid conflicts
     const channel = supabase
-      .channel(channelName)
+      .channel('user_app_home_feed')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bts_posts' }, () => fetchBtsRef.current())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => fetchUnreadCountRef.current())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'galleries' }, () => fetchGalleriesRef.current())
@@ -1099,65 +1137,12 @@ export default function HomeScreen() {
           )}
         </View>
 
-        <View style={styles.quickActions}>
-          <Pressable style={styles.quickAction} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/(tabs)/bookings'); }}>
-            <LinearGradient colors={[Colors.goldMuted, 'rgba(212,175,55,0.05)']} style={styles.quickActionGradient}>
-              <Camera size={20} color={Colors.gold} />
-              <Text style={styles.quickActionText}>Book a Shoot</Text>
-            </LinearGradient>
-          </Pressable>
-          <Pressable
-            style={styles.quickAction}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push(hasPendingPayments ? '/(tabs)/gallery?tab=unlock' : '/(tabs)/gallery');
-            }}
-          >
-            <LinearGradient colors={[Colors.goldMuted, 'rgba(212,175,55,0.05)']} style={styles.quickActionGradient}>
-              <View style={styles.actionIconContainer}>
-                <Unlock size={20} color={Colors.gold} />
-                {hasPendingPayments && (
-                  <View style={styles.redBadge} />
-                )}
-              </View>
-              <Text style={styles.quickActionText}>Unlock Gallery</Text>
-            </LinearGradient>
-          </Pressable>
-        </View>
+        <QuickActions hasPendingPayments={hasPendingPayments} />
 
-        {hasPendingPayments && (
-          <View style={styles.paymentAlert}>
-            <LinearGradient
-              colors={['rgba(28,28,30,0.8)', 'rgba(28,28,30,0.95)']}
-              style={styles.paymentAlertGradient}
-            >
-              <View style={styles.paymentAlertIcon}>
-                <CreditCard size={20} color={Colors.gold} />
-              </View>
-              <View style={styles.paymentAlertContent}>
-                <Text style={styles.paymentAlertTitle}>Pending Payment</Text>
-                <Text style={styles.paymentAlertDesc}>
-                  {pendingPaymentGalleries.length} galleries awaiting payment
-                </Text>
-              </View>
-              <Pressable
-                style={styles.paymentAlertAction}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  const firstPending = pendingPaymentGalleries[0];
-                  if (firstPending) {
-                    handlePayGallery(firstPending);
-                    return;
-                  }
-                  router.push('/(tabs)/gallery?tab=unlock');
-                }}
-              >
-                <Text style={styles.paymentAlertActionText}>Pay</Text>
-                <Zap size={14} color={Colors.background} fill={Colors.background} />
-              </Pressable>
-            </LinearGradient>
-          </View>
-        )}
+        <PaymentAlert
+          pendingPaymentGalleries={pendingPaymentGalleries}
+          onPayGallery={handlePayGallery}
+        />
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -1211,80 +1196,19 @@ export default function HomeScreen() {
         </ErrorBoundary>
 
         <ErrorBoundary label="Galleries Section">
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Galleries</Text>
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push(hasPendingPayments ? '/(tabs)/gallery?tab=unlock' : '/(tabs)/gallery');
-              }}
-            >
-              <Text style={styles.seeAll}>View all</Text>
-            </Pressable>
-          </View>
-          {galleriesLoading ? (
-            <View style={styles.recentGalleriesList}>
-              {[1, 2].map((i) => (
-                <View key={i} style={[styles.galleryThumbContainer, { marginRight: 16 }]}>
-                  <View style={[styles.galleryThumbWrapper, { backgroundColor: '#1C1C1E', overflow: 'hidden' }]}>
-                    <Skeleton width={160} height={200} />
-                    <View style={[styles.galleryThumbInfo, { zIndex: 10 }]}>
-                      <Skeleton width="70%" height={16} />
-                      <View style={{ height: 6 }} />
-                      <Skeleton width="40%" height={12} />
-                    </View>
-                  </View>
-                </View>
-              ))}
-            </View>
-          ) : galleriesError ? (
-            <View style={styles.emptyAnnouncements}>
-              <Text style={styles.emptyAnnouncementsText}>{galleriesError}</Text>
-              <Pressable onPress={fetchGalleries}>
-                <Text style={styles.retryText}>Retry</Text>
-              </Pressable>
-            </View>
-          ) : galleries.length === 0 ? (
-            <View style={styles.emptyAnnouncements}>
-              <Text style={styles.emptyAnnouncementsText}>Your memories will appear here soon.</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={galleries.slice(0, 4)}
-              renderItem={({ item }) => <GalleryPreviewCard item={item} />}
-              keyExtractor={(item) => item.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.galleriesContainer}
-              snapToInterval={176}
-              snapToAlignment="start"
-              decelerationRate="fast"
-            />
-          )}
-        </View>
+        <GalleryPreviewSection
+          galleries={galleries}
+          loading={galleriesLoading}
+          error={galleriesError}
+          hasPendingPayments={hasPendingPayments}
+          onRetry={fetchGalleries}
+        />
         </ErrorBoundary>
 
-        <Pressable 
-          style={styles.trustBanner}
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/(tabs)/profile'); }}
-        >
-          <LinearGradient
-            colors={['rgba(255,255,255,0.05)', 'rgba(255,255,255,0.02)']}
-            style={styles.trustBannerGradient}
-          >
-            <View style={styles.trustBannerIcon}>
-              <View style={styles.starCircle}>
-                <Star size={20} color={Colors.gold} fill={Colors.gold} />
-              </View>
-            </View>
-            <View style={styles.trustBannerContent}>
-              <Text style={styles.trustBannerTitle}>Trusted by {trustStats.clientCount || '50+'} clients</Text>
-              <Text style={styles.trustBannerDesc}>{trustStats.avgRating > 0 ? `${trustStats.avgRating} average rating` : 'Rated by clients'}</Text>
-            </View>
-            <ChevronRight size={16} color={Colors.textMuted} />
-          </LinearGradient>
-        </Pressable>
+        <TrustBanner
+          clientCount={trustStats.clientCount}
+          avgRating={trustStats.avgRating}
+        />
 
       </Animated.ScrollView>
 

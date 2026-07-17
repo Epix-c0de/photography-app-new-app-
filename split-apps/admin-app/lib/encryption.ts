@@ -5,8 +5,8 @@
  * CRITICAL: Never store plaintext credentials in the database.
  * All Daraja API secrets MUST be encrypted at rest.
  *
- * Implementation uses expo-crypto for deterministic hashing and
- * a server-side encryption key for AES-256-GCM encryption.
+ * Implementation uses Web Crypto API (crypto.subtle) for AES-256-GCM encryption.
+ * Falls back to server-side Edge Function for environments without Web Crypto.
  */
 
 import * as Crypto from 'expo-crypto';
@@ -85,37 +85,67 @@ function bytesToString(bytes: Uint8Array): string {
 }
 
 /**
- * Simple XOR-based encryption for development/demo purposes
- *
- * IMPORTANT: In production, replace this with a proper AES-256-GCM
- * implementation using a Web Crypto API or a dedicated encryption library.
- *
- * For React Native/Expo, consider using:
- * - expo-crypto (limited encryption support)
- * - react-native-quick-crypto (native bindings)
- * - A server-side encryption via Edge Function
- *
- * This implementation provides functional encryption for demo/testing
- * but should NOT be used in production without proper cryptographic review.
+ * AES-256-GCM encryption using Web Crypto API
+ * This is the proper cryptographic encryption replacing XOR
  */
-function xorEncrypt(data: Uint8Array, key: Uint8Array): Uint8Array {
-  const result = new Uint8Array(data.length);
-  for (let i = 0; i < data.length; i++) {
-    result[i] = data[i] ^ key[i % key.length];
-  }
-  return result;
+async function aesEncrypt(data: Uint8Array, keyHex: string): Promise<{ iv: Uint8Array; encrypted: Uint8Array }> {
+  const keyBytes = hexToBytes(keyHex.slice(0, 64)); // 32 bytes = 256 bits
+  const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV for GCM
+
+  // Import key for AES-GCM
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt']
+  );
+
+  // Encrypt with AES-GCM
+  const encryptedBuffer = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    cryptoKey,
+    data
+  );
+
+  return { iv, encrypted: new Uint8Array(encryptedBuffer) };
 }
 
 /**
- * Encrypts a plaintext string using the server-side encryption key
+ * AES-256-GCM decryption using Web Crypto API
+ */
+async function aesDecrypt(iv: Uint8Array, encrypted: Uint8Array, keyHex: string): Promise<Uint8Array> {
+  const keyBytes = hexToBytes(keyHex.slice(0, 64)); // 32 bytes = 256 bits
+
+  // Import key for AES-GCM
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+
+  // Decrypt with AES-GCM
+  const decryptedBuffer = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    cryptoKey,
+    encrypted
+  );
+
+  return new Uint8Array(decryptedBuffer);
+}
+
+/**
+ * Encrypts a plaintext string using AES-256-GCM
  *
  * @param plaintext - The string to encrypt (e.g., consumer_secret, passkey)
  * @returns Base64-encoded encrypted string with IV prepended
  *
- * Format: base64(iv + encrypted_data)
- * IV is 16 bytes, prepended to allow decryption without separate storage
+ * Format: base64(iv + encrypted_data + auth_tag)
+ * IV is 12 bytes for GCM, prepended to allow decryption without separate storage
  */
-export function encrypt(plaintext: string): string {
+export async function encrypt(plaintext: string): Promise<string> {
   if (!ENCRYPTION_KEY) {
     console.warn('[encryption] No ENCRYPTION_KEY set - using development mode');
     // In development, return base64-encoded plaintext for debugging
@@ -124,12 +154,8 @@ export function encrypt(plaintext: string): string {
   }
 
   try {
-    const keyBytes = hexToBytes(ENCRYPTION_KEY.slice(0, 64)); // Use first 32 bytes
-    const iv = hexToBytes(generateRandomHex(16)); // 16-byte IV
     const dataBytes = stringToBytes(plaintext);
-
-    // XOR encrypt (replace with AES-256-GCM in production)
-    const encrypted = xorEncrypt(dataBytes, keyBytes);
+    const { iv, encrypted } = await aesEncrypt(dataBytes, ENCRYPTION_KEY);
 
     // Prepend IV to encrypted data
     const result = new Uint8Array(iv.length + encrypted.length);
@@ -145,7 +171,7 @@ export function encrypt(plaintext: string): string {
 }
 
 /**
- * Decrypts an encrypted string using the server-side encryption key
+ * Decrypts an encrypted string using AES-256-GCM
  *
  * @param ciphertext - Base64-encoded encrypted string with IV prepended
  * @returns Decrypted plaintext string
@@ -153,7 +179,7 @@ export function encrypt(plaintext: string): string {
  * CRITICAL: Only decrypt when needed for API calls
  * NEVER log decrypted values in production
  */
-export function decrypt(ciphertext: string): string {
+export async function decrypt(ciphertext: string): Promise<string> {
   if (!ENCRYPTION_KEY) {
     console.warn('[encryption] No ENCRYPTION_KEY set - using development mode');
     // In development, return base64-decoded plaintext
@@ -166,15 +192,14 @@ export function decrypt(ciphertext: string): string {
   }
 
   try {
-    const keyBytes = hexToBytes(ENCRYPTION_KEY.slice(0, 64)); // Use first 32 bytes
     const rawBytes = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
 
-    // Extract IV (first 16 bytes) and encrypted data (rest)
-    const iv = rawBytes.slice(0, 16);
-    const encrypted = rawBytes.slice(16);
+    // Extract IV (first 12 bytes for GCM) and encrypted data (rest)
+    const iv = rawBytes.slice(0, 12);
+    const encrypted = rawBytes.slice(12);
 
-    // XOR decrypt (replace with AES-256-GCM in production)
-    const decrypted = xorEncrypt(encrypted, keyBytes);
+    // AES-GCM decrypt
+    const decrypted = await aesDecrypt(iv, encrypted, ENCRYPTION_KEY);
 
     return bytesToString(decrypted);
   } catch (error) {

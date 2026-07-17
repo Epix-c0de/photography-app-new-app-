@@ -6,6 +6,9 @@ import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { ClientService } from '@/services/client';
 
+// Admin email from environment - NEVER hardcode emails in source
+const ADMIN_EMAIL = process.env.EXPO_PUBLIC_ADMIN_EMAIL || '';
+
 interface UserProfile {
   id: string;
   role: 'admin' | 'client' | 'super_admin';
@@ -62,8 +65,11 @@ interface AuthContextType extends AuthState {
   loginWithOtp: (email: string) => Promise<void>;
   verifyOtp: (email: string, token: string) => Promise<void>;
   logout: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   verifyPin: (pin: string) => Promise<boolean>;
+  setupPin: (pin: string) => Promise<void>;
   authenticateWithBiometrics: () => Promise<boolean>;
+  setupBiometric: () => Promise<void>;
   checkAuthOnLaunch: () => Promise<void>;
   clearPinLock: () => void;
   completeOnboarding: () => Promise<void>;
@@ -73,6 +79,12 @@ interface AuthContextType extends AuthState {
   verifyAdminGuard: (action: AdminGuardAction) => Promise<boolean>;
   isLoggedIn: boolean;
   refreshUser: () => Promise<void>;
+  adminLockout: {
+    isLocked: boolean;
+    remainingAttempts: number;
+    lockoutTime: number | null;
+    resetLockout: () => Promise<void>;
+  };
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -81,10 +93,22 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const PIN_ATTEMPTS_KEY = 'pin_attempts';
 const PIN_LOCKED_UNTIL_KEY = 'pin_locked_until';
 const ONBOARDING_KEY = 'has_seen_onboarding';
+const ADMIN_LOCKOUT_KEY = 'admin_lockout_info';
+const ADMIN_BIOMETRIC_KEY = 'admin_biometric_enabled';
+const ADMIN_PIN_KEY = 'admin_pin_hash';
 
 // PIN lockout configuration
 const MAX_PIN_ATTEMPTS = 5;
 const PIN_LOCKOUT_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Admin lockout configuration
+const MAX_LOGIN_ATTEMPTS = 5;
+const ADMIN_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+
+interface AdminLockoutInfo {
+  attempts: number;
+  lockedUntil: number | null;
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<AuthState>({
@@ -115,6 +139,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: 'active',
       },
     ],
+  });
+  const [adminLockout, setAdminLockout] = useState<AdminLockoutInfo>({
+    attempts: 0,
+    lockedUntil: null,
   });
   const ADMIN_SECURITY_KEY = 'admin_security_state';
 
@@ -185,6 +213,148 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Failed to persist onboarding state:', error);
     }
   }, []);
+
+  // Admin lockout functions
+  const loadAdminLockout = useCallback(async () => {
+    try {
+      const lockoutStr = await SecureStore.getItemAsync(ADMIN_LOCKOUT_KEY);
+      const lockout: AdminLockoutInfo = lockoutStr
+        ? JSON.parse(lockoutStr)
+        : { attempts: 0, lockedUntil: null };
+
+      const now = Date.now();
+      const isLocked = !!(lockout.lockedUntil && lockout.lockedUntil > now);
+
+      setAdminLockout({
+        attempts: isLocked ? lockout.attempts : 0,
+        lockedUntil: isLocked ? lockout.lockedUntil : null,
+      });
+    } catch (error) {
+      console.error('Failed to load admin lockout:', error);
+    }
+  }, []);
+
+  const resetAdminLockout = useCallback(async () => {
+    try {
+      await SecureStore.setItemAsync(ADMIN_LOCKOUT_KEY, JSON.stringify({ attempts: 0, lockedUntil: null }));
+      setAdminLockout({ attempts: 0, lockedUntil: null });
+    } catch (error) {
+      console.error('Failed to reset admin lockout:', error);
+    }
+  }, []);
+
+  const incrementAdminLockout = useCallback(async (): Promise<{ locked: boolean; remaining: number }> => {
+    const newAttempts = adminLockout.attempts + 1;
+    let newLockedUntil: number | null = null;
+
+    if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
+      newLockedUntil = Date.now() + ADMIN_LOCKOUT_DURATION;
+    }
+
+    const newLockout: AdminLockoutInfo = {
+      attempts: newAttempts,
+      lockedUntil: newLockedUntil,
+    };
+
+    await SecureStore.setItemAsync(ADMIN_LOCKOUT_KEY, JSON.stringify(newLockout));
+    setAdminLockout(newLockout);
+
+    return {
+      locked: newLockedUntil !== null,
+      remaining: Math.max(0, MAX_LOGIN_ATTEMPTS - newAttempts),
+    };
+  }, [adminLockout.attempts]);
+
+  // Change admin password
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    if (!state.user?.id) throw new Error('No user logged in');
+
+    try {
+      // Re-authenticate with current password
+      const { error: reauthError } = await supabase.auth.signInWithPassword({
+        email: state.user.email!,
+        password: currentPassword,
+      });
+
+      if (reauthError) throw new Error('Current password is incorrect');
+
+      // Update to new password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (updateError) throw new Error('Failed to update password');
+
+      // Log the action
+      await logAdminAction(state.user.id, 'password_changed', {
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error('Password change error:', error);
+      throw error;
+    }
+  }, [state.user]);
+
+  // Setup PIN for admin
+  const setupPin = useCallback(async (pin: string) => {
+    if (!state.user?.id) throw new Error('No user logged in');
+    if (pin.length !== 6) throw new Error('PIN must be 6 digits');
+
+    try {
+      const pinHash = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        pin
+      );
+
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ pin_hash: pinHash })
+        .eq('id', state.user.id);
+
+      if (error) throw error;
+
+      setState(prev => ({
+        ...prev,
+        profile: prev.profile ? { ...prev.profile, pin_hash: pinHash } : null,
+      }));
+    } catch (error: any) {
+      console.error('PIN setup error:', error);
+      throw error;
+    }
+  }, [state.user]);
+
+  // Setup biometric for admin
+  const setupBiometric = useCallback(async () => {
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+      if (!hasHardware) throw new Error('Biometric authentication not available on this device');
+      if (!isEnrolled) throw new Error('No biometric credentials enrolled on this device');
+
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Set up biometric authentication',
+        fallbackLabel: 'Cancel',
+      });
+
+      if (!result.success) throw new Error('Biometric setup failed');
+
+      if (state.user?.id) {
+        await supabase
+          .from('user_profiles')
+          .update({ biometric_enabled: true })
+          .eq('id', state.user.id);
+
+        setState(prev => ({
+          ...prev,
+          profile: prev.profile ? { ...prev.profile, biometric_enabled: true } : null,
+        }));
+      }
+    } catch (error: any) {
+      console.error('Biometric setup error:', error);
+      throw error;
+    }
+  }, [state.user]);
 
   const getGreeting = useCallback(() => {
     const hour = new Date().getHours();
@@ -347,18 +517,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginAsAdmin = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
+
+    // Check lockout status before attempting login
+    const lockoutStr = await SecureStore.getItemAsync(ADMIN_LOCKOUT_KEY);
+    const lockoutInfo: AdminLockoutInfo = lockoutStr
+      ? JSON.parse(lockoutStr)
+      : { attempts: 0, lockedUntil: null };
+
+    const now = Date.now();
+    if (lockoutInfo.lockedUntil && lockoutInfo.lockedUntil > now) {
+      const remainingMinutes = Math.ceil((lockoutInfo.lockedUntil - now) / 60000);
+      throw new Error(`Account locked. Try again in ${remainingMinutes} minutes.`);
+    }
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
       password,
     });
 
     if (error) {
-      if (normalizedEmail === 'admin@lexnart.com' && error.message.includes('Invalid login credentials')) {
-        throw new Error(
-          'Default admin user not found or password not set in Supabase. Create it in Supabase Auth first, then try again.'
-        );
+      // Increment lockout on failed login
+      const { locked, remaining } = await incrementAdminLockout();
+      await logAdminAction('system', 'admin_login_failed', {
+        email: normalizedEmail,
+        attemptsRemaining: remaining,
+      });
+
+      if (locked) {
+        throw new Error('Account locked due to too many failed attempts. Try again in 15 minutes.');
       }
-      throw error;
+      throw new Error(`Invalid credentials. ${remaining} attempts remaining.`);
     }
 
     const authRole =
@@ -375,7 +563,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const isAdminByProfile = profile?.role === 'admin' || profile?.role === 'super_admin';
     if (!isAdminByProfile && !isAdminByAuth) {
       await supabase.auth.signOut();
-      if (normalizedEmail === 'admin@lexnart.com') {
+      if (normalizedEmail === ADMIN_EMAIL) {
         if (profileError) {
           throw new Error('Admin role check failed. Ensure user_profiles is readable and role is admin for this user.');
         }
@@ -383,6 +571,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       throw new Error('Unauthorized: Admin access only');
     }
+
+    // Reset lockout on successful login
+    await resetAdminLockout();
 
     const resolvedProfile: UserProfile = profile ?? {
       id: data.user.id,
@@ -418,7 +609,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       requiresSecuritySetup: false, // Admin never requires security setup via this flow
       requiresAuthOnLaunch: false,
     }));
-  }, []);
+  }, [resetAdminLockout]);
 
   const loginWithOtp = useCallback(async (email: string) => {
     const normalizedEmail = email.trim().toLowerCase();
@@ -428,7 +619,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       options: { shouldCreateUser: false }, // Only existing users
     });
     if (error) {
-      if (normalizedEmail === 'admin@lexnart.com') {
+      if (normalizedEmail === ADMIN_EMAIL) {
         throw new Error('Default admin user must exist in Supabase before OTP login can work.');
       }
       throw error;
@@ -460,7 +651,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const isAdminByProfile = profile?.role === 'admin' || profile?.role === 'super_admin';
     if (!isAdminByProfile && !isAdminByAuth) {
       await supabase.auth.signOut();
-      if (normalizedEmail === 'admin@lexnart.com') {
+      if (normalizedEmail === ADMIN_EMAIL) {
         if (profileError) {
           throw new Error('Admin role check failed. Ensure user_profiles is readable and role is admin for this user.');
         }
@@ -556,6 +747,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await loadOnboardingState();
       // Load PIN lock state first
       await loadPinLockState();
+      // Load admin lockout state
+      await loadAdminLockout();
 
       // Check current session
       const { data: { session }, error } = await supabase.auth.getSession();
@@ -665,7 +858,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Auth check error:', error);
       setState(prev => ({ ...prev, isLoading: false }));
     }
-  }, [loadOnboardingState, loadPinLockState, router]);
+  }, [loadOnboardingState, loadPinLockState, loadAdminLockout, router]);
 
   // Initialize auth state
   useEffect(() => {
@@ -755,8 +948,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loginWithOtp,
     verifyOtp,
     logout,
+    changePassword,
     verifyPin,
+    setupPin,
     authenticateWithBiometrics,
+    setupBiometric,
     checkAuthOnLaunch,
     clearPinLock,
     completeOnboarding,
@@ -775,6 +971,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (profile) {
         setState(prev => ({ ...prev, profile }));
       }
+    },
+    adminLockout: {
+      isLocked: !!(adminLockout.lockedUntil && adminLockout.lockedUntil > Date.now()),
+      remainingAttempts: Math.max(0, MAX_LOGIN_ATTEMPTS - adminLockout.attempts),
+      lockoutTime: adminLockout.lockedUntil,
+      resetLockout: resetAdminLockout,
     },
   };
 

@@ -36,14 +36,32 @@ export interface AdminAuditLog {
 export const MAX_LOGIN_ATTEMPTS = 5;
 export const LOCKOUT_DURATION = 15 * 60 * 1000;
 
-// Default admin account setup
+// Default admin account setup - credentials MUST come from environment variables
+// NEVER hardcode passwords in source code
 export const DEFAULT_ADMIN_ACCOUNT = {
-  email: 'admin@yourapp.com',
-  password: 'Admin@1234', // Temporary strong password
+  email: process.env.EXPO_PUBLIC_ADMIN_EMAIL || '',
+  password: process.env.EXPO_PUBLIC_ADMIN_PASSWORD || '',
   role: 'super_admin' as AdminRole,
-  name: 'System Administrator',
+  name: process.env.EXPO_PUBLIC_ADMIN_NAME || 'System Administrator',
   force_password_change: true,
   is_active: true
+};
+
+/**
+ * Validates that required admin environment variables are set
+ * Call this during app initialization to fail fast if not configured
+ */
+export const validateAdminConfig = (): boolean => {
+  const missing: string[] = [];
+  if (!process.env.EXPO_PUBLIC_ADMIN_EMAIL) missing.push('EXPO_PUBLIC_ADMIN_EMAIL');
+  if (!process.env.EXPO_PUBLIC_ADMIN_PASSWORD) missing.push('EXPO_PUBLIC_ADMIN_PASSWORD');
+  
+  if (missing.length > 0) {
+    console.error('[admin] Missing required environment variables:', missing.join(', '));
+    console.error('[admin] Set these in your .env file or app.config.js');
+    return false;
+  }
+  return true;
 };
 
 // Hash password using SHA256 (compatible with existing Crypto setup)
@@ -57,6 +75,12 @@ export const hashPassword = async (password: string): Promise<string> => {
 // Initialize default admin account
 export const initializeDefaultAdmin = async (): Promise<void> => {
   try {
+    // Validate environment configuration first
+    if (!validateAdminConfig()) {
+      console.warn('[admin] Skipping default admin creation - environment not configured');
+      return;
+    }
+
     // Check if default admin already exists
     const { data: existingAdmin } = await supabase
       .from('admin_users')

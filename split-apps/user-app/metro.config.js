@@ -19,7 +19,6 @@ config.resolver.disableHierarchicalLookup = true;
 config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules,
   'jimp-compact': path.resolve(projectRoot, 'mocks/jimp-compact.js'),
-  '@tanstack/react-query': path.resolve(projectRoot, 'node_modules/@tanstack/react-query'),
   'use-sync-external-store/with-selector': path.resolve(projectRoot, 'node_modules/use-sync-external-store/with-selector.js'),
 };
 
