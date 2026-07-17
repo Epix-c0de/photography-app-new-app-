@@ -363,7 +363,8 @@ export default function GalleryScreen() {
     blockedUntil: 0,
   });
   const MAX_ATTEMPTS = 5;
-  const LOCKOUT_DURATION = 60 * 1000; // 1 minute lockout after max attempts  const [selectedGallery, setSelectedGallery] = useState<GalleryRowWithCounts | null>(null);
+  const LOCKOUT_DURATION = 60 * 1000; // 1 minute lockout after max attempts
+  const [selectedGallery, setSelectedGallery] = useState<GalleryRowWithCounts | null>(null);
   const [likedPhotos, setLikedPhotos] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState<string>('');
   const unlockAnim = useRef(new RNAnimated.Value(0)).current;
