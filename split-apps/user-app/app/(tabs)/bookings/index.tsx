@@ -298,7 +298,7 @@ function BookingCard({ booking }: { booking: Booking }) {
 
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
-  const searchParams = useLocalSearchParams<{ section?: string; preselectCategory?: string }>();
+  const searchParams = useLocalSearchParams<{ section?: string; preselectCategory?: string; preselectPackage?: string }>();
   const router = useRouter();
   const { user, isDemoMode } = useAuth();
   const { isAssigned, loading: assignmentLoading } = useAssignmentStatus();
@@ -384,6 +384,19 @@ export default function BookingsScreen() {
       }
     }
   }, [searchParams.preselectCategory, packages]);
+
+  // Handle preselectPackage from portfolio navigation (direct package link)
+  useEffect(() => {
+    const pkgId = searchParams.preselectPackage;
+    if (pkgId && packages.length > 0) {
+      const matchingPkg = packages.find(p => p.id === pkgId);
+      if (matchingPkg) {
+        setSelectedPackage(matchingPkg.id);
+        setActiveSection('book');
+        advanceStep(1);
+      }
+    }
+  }, [searchParams.preselectPackage, packages]);
 
   useEffect(() => {
     async function loadData() {

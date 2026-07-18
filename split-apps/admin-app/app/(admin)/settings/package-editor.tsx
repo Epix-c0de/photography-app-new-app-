@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Alert, TextInput, Switch, ActivityIndicator, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { 
@@ -12,7 +12,8 @@ import {
   Image as ImageIcon,
   Star,
   Upload,
-  Trash
+  Trash,
+  Link,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
@@ -24,6 +25,13 @@ import Colors from '@/constants/colors';
 import type { Database } from '@/types/supabase';
 
 type Package = Database['public']['Tables']['packages']['Row'];
+
+type LinkedPortfolio = {
+  id: string;
+  title: string;
+  photo_url: string | null;
+  category: string | null;
+};
 
 const PACKAGE_CATEGORIES = ['Wedding', 'Portrait', 'Corporate', 'Event', 'Maternity', 'Newborn', 'Fashion', 'Other'];
 
@@ -49,6 +57,8 @@ export default function PackageEditorScreen() {
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<PackageFormState | null>(null);
+  const [linkedPortfolios, setLinkedPortfolios] = useState<LinkedPortfolio[]>([]);
+  const [allPortfolios, setAllPortfolios] = useState<LinkedPortfolio[]>([]);
 
   // Helper functions to convert between Json and string[]
   const featuresToArray = (features: any): string[] => {
@@ -64,6 +74,7 @@ export default function PackageEditorScreen() {
 
   useEffect(() => {
     loadPackages();
+    loadAllPortfolios();
   }, []);
 
   const loadPackages = async () => {
@@ -90,6 +101,60 @@ export default function PackageEditorScreen() {
       Alert.alert('Error', `Failed to load packages: ${msg}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAllPortfolios = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('portfolio_items')
+        .select('id, title, photo_url, category')
+        .eq('created_by', user.id)
+        .order('created_at', { ascending: false });
+      setAllPortfolios((data || []) as LinkedPortfolio[]);
+    } catch {
+      setAllPortfolios([]);
+    }
+  };
+
+  const loadLinkedPortfolios = async (pkgId: string) => {
+    try {
+      const { data } = await supabase
+        .from('portfolio_items')
+        .select('id, title, photo_url, category')
+        .eq('package_id', pkgId)
+        .order('created_at', { ascending: false });
+      setLinkedPortfolios((data || []) as LinkedPortfolio[]);
+    } catch {
+      setLinkedPortfolios([]);
+    }
+  };
+
+  const handleLinkPortfolio = async (pkgId: string, portfolioId: string) => {
+    try {
+      const { error } = await supabase
+        .from('portfolio_items')
+        .update({ package_id: pkgId } as any)
+        .eq('id', portfolioId);
+      if (error) throw error;
+      loadLinkedPortfolios(pkgId);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to link portfolio');
+    }
+  };
+
+  const handleUnlinkPortfolio = async (portfolioId: string, pkgId: string) => {
+    try {
+      const { error } = await supabase
+        .from('portfolio_items')
+        .update({ package_id: null } as any)
+        .eq('id', portfolioId);
+      if (error) throw error;
+      loadLinkedPortfolios(pkgId);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to unlink portfolio');
     }
   };
 
@@ -262,6 +327,7 @@ export default function PackageEditorScreen() {
       cover_image_url: (pkg as any).cover_image_url,
       category: (pkg as any).category || null,
     });
+    loadLinkedPortfolios(pkg.id);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
@@ -540,6 +606,55 @@ export default function PackageEditorScreen() {
                   )}
                 </View>
 
+                {/* Linked Portfolios */}
+                <View style={styles.formRow}>
+                  <Text style={styles.formLabel}>Linked Portfolio Collections</Text>
+                  <Text style={styles.formSub}>Portfolios tagged with this package appear as "Book" options for clients</Text>
+
+                  {linkedPortfolios.length > 0 && (
+                    <View style={{ gap: 8, marginBottom: 12 }}>
+                      {linkedPortfolios.map((pf) => (
+                        <View key={pf.id} style={styles.linkedPortfolioRow}>
+                          <Image source={{ uri: pf.photo_url || '' }} style={styles.linkedPortfolioThumb} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.linkedPortfolioTitle} numberOfLines={1}>{pf.title}</Text>
+                            {pf.category && <Text style={styles.linkedPortfolioCat}>{pf.category}</Text>}
+                          </View>
+                          <Pressable onPress={() => handleUnlinkPortfolio(pf.id, editingId!)}>
+                            <X size={16} color={Colors.error} />
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                    {allPortfolios
+                      .filter(pf => !linkedPortfolios.some(lp => lp.id === pf.id))
+                      .filter(pf => !editForm?.category || !pf.category || pf.category === editForm.category)
+                      .map((pf) => (
+                        <Pressable
+                          key={pf.id}
+                          onPress={() => handleLinkPortfolio(editingId!, pf.id)}
+                          style={{
+                            flexDirection: 'row', alignItems: 'center', gap: 6,
+                            paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, marginRight: 8,
+                            backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+                          }}
+                        >
+                          <Image source={{ uri: pf.photo_url || '' }} style={{ width: 24, height: 24, borderRadius: 6 }} />
+                          <Text style={{ color: Colors.textMuted, fontSize: 12, fontWeight: '500' }} numberOfLines={1}>{pf.title}</Text>
+                          <Link size={12} color={Colors.gold} />
+                        </Pressable>
+                      ))}
+                    {allPortfolios.filter(pf => !linkedPortfolios.some(lp => lp.id === pf.id)).length === 0 && (
+                      <Text style={{ color: Colors.textMuted, fontSize: 12, paddingVertical: 8 }}>
+                        No unlinked portfolios available
+                      </Text>
+                    )}
+                  </ScrollView>
+                </View>
+
                 <View style={styles.formToggleRow}>
                   <View>
                     <Text style={styles.formLabel}>Mark as Most Popular</Text>
@@ -696,4 +811,12 @@ const styles = StyleSheet.create({
   uploadPlaceholder: { alignItems: 'center', justifyContent: 'center', padding: 24, borderWidth: 2, borderColor: Colors.border, borderStyle: 'dashed', borderRadius: 12, marginTop: 8 },
   uploadPlaceholderText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginTop: 12 },
   uploadPlaceholderSub: { fontSize: 11, color: Colors.textMuted, marginTop: 4 },
+  linkedPortfolioRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: Colors.card, borderRadius: 12, padding: 10, marginBottom: 8,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  linkedPortfolioThumb: { width: 40, height: 40, borderRadius: 8, backgroundColor: Colors.background },
+  linkedPortfolioTitle: { fontSize: 13, fontWeight: '600', color: Colors.textPrimary },
+  linkedPortfolioCat: { fontSize: 11, color: Colors.textMuted },
 });

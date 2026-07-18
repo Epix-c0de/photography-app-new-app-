@@ -217,12 +217,14 @@ function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; 
 
   const handleBookPress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (item.category) {
+    if (item.package_id) {
+      router.push({ pathname: '/(tabs)/bookings', params: { preselectPackage: item.package_id } });
+    } else if (item.category) {
       router.push({ pathname: '/(tabs)/bookings', params: { preselectCategory: item.category } });
     } else {
       router.push({ pathname: '/(tabs)/chat' });
     }
-  }, [item.category, router]);
+  }, [item.package_id, item.category, router]);
 
   const adminProfile = (item as any).user_profiles as { id: string; name: string; avatar_url: string | null } | null;
 
@@ -258,6 +260,12 @@ function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; 
             <Pressable hitSlop={12} onPress={() => onLike(item.id, true)}>
               <Heart size={16} color={Colors.white} />
             </Pressable>
+            {item.images && Array.isArray(item.images) && item.images.length > 1 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Eye size={12} color="rgba(255,255,255,0.6)" />
+                <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontWeight: '600' }}>{item.images.length} photos</Text>
+              </View>
+            )}
             {item.category && (
               <Pressable hitSlop={12} onPress={handleBookPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(212,175,55,0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
                 <Text style={{ color: Colors.gold, fontSize: 11, fontWeight: '600' }}>Book {item.category}</Text>
@@ -2246,11 +2254,42 @@ export default function GalleryScreen() {
       <Modal visible={!!selectedPortfolioItem} transparent animationType="fade">
         <View style={styles.portfolioModalContainer}>
           <View style={styles.portfolioModalContent}>
-            <Image
-              source={{ uri: selectedPortfolioItem?.photo_url || selectedPortfolioItem?.image_url || selectedPortfolioItem?.media_url }}
-              style={styles.portfolioModalImage}
-              contentFit="contain"
-            />
+            {/* Multi-image viewer or single image */}
+            {selectedPortfolioItem?.images && Array.isArray(selectedPortfolioItem.images) && selectedPortfolioItem.images.length > 1 ? (
+              <View style={{ flex: 1 }}>
+                <FlatList
+                  data={selectedPortfolioItem.images}
+                  keyExtractor={(img, i) => `img-${i}`}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  getItemLayout={(_, index) => ({
+                    length: width,
+                    offset: width * index,
+                    index,
+                  })}
+                  renderItem={({ item: img, index }) => (
+                    <Image
+                      source={{ uri: img.url }}
+                      style={{ width, height: '100%' }}
+                      contentFit="contain"
+                    />
+                  )}
+                />
+                {/* Image count dots */}
+                <View style={{ position: 'absolute', bottom: 16, left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+                  {selectedPortfolioItem.images.map((_: any, i: number) => (
+                    <View key={i} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.5)' }} />
+                  ))}
+                </View>
+              </View>
+            ) : (
+              <Image
+                source={{ uri: selectedPortfolioItem?.photo_url || selectedPortfolioItem?.image_url || selectedPortfolioItem?.media_url }}
+                style={styles.portfolioModalImage}
+                contentFit="contain"
+              />
+            )}
             {selectedPortfolioItem && (
               <LinearGradient colors={['rgba(0,0,0,0.8)', 'transparent']} style={styles.portfolioModalTopGradient}>
                 <SafeAreaView edges={['top']} style={styles.portfolioModalHeaderWrapper}>
@@ -2259,6 +2298,9 @@ export default function GalleryScreen() {
                       <ArrowLeft size={24} color={Colors.white} />
                     </Pressable>
                     <View style={styles.portfolioModalActions}>
+                      <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600' }}>
+                        {selectedPortfolioItem.images && Array.isArray(selectedPortfolioItem.images) ? `${selectedPortfolioItem.images.length} photos` : ''}
+                      </Text>
                       <Pressable hitSlop={12} onPress={() => {
                         handleLikePhoto(selectedPortfolioItem.id, true);
                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -2277,8 +2319,32 @@ export default function GalleryScreen() {
                   {selectedPortfolioItem.category && (
                     <Text style={styles.portfolioModalCategory}>{selectedPortfolioItem.category}</Text>
                   )}
-                  {/* Book This Package button */}
-                  {selectedPortfolioItem.category && portfolioPackages.some(p => p.category === selectedPortfolioItem.category) && (
+                  {/* Book This Package: show if portfolio has a linked package_id */}
+                  {selectedPortfolioItem.package_id && (
+                    <Pressable
+                      onPress={() => {
+                        setSelectedPortfolioItem(null);
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        router.push({ pathname: '/(tabs)/bookings', params: { preselectPackage: selectedPortfolioItem.package_id! } });
+                      }}
+                      style={{
+                        marginTop: 12,
+                        backgroundColor: Colors.gold,
+                        borderRadius: 12,
+                        paddingVertical: 12,
+                        paddingHorizontal: 20,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <ShoppingBag size={16} color="#000" />
+                      <Text style={{ color: '#000', fontWeight: '700', fontSize: 14 }}>Book This Package</Text>
+                    </Pressable>
+                  )}
+                  {/* Fallback: show category-based book if no package_id but category matches */}
+                  {!selectedPortfolioItem.package_id && selectedPortfolioItem.category && portfolioPackages.some(p => p.category === selectedPortfolioItem.category) && (
                     <Pressable
                       onPress={() => {
                         setSelectedPortfolioItem(null);
@@ -2301,8 +2367,8 @@ export default function GalleryScreen() {
                       <Text style={{ color: '#000', fontWeight: '700', fontSize: 14 }}>Book {selectedPortfolioItem.category} Package</Text>
                     </Pressable>
                   )}
-                  {/* Chat with Photographer fallback */}
-                  {selectedPortfolioItem.category && !portfolioPackages.some(p => p.category === selectedPortfolioItem.category) && (
+                  {/* Chat with Photographer fallback: no package linked and no matching category */}
+                  {!selectedPortfolioItem.package_id && (!selectedPortfolioItem.category || !portfolioPackages.some(p => p.category === selectedPortfolioItem.category)) && (
                     <Pressable
                       onPress={() => {
                         setSelectedPortfolioItem(null);

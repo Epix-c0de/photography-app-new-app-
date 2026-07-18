@@ -8,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import {
-  Plus, Search, Star, Trash2, Upload, X, Crown, Sparkles, Camera,
+  Plus, Search, Star, Trash2, Upload, X, Crown, Sparkles, Camera, Images, ChevronDown,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -20,11 +20,20 @@ type PortfolioItem = {
   title: string;
   description: string | null;
   photo_url: string;
+  images: { url: string; caption?: string | null }[] | null;
   category: string;
   is_featured: boolean;
   is_top_rated?: boolean;
   display_order: number;
   created_at: string;
+  package_id: string | null;
+};
+
+type PackageRow = {
+  id: string;
+  name: string;
+  price: number;
+  category: string | null;
 };
 
 const CATEGORIES = ['All', 'Wedding', 'Portrait', 'Corporate', 'Event', 'Maternity', 'Newborn', 'Fashion', 'BTS', 'Other'];
@@ -41,11 +50,14 @@ export default function PortfolioScreen() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  const [uploadImage, setUploadImage] = useState<string | null>(null);
+  const [uploadImages, setUploadImages] = useState<string[]>([]);
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadDesc, setUploadDesc] = useState('');
   const [uploadCategory, setUploadCategory] = useState('Wedding');
   const [uploadFeatured, setUploadFeatured] = useState(false);
+  const [uploadPackageId, setUploadPackageId] = useState<string | null>(null);
+
+  const [packages, setPackages] = useState<PackageRow[]>([]);
 
   const loadPortfolio = useCallback(async () => {
     if (!user?.id) return;
@@ -68,61 +80,93 @@ export default function PortfolioScreen() {
     }
   }, [user?.id]);
 
-  useEffect(() => { loadPortfolio(); }, [loadPortfolio]);
+  const loadPackages = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const { data, error } = await supabase
+        .from('packages')
+        .select('id, name, price, category')
+        .eq('owner_admin_id', user.id)
+        .eq('is_active', true)
+        .order('price', { ascending: true });
+      if (error) throw error;
+      setPackages((data || []) as PackageRow[]);
+    } catch {
+      setPackages([]);
+    }
+  }, [user?.id]);
+
+  useEffect(() => { loadPortfolio(); loadPackages(); }, [loadPortfolio, loadPackages]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadPortfolio();
   }, [loadPortfolio]);
 
-  const pickImage = async () => {
+  const pickImages = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
       quality: 0.8,
     });
-    if (!result.canceled && result.assets[0]) {
-      setUploadImage(result.assets[0].uri);
+    if (!result.canceled && result.assets.length > 0) {
+      setUploadImages((prev) => [...prev, ...result.assets.map((a) => a.uri)]);
     }
   };
 
+  const removeUploadImage = (index: number) => {
+    setUploadImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleUpload = async () => {
-    if (!uploadImage || !uploadTitle.trim() || !user?.id) return;
+    if (uploadImages.length === 0 || !uploadTitle.trim() || !user?.id) return;
     setUploading(true);
     try {
-      // Compress the image before upload
-      const compressed = await compressImage(uploadImage);
-      const fileName = `portfolio/${user.id}/${Date.now()}.jpg`;
-      const response = await fetch(compressed.uri);
-      const blob = await response.blob();
-      const { error: uploadError } = await supabase.storage
-        .from('portfolio')
-        .upload(fileName, blob, { contentType: 'image/jpeg' });
-      if (uploadError) throw uploadError;
-      const { data: { publicUrl } } = supabase.storage.from('portfolio').getPublicUrl(fileName);
+      const uploadedUrls: { url: string; caption: string | null }[] = [];
+
+      for (let i = 0; i < uploadImages.length; i++) {
+        const compressed = await compressImage(uploadImages[i]);
+        const fileName = `portfolio/${user.id}/${Date.now()}_${i}.jpg`;
+        const response = await fetch(compressed.uri);
+        const blob = await response.blob();
+        const { error: uploadError } = await supabase.storage
+          .from('portfolio')
+          .upload(fileName, blob, { contentType: 'image/jpeg' });
+        if (uploadError) throw uploadError;
+        const { data: { publicUrl } } = supabase.storage.from('portfolio').getPublicUrl(fileName);
+        uploadedUrls.push({ url: publicUrl, caption: null });
+      }
+
+      const coverUrl = uploadedUrls[0].url;
       const { error: insertError } = await supabase.from('portfolio_items').insert({
         admin_id: user.id,
         created_by: user.id,
         title: uploadTitle.trim(),
         description: uploadDesc.trim() || null,
-        photo_url: publicUrl,
-        media_url: publicUrl,
+        photo_url: coverUrl,
+        media_url: coverUrl,
+        images: uploadedUrls.length > 1 ? uploadedUrls : null,
         category: uploadCategory,
         is_featured: uploadFeatured,
-      });
+        package_id: uploadPackageId || null,
+      } as any);
       if (insertError) throw insertError;
       setShowUploadModal(false);
-      setUploadImage(null);
-      setUploadTitle('');
-      setUploadDesc('');
-      setUploadCategory('Wedding');
-      setUploadFeatured(false);
+      resetUploadForm();
       loadPortfolio();
     } catch (e: any) {
       Alert.alert('Upload Failed', e.message || 'Failed to upload portfolio item');
     }
     setUploading(false);
+  };
+
+  const resetUploadForm = () => {
+    setUploadImages([]);
+    setUploadTitle('');
+    setUploadDesc('');
+    setUploadCategory('Wedding');
+    setUploadFeatured(false);
+    setUploadPackageId(null);
   };
 
   const handleDelete = async (id: string) => {
@@ -149,6 +193,11 @@ export default function PortfolioScreen() {
     return matchesSearch && matchesCategory;
   });
 
+  const getImageCount = (item: PortfolioItem) => {
+    if (item.images && Array.isArray(item.images)) return item.images.length;
+    return 1;
+  };
+
   const renderCard = ({ item }: { item: PortfolioItem }) => (
     <View style={styles.portfolioCard}>
       <Image source={{ uri: item.photo_url }} style={styles.portfolioImage} contentFit="cover" transition={300} />
@@ -169,6 +218,12 @@ export default function PortfolioScreen() {
         <Text style={styles.portfolioTitle} numberOfLines={1}>{item.title}</Text>
         <View style={styles.portfolioMeta}>
           <Text style={styles.portfolioCategory}>{item.category}</Text>
+          {getImageCount(item) > 1 && (
+            <View style={styles.imageCountBadge}>
+              <Images size={8} color={Colors.gold} />
+              <Text style={styles.imageCountText}>{getImageCount(item)}</Text>
+            </View>
+          )}
           {item.is_featured && (
             <View style={styles.featuredBadge}>
               <Crown size={8} color={Colors.gold} />
@@ -257,28 +312,42 @@ export default function PortfolioScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Portfolio Item</Text>
-              <Pressable onPress={() => setShowUploadModal(false)} style={styles.modalClose}>
+              <Text style={styles.modalTitle}>Add Portfolio Collection</Text>
+              <Pressable onPress={() => { setShowUploadModal(false); resetUploadForm(); }} style={styles.modalClose}>
                 <X size={20} color={Colors.textMuted} />
               </Pressable>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Pressable style={styles.imagePicker} onPress={pickImage}>
-                {uploadImage ? (
-                  <View style={styles.imagePreviewWrap}>
-                    <Image source={{ uri: uploadImage }} style={styles.imagePreview} contentFit="cover" />
-                    <Pressable style={styles.imageRemoveBtn} onPress={() => setUploadImage(null)}>
-                      <X size={14} color="#fff" />
+              {/* Multi-image picker */}
+              <Pressable style={styles.imagePicker} onPress={pickImages}>
+                {uploadImages.length > 0 ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imagePreviewRow}>
+                    {uploadImages.map((uri, i) => (
+                      <View key={i} style={styles.imagePreviewWrap}>
+                        <Image source={{ uri }} style={styles.imagePreviewThumb} contentFit="cover" />
+                        {i === 0 && (
+                          <View style={styles.coverBadge}>
+                            <Text style={styles.coverBadgeText}>Cover</Text>
+                          </View>
+                        )}
+                        <Pressable style={styles.imageRemoveBtn} onPress={() => removeUploadImage(i)}>
+                          <X size={12} color="#fff" />
+                        </Pressable>
+                      </View>
+                    ))}
+                    <Pressable style={styles.addMoreBtn} onPress={pickImages}>
+                      <Plus size={20} color={Colors.gold} />
+                      <Text style={styles.addMoreText}>Add More</Text>
                     </Pressable>
-                  </View>
+                  </ScrollView>
                 ) : (
                   <View style={styles.imagePickerPlaceholder}>
                     <View style={styles.imagePickerIcon}>
-                      <Upload size={24} color={Colors.gold} />
+                      <Images size={28} color={Colors.gold} />
                     </View>
-                    <Text style={styles.imagePickerText}>Tap to select photo</Text>
-                    <Text style={styles.imagePickerHint}>JPG, PNG up to 10MB</Text>
+                    <Text style={styles.imagePickerText}>Tap to select photos</Text>
+                    <Text style={styles.imagePickerHint}>Add multiple photos for a collection</Text>
                   </View>
                 )}
               </Pressable>
@@ -287,7 +356,7 @@ export default function PortfolioScreen() {
                 <Text style={styles.fieldLabel}>Title</Text>
                 <TextInput
                   style={styles.fieldInput}
-                  placeholder="Portfolio title..."
+                  placeholder="Wedding at Safari Park..."
                   placeholderTextColor={Colors.textMuted}
                   value={uploadTitle}
                   onChangeText={setUploadTitle}
@@ -321,6 +390,27 @@ export default function PortfolioScreen() {
                 </ScrollView>
               </View>
 
+              {/* Link to Package */}
+              {packages.length > 0 && (
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Link to Package (Optional)</Text>
+                  <Text style={styles.fieldHint}>Clients can book this package from the portfolio</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                    {packages.filter(p => !p.category || p.category === uploadCategory).map((pkg) => (
+                      <Pressable
+                        key={pkg.id}
+                        style={[styles.chip, uploadPackageId === pkg.id && styles.chipActive]}
+                        onPress={() => setUploadPackageId(uploadPackageId === pkg.id ? null : pkg.id)}
+                      >
+                        <Text style={[styles.chipText, uploadPackageId === pkg.id && styles.chipTextActive]}>
+                          {pkg.name} — KES {pkg.price.toLocaleString()}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
               <Pressable
                 style={[styles.featuredToggle, uploadFeatured && styles.featuredToggleActive]}
                 onPress={() => setUploadFeatured(!uploadFeatured)}
@@ -332,9 +422,9 @@ export default function PortfolioScreen() {
               </Pressable>
 
               <Pressable
-                style={[styles.uploadBtn, (!uploadImage || !uploadTitle.trim() || uploading) && styles.uploadBtnDisabled]}
+                style={[styles.uploadBtn, (uploadImages.length === 0 || !uploadTitle.trim() || uploading) && styles.uploadBtnDisabled]}
                 onPress={handleUpload}
-                disabled={!uploadImage || !uploadTitle.trim() || uploading}
+                disabled={uploadImages.length === 0 || !uploadTitle.trim() || uploading}
               >
                 {uploading ? (
                   <View style={styles.uploadLoading}>
@@ -342,7 +432,9 @@ export default function PortfolioScreen() {
                     <Text style={styles.uploadBtnText}>Uploading...</Text>
                   </View>
                 ) : (
-                  <Text style={styles.uploadBtnText}>Upload to Portfolio</Text>
+                  <Text style={styles.uploadBtnText}>
+                    {uploadImages.length > 1 ? `Upload ${uploadImages.length} Photos` : 'Upload to Portfolio'}
+                  </Text>
                 )}
               </Pressable>
             </ScrollView>
@@ -405,6 +497,11 @@ const styles = StyleSheet.create({
   portfolioTitle: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4 },
   portfolioMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   portfolioCategory: { fontSize: 11, color: Colors.textMuted },
+  imageCountBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: 'rgba(212,175,55,0.12)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+  },
+  imageCountText: { fontSize: 9, color: Colors.gold, fontWeight: '700' },
   featuredBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: 'rgba(212,175,55,0.12)', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
@@ -437,19 +534,31 @@ const styles = StyleSheet.create({
 
   // Image Picker
   imagePicker: { marginBottom: 16, borderRadius: 16, overflow: 'hidden' },
-  imagePreviewWrap: { position: 'relative' },
-  imagePreview: { width: '100%', height: 200, borderRadius: 16 },
+  imagePreviewRow: { gap: 10, paddingVertical: 4 },
+  imagePreviewWrap: { position: 'relative', width: 120, height: 120 },
+  imagePreviewThumb: { width: 120, height: 120, borderRadius: 12 },
+  coverBadge: {
+    position: 'absolute', top: 6, left: 6,
+    backgroundColor: Colors.gold, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+  },
+  coverBadgeText: { fontSize: 9, fontWeight: '800', color: '#000' },
   imageRemoveBtn: {
-    position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 14,
+    position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12,
     backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center',
   },
+  addMoreBtn: {
+    width: 120, height: 120, borderRadius: 12,
+    borderWidth: 2, borderColor: Colors.border, borderStyle: 'dashed',
+    justifyContent: 'center', alignItems: 'center', gap: 4,
+  },
+  addMoreText: { fontSize: 11, fontWeight: '600', color: Colors.gold },
   imagePickerPlaceholder: {
-    height: 180, backgroundColor: Colors.background, borderRadius: 16,
+    height: 160, backgroundColor: Colors.background, borderRadius: 16,
     borderWidth: 2, borderColor: Colors.border, borderStyle: 'dashed',
     justifyContent: 'center', alignItems: 'center', gap: 6,
   },
   imagePickerIcon: {
-    width: 48, height: 48, borderRadius: 14, backgroundColor: 'rgba(212,175,55,0.1)',
+    width: 56, height: 56, borderRadius: 16, backgroundColor: 'rgba(212,175,55,0.1)',
     justifyContent: 'center', alignItems: 'center',
   },
   imagePickerText: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
@@ -458,6 +567,7 @@ const styles = StyleSheet.create({
   // Fields
   fieldGroup: { marginBottom: 14 },
   fieldLabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginBottom: 6 },
+  fieldHint: { fontSize: 11, color: Colors.textMuted, marginBottom: 8 },
   fieldInput: {
     backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border,
     borderRadius: 12, padding: 14, fontSize: 14, color: Colors.textPrimary,

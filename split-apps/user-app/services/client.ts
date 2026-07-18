@@ -30,6 +30,7 @@ export type PortfolioItem = {
   media_url: string;
   image_url: string | null;
   photo_url: string | null;
+  images: { url: string; caption?: string | null }[] | null;
   media_type: 'image' | 'video';
   category: string | null;
   content_type: 'bts' | 'portfolio';
@@ -40,6 +41,7 @@ export type PortfolioItem = {
   created_at: string;
   expires_at: string | null;
   created_by: string | null;
+  package_id: string | null;
 };
 
 /**
