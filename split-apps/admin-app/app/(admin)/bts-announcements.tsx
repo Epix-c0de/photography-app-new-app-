@@ -129,7 +129,7 @@ export default function AdminBtsAnnouncementsScreen() {
   const [annVisibility, setAnnVisibility] = useState<'global' | 'assigned_only' | 'private'>('assigned_only');
 
   // Portfolio Form State
-  const [portfolioPicked, setPortfolioPicked] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [portfolioPicked, setPortfolioPicked] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [portfolioTitle, setPortfolioTitle] = useState('');
   const [portfolioDescription, setPortfolioDescription] = useState('');
   const [portfolioCategory, setPortfolioCategory] = useState('');
@@ -196,6 +196,17 @@ export default function AdminBtsAnnouncementsScreen() {
 
   const pickMedia = useCallback(async (forType: ContentType) => {
     try {
+      if (forType === 'portfolio') {
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsMultipleSelection: true,
+          quality: 0.8,
+        });
+        if (!result.canceled && result.assets.length > 0) {
+          setPortfolioPicked(prev => [...prev, ...result.assets]);
+        }
+        return;
+      }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
         allowsEditing: false,
@@ -208,8 +219,6 @@ export default function AdminBtsAnnouncementsScreen() {
         } else if (forType === 'announcement') {
           setAnnPicked(result.assets[0]);
           setAnnMediaType(inferMediaType(result.assets[0]));
-        } else if (forType === 'portfolio') {
-          setPortfolioPicked(result.assets[0]);
         }
       }
     } catch (error) {
@@ -402,46 +411,54 @@ export default function AdminBtsAnnouncementsScreen() {
   }, [annPicked, user, annTitle, annDescription, annMediaType, annVisibility, annExpiryDays, annScheduledFor]);
 
   const uploadPortfolioItem = useCallback(async () => {
-    if (!portfolioPicked || !user) return;
+    if (portfolioPicked.length === 0 || !user) return;
     setPosting(true);
     setUploadStatus('Compressing...');
     try {
-      const ext = getFileExtension(portfolioPicked);
-      const fileName = `portfolio-${Date.now()}.${ext}`;
-      const filePath = `portfolio/${user.id}/${fileName}`;
+      const uploadedUrls: { url: string; caption: string | null }[] = [];
 
-      let uploadUri = portfolioPicked.uri;
-      if (inferMediaType(portfolioPicked) === 'image') {
-        const compressed = await compressImage(portfolioPicked.uri);
-        uploadUri = compressed.uri;
+      for (let i = 0; i < portfolioPicked.length; i++) {
+        const asset = portfolioPicked[i];
+        const ext = getFileExtension(asset);
+        const fileName = `portfolio-${Date.now()}_${i}.${ext}`;
+        const filePath = `portfolio/${user.id}/${fileName}`;
+
+        let uploadUri = asset.uri;
+        if (inferMediaType(asset) === 'image') {
+          const compressed = await compressImage(asset.uri);
+          uploadUri = compressed.uri;
+        }
+
+        setUploadStatus(`Uploading ${i + 1}/${portfolioPicked.length}...`);
+        const response = await fetch(uploadUri);
+        const blob = await response.blob();
+
+        const { error: uploadErr } = await supabase.storage
+          .from('portfolio')
+          .upload(filePath, blob, { contentType: asset.mimeType || 'image/jpeg', upsert: true });
+        if (uploadErr) throw uploadErr;
+
+        const { data: { publicUrl } } = supabase.storage.from('portfolio').getPublicUrl(filePath);
+        uploadedUrls.push({ url: publicUrl, caption: null });
       }
 
-      setUploadStatus('Uploading...');
-      const response = await fetch(uploadUri);
-      const blob = await response.blob();
-
-      const { error: uploadErr } = await supabase.storage
-        .from('portfolio')
-        .upload(filePath, blob, { contentType: portfolioPicked.mimeType || 'image/jpeg', upsert: true });
-      if (uploadErr) throw uploadErr;
-
-      const { data: { publicUrl } } = supabase.storage.from('portfolio').getPublicUrl(filePath);
-
+      const coverUrl = uploadedUrls[0].url;
       const { error: dbErr } = await supabase.from('portfolio_items').insert({
         admin_id: user.id,
         created_by: user.id,
         title: portfolioTitle || 'Untitled',
         description: portfolioDescription,
-        photo_url: publicUrl,
-        media_url: publicUrl,
+        photo_url: coverUrl,
+        media_url: coverUrl,
+        images: uploadedUrls.length > 1 ? uploadedUrls : null,
         category: portfolioCategory,
         is_featured: portfolioFeatured,
         is_top_rated: portfolioTopRated,
       } as any);
       if (dbErr) throw dbErr;
 
-      Alert.alert('Success', 'Portfolio item uploaded!');
-      setPortfolioPicked(null);
+      Alert.alert('Success', `${uploadedUrls.length} photo${uploadedUrls.length > 1 ? 's' : ''} uploaded to portfolio!`);
+      setPortfolioPicked([]);
       setPortfolioTitle('');
       setPortfolioDescription('');
     } catch (error: any) {
@@ -901,15 +918,48 @@ export default function AdminBtsAnnouncementsScreen() {
       {/* ── Portfolio Form ── */}
       {contentType === 'portfolio' && (
         <View style={styles.formCard}>
-          <Text style={styles.formCardTitle}>Add Portfolio Item</Text>
+          <Text style={styles.formCardTitle}>Add Portfolio Collection</Text>
 
-          {renderMediaPicker(
-            portfolioPicked,
-            () => pickMedia('portfolio'),
-            () => setPortfolioPicked(null),
-            'image',
-            <ImageIcon size={28} color={Colors.gold} />,
-            'Select Image'
+          {/* Multi-image picker */}
+          <Pressable style={styles.mediaPicker} onPress={() => pickMedia('portfolio')}>
+            {portfolioPicked.length > 0 ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 8 }}>
+                {portfolioPicked.map((asset, i) => (
+                  <View key={i} style={{ position: 'relative', width: 80, height: 80 }}>
+                    <Image source={{ uri: asset.uri }} style={{ width: 80, height: 80, borderRadius: 8 }} />
+                    {i === 0 && (
+                      <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: Colors.gold, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 }}>
+                        <Text style={{ fontSize: 8, fontWeight: '800', color: '#000' }}>Cover</Text>
+                      </View>
+                    )}
+                    <Pressable
+                      style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}
+                      onPress={() => setPortfolioPicked(prev => prev.filter((_, j) => j !== i))}
+                    >
+                      <X size={10} color="#fff" />
+                    </Pressable>
+                  </View>
+                ))}
+                <View style={{ width: 80, height: 80, borderRadius: 8, borderWidth: 2, borderColor: Colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' }}>
+                  <ImageIcon size={20} color={Colors.gold} />
+                  <Text style={{ fontSize: 9, color: Colors.gold, fontWeight: '600' }}>Add</Text>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.mediaPlaceholder}>
+                <View style={styles.mediaPlaceholderIcon}>
+                  <ImageIcon size={28} color={Colors.gold} />
+                </View>
+                <Text style={styles.mediaPlaceholderLabel}>Select Photos</Text>
+                <Text style={styles.mediaPlaceholderHint}>Tap to select multiple images</Text>
+              </View>
+            )}
+          </Pressable>
+
+          {portfolioPicked.length > 0 && (
+            <Text style={{ fontSize: 11, color: Colors.textMuted, marginBottom: 12, textAlign: 'center' }}>
+              {portfolioPicked.length} photo{portfolioPicked.length > 1 ? 's' : ''} selected — first is cover
+            </Text>
           )}
 
           <View style={styles.fieldGroup}>
@@ -966,9 +1016,9 @@ export default function AdminBtsAnnouncementsScreen() {
           </View>
 
           <Pressable
-            style={[styles.submitBtn, posting && styles.submitBtnDisabled]}
+            style={[styles.submitBtn, (posting || portfolioPicked.length === 0) && styles.submitBtnDisabled]}
             onPress={uploadPortfolioItem}
-            disabled={posting}
+            disabled={posting || portfolioPicked.length === 0}
           >
             {posting ? (
               <View style={styles.submitLoading}>
@@ -976,7 +1026,9 @@ export default function AdminBtsAnnouncementsScreen() {
                 <Text style={styles.submitBtnText}>{uploadStatus || 'Uploading...'}</Text>
               </View>
             ) : (
-              <Text style={styles.submitBtnText}>Add to Portfolio</Text>
+              <Text style={styles.submitBtnText}>
+                {portfolioPicked.length > 1 ? `Add ${portfolioPicked.length} Photos to Portfolio` : 'Add to Portfolio'}
+              </Text>
             )}
           </Pressable>
         </View>
