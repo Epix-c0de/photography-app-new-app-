@@ -5,24 +5,44 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { BrandingProvider } from '@/contexts/BrandingContext';
+import {
+  LayoutDashboard,
+  Images,
+  Users,
+  Upload,
+  MessageSquare,
+  CreditCard,
+  CalendarDays,
+  FolderHeart,
+  Film,
+  Calendar,
+  Star,
+  Gift,
+  Globe,
+  Bell,
+  Headphones,
+  Settings,
+  LogOut,
+  ChevronRight,
+} from 'lucide-react';
 
 const navItems = [
-  { href: '/dashboard', label: 'Overview', icon: '◈', exact: true },
-  { href: '/dashboard/galleries', label: 'Galleries', icon: '⬡' },
-  { href: '/dashboard/clients', label: 'Clients', icon: '◎' },
-  { href: '/dashboard/upload', label: 'Upload', icon: '⬆' },
-  { href: '/dashboard/inbox', label: 'Inbox', icon: '💬' },
-  { href: '/dashboard/transactions', label: 'Transactions', icon: '💳' },
-  { href: '/dashboard/bookings', label: 'Bookings', icon: '◷' },
-  { href: '/dashboard/portfolio', label: 'Portfolio', icon: '🖼' },
-  { href: '/dashboard/bts', label: 'BTS & Posts', icon: '◉' },
-  { href: '/dashboard/calendar', label: 'Calendar', icon: '📅' },
-  { href: '/dashboard/reviews', label: 'Reviews', icon: '⭐' },
-  { href: '/dashboard/referrals', label: 'Referrals', icon: '🎁' },
-  { href: '/dashboard/social', label: 'Social', icon: '🌐' },
-  { href: '/dashboard/notifications', label: 'Notifications', icon: '🔔' },
-  { href: '/dashboard/support', label: 'Support', icon: '🎧' },
-  { href: '/dashboard/settings', label: 'Settings', icon: '⚙' },
+  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
+  { href: '/dashboard/galleries', label: 'Galleries', icon: Images },
+  { href: '/dashboard/clients', label: 'Clients', icon: Users },
+  { href: '/dashboard/upload', label: 'Upload', icon: Upload },
+  { href: '/dashboard/inbox', label: 'Inbox', icon: MessageSquare },
+  { href: '/dashboard/transactions', label: 'Transactions', icon: CreditCard },
+  { href: '/dashboard/bookings', label: 'Bookings', icon: CalendarDays },
+  { href: '/dashboard/portfolio', label: 'Portfolio', icon: FolderHeart },
+  { href: '/dashboard/bts', label: 'BTS & Posts', icon: Film },
+  { href: '/dashboard/calendar', label: 'Calendar', icon: Calendar },
+  { href: '/dashboard/reviews', label: 'Reviews', icon: Star },
+  { href: '/dashboard/referrals', label: 'Referrals', icon: Gift },
+  { href: '/dashboard/social', label: 'Social', icon: Globe },
+  { href: '/dashboard/notifications', label: 'Notifications', icon: Bell },
+  { href: '/dashboard/support', label: 'Support', icon: Headphones },
+  { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -67,7 +87,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       setAdminEmail(profile.email || session.user.email || '');
       setLoading(false);
 
-      // Load unread inbox count
       const { data: clients } = await supabase.from('clients').select('id').eq('owner_admin_id', session.user.id);
       if (clients?.length) {
         const clientIds = clients.map((c: any) => c.id);
@@ -79,7 +98,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         setInboxUnread(count || 0);
       }
 
-      // Load unread support messages from super admin
       const { count: supportCount } = await supabase.from('support_messages')
         .select('*', { count: 'exact', head: true })
         .eq('photographer_id', session.user.id)
@@ -104,11 +122,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen flex" style={{ background: '#080810' }}>
       {/* Sidebar */}
       <aside className="w-60 flex flex-col fixed h-full" style={{
-        background: 'linear-gradient(180deg, #0F0F1A 0%, #080810 100%)',
-        borderRight: '1px solid rgba(255,255,255,0.05)',
+        background: 'linear-gradient(180deg, rgba(15,15,26,0.95) 0%, rgba(8,8,16,0.98) 100%)',
+        borderRight: '1px solid rgba(255,255,255,0.06)',
+        backdropFilter: 'blur(20px)',
       }}>
         {/* Logo */}
-        <div className="px-6 py-6 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        <div className="px-6 py-6 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black"
               style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
@@ -148,13 +167,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             const badge = item.href === '/dashboard/inbox' && inboxUnread > 0 ? inboxUnread
               : item.href === '/dashboard/support' && supportUnread > 0 ? supportUnread
               : null;
+            const Icon = item.icon;
             return (
               <Link key={item.href} href={item.href}
                 className={`nav-item ${isActive ? 'active' : ''}`}>
-                <span className="text-base w-5 text-center">{item.icon}</span>
+                <Icon size={16} className={isActive ? 'text-[#D4AF37]' : 'text-current'} />
                 <span className="flex-1">{item.label}</span>
                 {badge && (
-                  <span className="ml-auto w-5 h-5 rounded-full bg-yellow-500 text-black text-xs font-bold flex items-center justify-center">
+                  <span className="ml-auto min-w-[20px] h-5 rounded-full bg-[#D4AF37] text-[#080810] text-[10px] font-bold flex items-center justify-center px-1.5">
                     {badge > 9 ? '9+' : badge}
                   </span>
                 )}
@@ -164,13 +184,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
 
         {/* Bottom */}
-        <div className="px-3 py-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+        <div className="px-3 py-4 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
           <button
             onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }}
             className="nav-item w-full text-left"
             style={{ color: 'rgba(255,59,48,0.7)' }}
           >
-            <span className="text-base w-5 text-center">↩</span>
+            <LogOut size={16} />
             <span>Sign out</span>
           </button>
         </div>
