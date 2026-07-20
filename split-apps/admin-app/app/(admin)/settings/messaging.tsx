@@ -56,6 +56,7 @@ import {
   Check,
   CircleDollarSign,
   Wallet,
+  Cloud,
 } from 'lucide-react-native'
 import Colors from '@/constants/colors'
 import { supabase } from '@/lib/supabase'
@@ -137,6 +138,7 @@ export default function MessagingScreen() {
   const [packagePrice, setPackagePrice] = useState('')
   const [packageDescription, setPackageDescription] = useState('')
   const [packageBonusSms, setPackageBonusSms] = useState('')
+  const [storageInfo, setStorageInfo] = useState({ used_mb: 0, total_mb: 10240, extra_mb: 0, galleries: 0 })
 
   const [adjustmentModalVisible, setAdjustmentModalVisible] = useState(false)
   const [selectedAdmin, setSelectedAdmin] = useState<any>(null)
@@ -171,13 +173,22 @@ export default function MessagingScreen() {
       setPackages(packagesRes.data || [])
       setPurchaseHistory(purchaseRes.data || [])
 
-      const { data: resourceData } = await supabase
-        .from('admin_resources')
-        .select('sms_balance')
-        .eq('admin_id', user?.id)
-        .single()
+      const [{ data: resourceData }, { data: storageAlloc }, { data: storageUsage }, { data: galleryCount }] = await Promise.all([
+        supabase.from('admin_resources').select('sms_balance').eq('admin_id', user?.id).single(),
+        supabase.from('admin_storage_allocations').select('*').eq('admin_id', user?.id).single(),
+        supabase.from('admin_storage_usage').select('used_mb').eq('admin_id', user?.id).single(),
+        supabase.from('galleries').select('id', { count: 'exact', head: true }).eq('admin_id', user?.id),
+      ])
 
       setSmsBalance(resourceData?.sms_balance || 0)
+      if (storageAlloc) {
+        setStorageInfo({
+          used_mb: storageUsage?.used_mb || 0,
+          total_mb: (storageAlloc.base_storage_mb || 10240) + (storageAlloc.extra_storage_mb || 0),
+          extra_mb: storageAlloc.extra_storage_mb || 0,
+          galleries: galleryCount || 0,
+        })
+      }
 
       if (LocalSmsGateway) {
         try {
@@ -840,6 +851,31 @@ export default function MessagingScreen() {
           <CreditCard size={20} color="#fff" />
           <Text style={styles.buyCreditsLargeBtnText}>Buy More Credits</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Storage Info */}
+      <View style={[styles.section, { backgroundColor: 'rgba(147,51,234,0.08)', borderRadius: 16, padding: 16, marginTop: 16 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <Cloud size={20} color="#9333EA" />
+          <Text style={[styles.sectionTitle, { color: '#C084FC', marginBottom: 0 }]}>Cloud Storage</Text>
+        </View>
+        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 10 }}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: 10 }}>
+            <Text style={{ fontSize: 11, color: Colors.textMuted }}>Used</Text>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#C084FC' }}>{(storageInfo.used_mb / 1024).toFixed(1)} GB</Text>
+          </View>
+          <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: 10 }}>
+            <Text style={{ fontSize: 11, color: Colors.textMuted }}>Total</Text>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: Colors.text }}>{(storageInfo.total_mb / 1024).toFixed(1)} GB</Text>
+          </View>
+        </View>
+        <View style={{ height: 6, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
+          <View style={{
+            height: 6, borderRadius: 3, width: `${Math.min(100, (storageInfo.used_mb / storageInfo.total_mb) * 100)}%`,
+            backgroundColor: '#9333EA',
+          }} />
+        </View>
+        <Text style={{ fontSize: 10, color: Colors.textMuted, marginTop: 6 }}>{storageInfo.galleries} galleries · {storageInfo.extra_mb > 0 ? `${(storageInfo.extra_mb / 1024).toFixed(1)} GB extra purchased` : 'Base 10 GB'}</Text>
       </View>
 
       <View style={styles.section}>

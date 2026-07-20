@@ -18,6 +18,8 @@ export default function SettingsPage() {
   const [error, setError] = useState('');
   const [smsCredits, setSmsCredits] = useState(0);
   const [smsStats, setSmsStats] = useState({ sent: 0, spent: 0 });
+  const [smsPackages, setSmsPackages] = useState<any[]>([]);
+  const [storageInfo, setStorageInfo] = useState({ used_mb: 0, total_mb: 10240, extra_mb: 0, galleries: 0 });
 
   // SMS Refill state
   const [showRefillModal, setShowRefillModal] = useState(false);
@@ -34,12 +36,16 @@ export default function SettingsPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const [{ data: prof }, { data: gatewayData }, { data: sub }, { data: platformConfig }, { data: smsData }] = await Promise.all([
+    const [{ data: prof }, { data: gatewayData }, { data: sub }, { data: platformConfig }, { data: smsData }, { data: packages }, { data: storageAlloc }, { data: storageUsage }, { data: galleries }] = await Promise.all([
       supabase.from('user_profiles').select('name, email, phone, sms_credits').eq('id', user.id).single(),
       supabase.from('payment_gateways').select('*').eq('owner_admin_id', user.id).eq('is_active', true).maybeSingle(),
       supabase.from('user_profiles').select('subscription_status, subscription_expires_at, is_lifetime').eq('id', user.id).single(),
       supabase.from('platform_settings').select('key, value').in('key', ['platform_whatsapp_number', 'platform_admin_app_android_link', 'platform_admin_app_ios_link']),
       supabase.from('sms_logs').select('id, cost').eq('photographer_id', user.id),
+      supabase.from('sms_credit_packages').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+      supabase.from('admin_storage_allocations').select('*').eq('admin_id', user.id).single(),
+      supabase.from('admin_storage_usage').select('used_mb').eq('admin_id', user.id).single(),
+      supabase.from('galleries').select('id', { count: 'exact', head: true }).eq('admin_id', user.id),
     ]) as any;
 
     if (prof) {
@@ -68,6 +74,13 @@ export default function SettingsPage() {
       android: platformMap['platform_admin_app_android_link'] || 'https://play.google.com/store',
       ios: platformMap['platform_admin_app_ios_link'] || 'https://apps.apple.com',
     });
+    if (packages) setSmsPackages(packages);
+    if (storageAlloc) {
+      const used = storageUsage?.used_mb || 0;
+      const base = storageAlloc.base_storage_mb || 10240;
+      const extra = storageAlloc.extra_storage_mb || 0;
+      setStorageInfo({ used_mb: used, total_mb: base + extra, extra_mb: extra, galleries: galleries || 0 });
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -232,21 +245,39 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <p className="text-sm text-gray-400 mb-3">Quick Amounts</p>
-              <div className="grid grid-cols-4 gap-2">
-                {REFILL_AMOUNTS.map((amount) => (
-                  <button key={amount}
-                    onClick={() => { setRefillAmount(amount); setCustomAmount(''); }}
-                    className={`py-3 rounded-xl font-bold text-sm transition-all ${
-                      refillAmount === amount && !customAmount
-                        ? 'text-black'
-                        : 'bg-white/5 text-white hover:bg-white/10'
-                    }`}
-                    style={refillAmount === amount && !customAmount ? { background: 'linear-gradient(135deg, #D4AF37, #F0D060)' } : {}}>
-                    {amount}
-                  </button>
-                ))}
-              </div>
+              <p className="text-sm text-gray-400 mb-3">SMS Packages</p>
+              {smsPackages.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {smsPackages.map((pkg: any) => (
+                    <button key={pkg.id}
+                      onClick={() => { setRefillAmount(pkg.sms_count); setCustomAmount(''); }}
+                      className={`py-3 rounded-xl font-bold text-sm transition-all ${
+                        refillAmount === pkg.sms_count && !customAmount
+                          ? 'text-black'
+                          : 'bg-white/5 text-white hover:bg-white/10'
+                      }`}
+                      style={refillAmount === pkg.sms_count && !customAmount ? { background: 'linear-gradient(135deg, #D4AF37, #F0D060)' } : {}}>
+                      <div>{pkg.sms_count} SMS</div>
+                      <div className="text-xs opacity-70">KES {pkg.price}</div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-2">
+                  {REFILL_AMOUNTS.map((amount) => (
+                    <button key={amount}
+                      onClick={() => { setRefillAmount(amount); setCustomAmount(''); }}
+                      className={`py-3 rounded-xl font-bold text-sm transition-all ${
+                        refillAmount === amount && !customAmount
+                          ? 'text-black'
+                          : 'bg-white/5 text-white hover:bg-white/10'
+                      }`}
+                      style={refillAmount === amount && !customAmount ? { background: 'linear-gradient(135deg, #D4AF37, #F0D060)' } : {}}>
+                      {amount}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div>
@@ -281,6 +312,34 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* Storage Info */}
+      <div className="border border-purple-500/20 rounded-2xl p-6 space-y-4" style={{ background: 'rgba(147,51,234,0.04)' }}>
+        <div className="flex items-center gap-3">
+          <div className="text-3xl">☁️</div>
+          <div>
+            <h2 className="text-lg font-bold text-purple-400">Cloud Storage</h2>
+            <p className="text-sm text-gray-400">Your gallery media storage allocation</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="p-3 rounded-xl bg-white/5">
+            <p className="text-xs text-gray-400">Used</p>
+            <p className="text-xl font-black text-purple-400">{(storageInfo.used_mb / 1024).toFixed(1)} GB</p>
+          </div>
+          <div className="p-3 rounded-xl bg-white/5">
+            <p className="text-xs text-gray-400">Total</p>
+            <p className="text-xl font-black text-white">{(storageInfo.total_mb / 1024).toFixed(1)} GB</p>
+          </div>
+        </div>
+        <div className="w-full bg-white/5 rounded-full h-2.5">
+          <div className="h-2.5 rounded-full" style={{
+            width: `${Math.min(100, (storageInfo.used_mb / storageInfo.total_mb) * 100)}%`,
+            background: 'linear-gradient(135deg, #9333EA, #C084FC)',
+          }} />
+        </div>
+        <p className="text-xs text-gray-500">{storageInfo.galleries} galleries · {storageInfo.extra_mb > 0 ? `${(storageInfo.extra_mb / 1024).toFixed(1)} GB extra purchased` : 'Base 10 GB'}</p>
+      </div>
 
       {/* Download Admin App */}
       <div className="border border-yellow-500/20 rounded-2xl p-6 space-y-4" style={{ background: 'rgba(212,175,55,0.04)' }}>
