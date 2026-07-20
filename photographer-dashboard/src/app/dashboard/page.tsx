@@ -39,6 +39,7 @@ export default function DashboardOverview() {
         { data: settings },
         { count: pendingBookings },
         { count: confirmedBookings },
+        { data: allGalleriesForRevenue },
       ] = await Promise.all([
         supabase.from('user_profiles').select('name').eq('id', user.id).single(),
         supabase.from('clients').select('*', { count: 'exact', head: true }).eq('owner_admin_id', user.id),
@@ -47,17 +48,19 @@ export default function DashboardOverview() {
         supabase.from('admin_settings').select('sms_credits').eq('admin_id', user.id).maybeSingle(),
         supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
         supabase.from('bookings').select('*', { count: 'exact', head: true }).eq('status', 'confirmed'),
+        supabase.from('galleries').select('id, is_paid, price, created_at').eq('owner_admin_id', user.id),
       ]);
 
       setAdminName((profile as any)?.name || user.email?.split('@')[0] || 'Photographer');
 
       const galleryList = galleries || [];
-      const paidCount = galleryList.filter((g: any) => g.is_paid).length;
-      const unpaidCount = galleryList.filter((g: any) => !g.is_paid).length;
-      const totalRevenue = galleryList.filter((g: any) => g.is_paid).reduce((s: number, g: any) => s + (g.price || 0), 0);
+      const allRevenueGalleries = allGalleriesForRevenue || [];
+      const paidCount = allRevenueGalleries.filter((g: any) => g.is_paid).length;
+      const unpaidCount = allRevenueGalleries.filter((g: any) => !g.is_paid).length;
+      const totalRevenue = allRevenueGalleries.filter((g: any) => g.is_paid).reduce((s: number, g: any) => s + (g.price || 0), 0);
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const monthRevenue = galleryList.filter((g: any) => g.is_paid && g.created_at >= monthStart).reduce((s: number, g: any) => s + (g.price || 0), 0);
+      const monthRevenue = allRevenueGalleries.filter((g: any) => g.is_paid && g.created_at >= monthStart).reduce((s: number, g: any) => s + (g.price || 0), 0);
 
       // Get client names for galleries
       const clientIds = Array.from(new Set(galleryList.map((g: any) => g.client_id).filter(Boolean))) as string[];

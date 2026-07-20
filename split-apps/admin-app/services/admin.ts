@@ -1264,7 +1264,7 @@ export const AdminService = {
       } as any);
 
       const { error: uploadError } = await supabase.storage
-        .from('bts-media')
+        .from('media')
         .upload(path, formData);
 
       if (uploadError) throw uploadError;
@@ -1905,6 +1905,7 @@ export const AdminService = {
         .from('portfolio_items')
         .insert({
           owner_admin_id: user.id,
+          created_by: user.id,
           title: payload.title,
           description: payload.description || null,
           content_type: payload.content_type,
@@ -1928,7 +1929,7 @@ export const AdminService = {
       const { data, error } = await supabase
         .from('portfolio_items')
         .select('*')
-        .eq('created_by', user.id)
+        .eq('owner_admin_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -1942,7 +1943,7 @@ export const AdminService = {
       const { data, error } = await supabase
         .from('portfolio_items')
         .select('*')
-        .eq('created_by', user.id)
+        .eq('owner_admin_id', user.id)
         .eq('content_type', contentType)
         .order('created_at', { ascending: false });
 
@@ -1982,7 +1983,7 @@ export const AdminService = {
       const fileName = file.fileName || file.name || `portfolio-${Date.now()}.${ext}`;
       const safeFileName = fileName.replace(/[^\w.-]/g, '_');
       const mimeType = file.mimeType || file.type || `image/${ext}`;
-      const bucket = contentType === 'bts' ? 'bts-media' : 'portfolio-media';
+      const bucket = contentType === 'bts' ? 'media' : 'portfolio';
       const storagePath = `${contentType}/${Date.now()}-${safeFileName}`;
 
       const arrayBuffer = await fetch(file.uri).then(res => res.arrayBuffer());

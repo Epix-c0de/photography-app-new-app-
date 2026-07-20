@@ -280,19 +280,45 @@ export default function UploadPage() {
     setStep('done');
   };
 
-  const sendSMS = () => {
+  const sendSMS = async () => {
     if (!clientData?.phone || !finalAccessCode) return;
     const msg = customMessage ||
       `Hello ${clientData.name}, your photos are ready! Use code: ${finalAccessCode} to unlock your gallery.`;
-    window.open(`sms:${clientData.phone}?body=${encodeURIComponent(msg)}`, '_blank');
+    try {
+      const { SMSCloudService } = await import('@/lib/messaging');
+      await SMSCloudService.send({
+        phone_number: clientData.phone,
+        message: msg,
+        photographer_id: (await supabase.auth.getUser()).data.user?.id,
+        client_id: clientData.id,
+        gallery_id: galleryId,
+      });
+      showToast('SMS sent successfully!');
+    } catch (e: any) {
+      // Fallback to browser SMS
+      window.open(`sms:${clientData.phone}?body=${encodeURIComponent(msg)}`, '_blank');
+    }
   };
 
-  const sendWhatsApp = () => {
+  const sendWhatsApp = async () => {
     if (!clientData?.phone || !finalAccessCode) return;
     const msg = customMessage ||
       `Hello ${clientData.name}, your photos are ready! Use code: ${finalAccessCode} to unlock your gallery.`;
-    const phone = clientData.phone.replace(/[^0-9]/g, '');
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    try {
+      const { WhatsAppService } = await import('@/lib/messaging');
+      await WhatsAppService.send({
+        phone_number: clientData.phone,
+        message: msg,
+        photographer_id: (await supabase.auth.getUser()).data.user?.id,
+        client_id: clientData.id,
+        gallery_id: galleryId,
+      });
+      showToast('WhatsApp sent successfully!');
+    } catch (e: any) {
+      // Fallback to browser WhatsApp
+      const phone = clientData.phone.replace(/[^0-9]/g, '');
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    }
   };
 
   const copyCode = () => navigator.clipboard.writeText(finalAccessCode);

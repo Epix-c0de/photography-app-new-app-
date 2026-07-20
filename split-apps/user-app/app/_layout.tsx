@@ -123,8 +123,8 @@ function RootLayout() {
         }
         // Handle invite links: epix-visuals://join?code=ADMIN_CODE
         if (url.includes('join')) {
-          const parsed = new URL(url.replace('epix-visuals://', 'https://epixvisuals.app/'));
-          const joinCode = parsed.searchParams.get('code');
+          const joinMatch = url.match(/[?&]code=([^&]+)/i);
+          const joinCode = joinMatch?.[1];
           if (joinCode) {
             console.log('[Deep Link] Join code detected:', joinCode);
             try {
@@ -136,8 +136,8 @@ function RootLayout() {
         }
         // Legacy invite link support
         if (url.includes('invite=')) {
-          const parsed = new URL(url.replace('epixvisuals://', 'https://epixvisuals.app/'));
-          const inviteToken = parsed.searchParams.get('invite');
+          const inviteMatch = url.match(/[?&]invite=([^&]+)/i);
+          const inviteToken = inviteMatch?.[1];
           if (inviteToken) {
             console.log('[Deep Link] Invite token detected:', inviteToken);
             try {
@@ -159,8 +159,8 @@ function RootLayout() {
       }
       // Handle join links while app is running
       if (event.url.includes('join')) {
-        const parsed = new URL(event.url.replace('epix-visuals://', 'https://epixvisuals.app/'));
-        const joinCode = parsed.searchParams.get('code');
+        const joinMatch = event.url.match(/[?&]code=([^&]+)/i);
+        const joinCode = joinMatch?.[1];
         if (joinCode) {
           console.log('[Deep Link] Join code (live):', joinCode);
           try {
@@ -183,8 +183,8 @@ function RootLayout() {
       }
       // Legacy invite link support
       if (event.url.includes('invite=')) {
-        const parsed = new URL(event.url.replace('epixvisuals://', 'https://epixvisuals.app/'));
-        const inviteToken = parsed.searchParams.get('invite');
+        const inviteMatch = event.url.match(/[?&]invite=([^&]+)/i);
+        const inviteToken = inviteMatch?.[1];
         if (inviteToken) {
           console.log('[Deep Link] Invite token (live):', inviteToken);
           try {

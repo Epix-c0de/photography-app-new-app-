@@ -63,10 +63,18 @@ export default function CalendarScreen() {
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
     const endDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
 
+    // Fetch bookings scoped to this admin's clients
+    const { data: adminClients } = await supabase
+      .from('clients')
+      .select('user_id')
+      .eq('owner_admin_id', user.id);
+    const adminUserIds = (adminClients || []).map(c => c.user_id).filter(Boolean);
+
     // Fetch bookings for this month (non-cancelled)
     const { data: bookingsData } = await supabase
       .from('bookings')
       .select('*')
+      .in('user_id', adminUserIds.length > 0 ? adminUserIds : ['__none__'])
       .gte('date', startDate)
       .lt('date', endDate)
       .neq('status', 'cancelled')

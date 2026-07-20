@@ -94,9 +94,9 @@ export default function SplashScreen() {
         return;
       }
       
-      // Admin users go directly to admin dashboard
+      // Admin users: redirect to login (admin app is a separate build)
       if (profile?.role === 'admin' || profile?.role === 'super_admin') {
-        router.replace('/(admin)/dashboard' as any);
+        router.replace('/login');
         return;
       }
       

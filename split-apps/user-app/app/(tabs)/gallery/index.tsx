@@ -1035,7 +1035,7 @@ export default function GalleryScreen() {
   const resolveGalleryLink = useCallback((gallery: GalleryRow) => {
     const baseGalleryLink = galleryShareLink || shareAppLink;
     const rawLink = gallery.access_code ? `${accessCodeLink}${gallery.access_code}` : baseGalleryLink;
-    const normalized = rawLink.startsWith('epix-visuals://') ? baseGalleryLink : rawLink;
+    const normalized = rawLink.includes('://') ? baseGalleryLink : rawLink;
     if (!normalized) return '';
     return normalized;
   }, [accessCodeLink, galleryShareLink, shareAppLink]);

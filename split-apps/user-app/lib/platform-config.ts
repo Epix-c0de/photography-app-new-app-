@@ -2,7 +2,30 @@ import { supabase } from './supabase';
 
 let cachedDomain: string | null = null;
 let cacheTimestamp = 0;
+let cachedScheme: string | null = null;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Fetch the deep link scheme from platform_settings table.
+ * Falls back to 'epix-visuals' if not configured.
+ */
+export async function getDeepLinkScheme(): Promise<string> {
+  if (cachedScheme) return cachedScheme;
+  try {
+    const { data } = await supabase
+      .from('platform_settings')
+      .select('value')
+      .eq('key', 'platform_deep_link_scheme')
+      .single();
+    if (data?.value) {
+      cachedScheme = data.value;
+      return data.value;
+    }
+  } catch (e) {
+    console.warn('[PlatformConfig] Failed to fetch deep link scheme:', e);
+  }
+  return 'epix-visuals';
+}
 
 /**
  * Fetch the platform domain from platform_settings table.

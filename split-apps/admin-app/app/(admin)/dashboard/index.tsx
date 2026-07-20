@@ -87,12 +87,21 @@ export default function DashboardScreen() {
       const data = await AdminService.getDashboardStats(user.id);
       setStats(data);
 
-      // Fetch recent activity in parallel
+      // Fetch admin's client user_ids for bookings filter
+      const { data: adminClients } = await supabase
+        .from('clients')
+        .select('user_id')
+        .eq('owner_admin_id', user.id);
+      const adminUserIds = (adminClients || []).map(c => c.user_id).filter(Boolean);
+
+      // Fetch recent activity in parallel — scoped to this admin
       const [galleriesRes, bookingsRes, messagesRes, reviewsRes] = await Promise.allSettled([
-        supabase.from('galleries').select('id, name, created_at, client_id').order('created_at', { ascending: false }).limit(3),
-        supabase.from('bookings').select('id, title, event_date, created_at, status').order('created_at', { ascending: false }).limit(3),
-        supabase.from('messages').select('id, content, created_at, sender_role, client_id, is_read').order('created_at', { ascending: false }).limit(5),
-        supabase.from('reviews').select('id, rating, review_text, created_at, clients(name)').order('created_at', { ascending: false }).limit(3),
+        supabase.from('galleries').select('id, name, created_at, client_id').eq('owner_admin_id', user.id).order('created_at', { ascending: false }).limit(3),
+        adminUserIds.length > 0
+          ? supabase.from('bookings').select('id, title, event_date, created_at, status').in('user_id', adminUserIds).order('created_at', { ascending: false }).limit(3)
+          : Promise.resolve({ data: [], error: null }),
+        supabase.from('messages').select('id, content, created_at, sender_role, client_id, is_read').eq('owner_admin_id', user.id).order('created_at', { ascending: false }).limit(5),
+        supabase.from('reviews').select('id, rating, review_text, created_at, clients(name)').eq('photographer_id', user.id).order('created_at', { ascending: false }).limit(3),
       ]);
 
       // Count unread messages
@@ -224,7 +233,7 @@ export default function DashboardScreen() {
             <Text style={styles.statValue}>{stats?.totalClients || 0}</Text>
             <Text style={styles.statLabel}>Clients</Text>
           </Pressable>
-          <Pressable style={styles.statCard} onPress={() => router.push('/(admin)/galleries')}>
+          <Pressable style={styles.statCard} onPress={() => router.push('/(admin)/upload')}>
             <View style={[styles.statIcon, { backgroundColor: 'rgba(139,92,246,0.15)' }]}>
               <Images size={18} color="#8B5CF6" />
             </View>

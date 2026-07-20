@@ -474,8 +474,8 @@ export const ClientService = {
         .from('announcement_comments')
         .insert({
           announcement_id: announcementId,
-          client_id: client.id,
-          comment: content
+          user_id: user.id,
+          content: content
         })
         .select()
         .single();

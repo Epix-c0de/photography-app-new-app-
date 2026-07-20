@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Pressable, RefreshControl,
-  ActivityIndicator, Alert, TextInput, Modal, Image, ScrollView,
+  ActivityIndicator, Alert, TextInput, Modal, ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -139,7 +140,7 @@ export default function PortfolioScreen() {
 
       const coverUrl = uploadedUrls[0].url;
       const { error: insertError } = await supabase.from('portfolio_items').insert({
-        admin_id: user.id,
+        owner_admin_id: user.id,
         created_by: user.id,
         title: uploadTitle.trim(),
         description: uploadDesc.trim() || null,

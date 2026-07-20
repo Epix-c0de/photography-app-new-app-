@@ -21,11 +21,8 @@ export function redirectSystemPath({
   // Handle join/invite links: epix-visuals://join?code=XXXX or epix-visuals://join/CODE
   if (path.startsWith('join') || path.startsWith('/join')) {
     console.log('[Native Intent] Routing join link:', path);
-    // Extract the code from the path or query params
-    const codeMatch = path.match(/join[/?]?(?:code=)?([A-Za-z0-9]+)/);
-    if (codeMatch && codeMatch[1]) {
-      return `/?pending_join_code=${codeMatch[1].toUpperCase()}`;
-    }
+    // Code is extracted and stored by _layout.tsx Linking listener — just navigate home
+    return '/';
   }
 
   // Handle signup with referral: /signup?ref=CODE

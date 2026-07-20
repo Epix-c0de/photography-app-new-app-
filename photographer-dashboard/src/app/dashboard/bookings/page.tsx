@@ -59,9 +59,17 @@ export default function BookingsPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
+    // Fetch bookings scoped to this admin's clients
+    const { data: adminClients } = await supabase
+      .from('clients')
+      .select('user_id')
+      .eq('owner_admin_id', user.id);
+    const adminUserIds = (adminClients || []).map((c: any) => c.user_id).filter(Boolean);
+
     const { data } = await supabase
       .from('bookings')
       .select(`*, packages(name, price), user_profiles!bookings_user_id_fkey(name, phone)`)
+      .in('user_id', adminUserIds.length > 0 ? adminUserIds : ['__none__'])
       .order('date', { ascending: true }) as any;
 
     // Map user_id to client_id

@@ -97,7 +97,13 @@ export default function AdminBtsAnnouncementsScreen() {
   const handleReferral = useCallback(async () => {
     if (!user) return;
     const referralCode = user.id.substring(0, 8).toUpperCase();
-    const url = `https://studio.epix.co/share/${referralCode}`;
+    // Fetch domain from platform_settings instead of hardcoding
+    let domain = 'https://epixvisuals.co.ke';
+    try {
+      const { data } = await supabase.from('platform_settings').select('value').eq('key', 'platform_domain').single();
+      if (data?.value) domain = data.value;
+    } catch {}
+    const url = `${domain}/signup?ref=${referralCode}`;
     const message = `Check out our studio! View portfolio and book here: ${url}`;
     try {
       await Share.share({ message, url, title: 'Share Studio Link' });
@@ -444,7 +450,7 @@ export default function AdminBtsAnnouncementsScreen() {
 
       const coverUrl = uploadedUrls[0].url;
       const { error: dbErr } = await supabase.from('portfolio_items').insert({
-        admin_id: user.id,
+        owner_admin_id: user.id,
         created_by: user.id,
         title: portfolioTitle || 'Untitled',
         description: portfolioDescription,

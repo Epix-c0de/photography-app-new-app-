@@ -59,9 +59,9 @@ export default function BtsAndAnnouncementsPage() {
     const { data: { user } } = await supabase.auth.getUser();
     const ext = file.name.split('.').pop() || 'jpg';
     const path = `${folder}/${user!.id}/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from('bts-media').upload(path, file, { contentType: file.type, upsert: true });
+    const { error } = await supabase.storage.from('media').upload(path, file, { contentType: file.type, upsert: true });
     if (error) throw error;
-    const { data: { publicUrl } } = supabase.storage.from('bts-media').getPublicUrl(path);
+    const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(path);
     return publicUrl;
   };
 
@@ -82,7 +82,6 @@ export default function BtsAndAnnouncementsPage() {
         media_url: mediaUrl,
         media_type: btsFile.type.startsWith('video') ? 'video' : 'image',
         category: btsCategory,
-        visibility: btsVisibility,
         is_active: true,
         created_by: user!.id,
         expires_at: new Date(Date.now() + 7 * 86400000).toISOString(),

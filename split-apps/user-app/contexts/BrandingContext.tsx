@@ -59,7 +59,7 @@ export const DEFAULTS = {
   embedGalleryCode: true,
   blockScreenshots: true,
   shareAppLink: '',
-  accessCodeLink: 'epix-visuals://gallery?autoUnlock=true&accessCode=',
+  accessCodeLink: '',
   btsShareLink: '',
   announcementShareLink: '',
   galleryShareLink: '',
