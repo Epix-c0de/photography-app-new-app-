@@ -44,6 +44,22 @@ serve(async (req) => {
       );
     }
 
+    // Read OAuth credentials from platform_settings
+    const { data: settings } = await supabase
+      .from("platform_settings")
+      .select("key, value")
+      .in("key", [
+        "facebook_app_id",
+        "facebook_app_secret",
+        "tiktok_client_key",
+        "tiktok_client_secret",
+      ]);
+
+    const config: Record<string, string> = {};
+    if (settings) {
+      settings.forEach((s: any) => { config[s.key] = s.value || ""; });
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const callbackBase = `${supabaseUrl}/functions/v1/social-callback`;
 
@@ -53,9 +69,15 @@ serve(async (req) => {
     let profileUrl = "";
 
     if (platform === "instagram" || platform === "facebook") {
-      // Exchange code for access token via Facebook Graph API
-      const fbAppId = Deno.env.get("FACEBOOK_APP_ID");
-      const fbAppSecret = Deno.env.get("FACEBOOK_APP_SECRET");
+      const fbAppId = config.facebook_app_id;
+      const fbAppSecret = config.facebook_app_secret;
+
+      if (!fbAppId || !fbAppSecret) {
+        return new Response(
+          JSON.stringify({ error: "Facebook credentials not configured" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       const tokenResponse = await fetch(
         `https://graph.facebook.com/v17.0/oauth/access_token?client_id=${fbAppId}&redirect_uri=${encodeURIComponent(callbackBase)}&client_secret=${fbAppSecret}&code=${code}`
@@ -72,7 +94,6 @@ serve(async (req) => {
       accessToken = tokenData.access_token;
 
       if (platform === "instagram") {
-        // Get Instagram Business Account ID via pages
         const pagesResponse = await fetch(
           `https://graph.facebook.com/v17.0/me/accounts?fields=id,name,instagram_business_account&access_token=${accessToken}`
         );
@@ -91,7 +112,6 @@ serve(async (req) => {
         profileName = page.name;
         profileUrl = `https://instagram.com/${page.name}`;
 
-        // Get Instagram username for display
         const igResponse = await fetch(
           `https://graph.facebook.com/v17.0/${profileId}?fields=username,name&access_token=${accessToken}`
         );
@@ -101,7 +121,6 @@ serve(async (req) => {
           profileUrl = `https://instagram.com/${igData.username}`;
         }
       } else {
-        // Facebook - get pages and use the first one
         const pagesResponse = await fetch(
           `https://graph.facebook.com/v17.0/me/accounts?fields=id,name&access_token=${accessToken}`
         );
@@ -121,8 +140,15 @@ serve(async (req) => {
         accessToken = `${accessToken}|${fbAppSecret}`;
       }
     } else if (platform === "tiktok") {
-      const tiktokKey = Deno.env.get("TIKTOK_CLIENT_KEY");
-      const tiktokSecret = Deno.env.get("TIKTOK_CLIENT_SECRET");
+      const tiktokKey = config.tiktok_client_key;
+      const tiktokSecret = config.tiktok_client_secret;
+
+      if (!tiktokKey || !tiktokSecret) {
+        return new Response(
+          JSON.stringify({ error: "TikTok credentials not configured" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
 
       const tokenResponse = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
         method: "POST",
@@ -146,7 +172,6 @@ serve(async (req) => {
 
       accessToken = tokenData.data.access_token;
 
-      // Get TikTok user info
       const userResponse = await fetch("https://open.tiktokapis.com/v2/user/info/?fields=display_name,username", {
         headers: { Authorization: `Bearer ${accessToken}` },
       });

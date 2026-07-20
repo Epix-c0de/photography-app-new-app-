@@ -51,7 +51,7 @@ type ProviderSettings = {
 };
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'payment' | 'pricing' | 'webhooks' | 'links' | 'providers'>('payment');
+  const [activeTab, setActiveTab] = useState<'payment' | 'pricing' | 'webhooks' | 'links' | 'providers' | 'social'>('payment');
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({
     id: '',
     mpesa_consumer_key: null,
@@ -95,6 +95,12 @@ export default function SettingsPage() {
     whatsapp_waba_id: '',
     whatsapp_enabled: false,
     sms_provider: 'africastalking',
+  });
+  const [socialSettings, setSocialSettings] = useState({
+    facebook_app_id: '',
+    facebook_app_secret: '',
+    tiktok_client_key: '',
+    tiktok_client_secret: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -148,6 +154,12 @@ export default function SettingsPage() {
           whatsapp_phone_number_id: kvMap['whatsapp_phone_number_id'] || '',
           whatsapp_waba_id: kvMap['whatsapp_waba_id'] || '',
           whatsapp_enabled: kvMap['whatsapp_enabled'] === 'true',
+        });
+        setSocialSettings({
+          facebook_app_id: kvMap['facebook_app_id'] || '',
+          facebook_app_secret: kvMap['facebook_app_secret'] || '',
+          tiktok_client_key: kvMap['tiktok_client_key'] || '',
+          tiktok_client_secret: kvMap['tiktok_client_secret'] || '',
         });
       }
     } catch (e) {
@@ -292,6 +304,31 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveSocialSettings() {
+    setSaving(true);
+    try {
+      const updates = [
+        { key: 'facebook_app_id', value: socialSettings.facebook_app_id },
+        { key: 'facebook_app_secret', value: socialSettings.facebook_app_secret },
+        { key: 'tiktok_client_key', value: socialSettings.tiktok_client_key },
+        { key: 'tiktok_client_secret', value: socialSettings.tiktok_client_secret },
+      ];
+      const results = await Promise.all(updates.map(update =>
+        supabase
+          .from('platform_settings')
+          .upsert({ key: update.key, value: update.value }, { onConflict: 'key' })
+      ));
+      const dbError = results.find(r => r.error);
+      if (dbError) throw dbError.error;
+      alert('Social OAuth settings saved successfully!');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to save social settings');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -316,6 +353,7 @@ export default function SettingsPage() {
           { id: 'webhooks' as const, label: 'Webhooks', icon: '🔗' },
           { id: 'links' as const, label: 'App Links', icon: '🌐' },
           { id: 'providers' as const, label: 'Providers', icon: '📡' },
+          { id: 'social' as const, label: 'Social OAuth', icon: '🔗' },
         ].map(tab => (
           <button
             key={tab.id}
@@ -894,6 +932,92 @@ export default function SettingsPage() {
               className="px-6 py-3 rounded-xl font-bold transition-all"
               style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
               {saving ? 'Saving...' : 'Save Provider Settings'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Social OAuth Tab */}
+      {activeTab === 'social' && (
+        <div className="space-y-6">
+          {/* Facebook / Instagram */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6 space-y-6">
+            <div>
+              <h2 className="font-bold text-xl mb-2">Facebook / Instagram</h2>
+              <p className="text-sm text-gray-400">One Facebook App covers both Instagram and Facebook OAuth. Create yours at <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-[#D4AF37] hover:underline">developers.facebook.com</a></p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-semibold text-gray-400 block mb-2">Facebook App ID</label>
+                <input
+                  type="text"
+                  value={socialSettings.facebook_app_id}
+                  onChange={e => setSocialSettings({ ...socialSettings, facebook_app_id: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                  placeholder="e.g. 123456789012345"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-gray-400 block mb-2">Facebook App Secret</label>
+                <input
+                  type="password"
+                  value={socialSettings.facebook_app_secret}
+                  onChange={e => setSocialSettings({ ...socialSettings, facebook_app_secret: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                  placeholder="Enter app secret"
+                />
+              </div>
+            </div>
+            <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+              <p className="text-sm text-blue-400">
+                <strong>Setup steps:</strong> Create a Facebook App → Add &quot;Facebook Login&quot; product → Set redirect URI to your Supabase <code className="bg-white/10 px-1 rounded">social-callback</code> function URL → Add Instagram Graph API product
+              </p>
+            </div>
+          </div>
+
+          {/* TikTok */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6 space-y-6">
+            <div>
+              <h2 className="font-bold text-xl mb-2">TikTok</h2>
+              <p className="text-sm text-gray-400">Create your TikTok app at <a href="https://developers.tiktok.com" target="_blank" rel="noopener noreferrer" className="text-[#D4AF37] hover:underline">developers.tiktok.com</a></p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-semibold text-gray-400 block mb-2">TikTok Client Key</label>
+                <input
+                  type="text"
+                  value={socialSettings.tiktok_client_key}
+                  onChange={e => setSocialSettings({ ...socialSettings, tiktok_client_key: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                  placeholder="Enter client key"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-gray-400 block mb-2">TikTok Client Secret</label>
+                <input
+                  type="password"
+                  value={socialSettings.tiktok_client_secret}
+                  onChange={e => setSocialSettings({ ...socialSettings, tiktok_client_secret: e.target.value })}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                  placeholder="Enter client secret"
+                />
+              </div>
+            </div>
+            <div className="p-4 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+              <p className="text-sm text-cyan-400">
+                <strong>Setup steps:</strong> Create a TikTok App → Add Login product → Set redirect URI to your Supabase <code className="bg-white/10 px-1 rounded">social-callback</code> function URL → Request <code className="bg-white/10 px-1 rounded">video.publish</code> scope
+              </p>
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6">
+            <button
+              onClick={saveSocialSettings}
+              disabled={saving}
+              className="px-6 py-3 rounded-xl font-bold transition-all"
+              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
+              {saving ? 'Saving...' : 'Save Social OAuth Settings'}
             </button>
           </div>
         </div>

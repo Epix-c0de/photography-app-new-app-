@@ -39,6 +39,22 @@ serve(async (req) => {
       );
     }
 
+    // Read OAuth credentials from platform_settings
+    const { data: settings } = await supabase
+      .from("platform_settings")
+      .select("key, value")
+      .in("key", [
+        "facebook_app_id",
+        "facebook_app_secret",
+        "tiktok_client_key",
+        "tiktok_client_secret",
+      ]);
+
+    const config: Record<string, string> = {};
+    if (settings) {
+      settings.forEach((s: any) => { config[s.key] = s.value || ""; });
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const callbackBase = `${supabaseUrl}/functions/v1/social-callback`;
     const state = btoa(JSON.stringify({ user_id: user.id, platform }));
@@ -46,16 +62,33 @@ serve(async (req) => {
     let authUrl = "";
 
     if (platform === "instagram") {
-      // Instagram Business API uses Facebook OAuth
-      const fbAppId = Deno.env.get("FACEBOOK_APP_ID");
+      const fbAppId = config.facebook_app_id;
+      if (!fbAppId) {
+        return new Response(
+          JSON.stringify({ error: "Facebook App ID not configured. Ask admin to set up Social OAuth in settings." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       const scopes = "instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement";
       authUrl = `https://www.facebook.com/v17.0/dialog/oauth?client_id=${fbAppId}&redirect_uri=${encodeURIComponent(callbackBase)}&scope=${scopes}&state=${state}&response_type=code`;
     } else if (platform === "facebook") {
-      const fbAppId = Deno.env.get("FACEBOOK_APP_ID");
+      const fbAppId = config.facebook_app_id;
+      if (!fbAppId) {
+        return new Response(
+          JSON.stringify({ error: "Facebook App ID not configured. Ask admin to set up Social OAuth in settings." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       const scopes = "pages_manage_posts,pages_show_list,pages_read_engagement";
       authUrl = `https://www.facebook.com/v17.0/dialog/oauth?client_id=${fbAppId}&redirect_uri=${encodeURIComponent(callbackBase)}&scope=${scopes}&state=${state}&response_type=code`;
     } else if (platform === "tiktok") {
-      const tiktokKey = Deno.env.get("TIKTOK_CLIENT_KEY");
+      const tiktokKey = config.tiktok_client_key;
+      if (!tiktokKey) {
+        return new Response(
+          JSON.stringify({ error: "TikTok Client Key not configured. Ask admin to set up Social OAuth in settings." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       const scopes = "user.info.basic,video.publish";
       authUrl = `https://www.tiktok.com/v2/auth/authorize/?client_key=${tiktokKey}&redirect_uri=${encodeURIComponent(callbackBase)}&scope=${scopes}&state=${state}&response_type=code`;
     } else {

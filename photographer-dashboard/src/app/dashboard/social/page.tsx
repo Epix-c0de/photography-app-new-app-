@@ -151,14 +151,32 @@ export default function SocialPage() {
   const handleConnect = async (platform: Platform) => {
     setConnecting(platform);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
 
-      // For now, show a message that OAuth needs to be configured
-      showToast(`${platform} OAuth is not yet configured. Contact admin to set up.`);
-      setConnecting(null);
-    } catch (error) {
-      showToast(`Failed to connect ${platform}`);
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const response = await fetch(`${supabaseUrl}/functions/v1/social-connect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+        },
+        body: JSON.stringify({ platform }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        showToast(data.error || `Failed to connect ${platform}`);
+        setConnecting(null);
+        return;
+      }
+
+      // Redirect to OAuth URL
+      window.location.href = data.url;
+    } catch (error: any) {
+      showToast(error.message || `Failed to connect ${platform}`);
       setConnecting(null);
     }
   };
