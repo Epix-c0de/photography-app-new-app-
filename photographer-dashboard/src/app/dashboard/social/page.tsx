@@ -3,9 +3,26 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
-  Instagram, Facebook, ExternalLink, CheckCircle, 
-  Unlink, Loader2, Share2, Image as ImageIcon, AlertTriangle 
+  ExternalLink, CheckCircle, Unlink, Loader2, Share2, Image as ImageIcon, AlertTriangle 
 } from 'lucide-react';
+
+function InstagramIcon({ size = 24, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="17.5" cy="6.5" r="1.5" fill={color} stroke="none" />
+    </svg>
+  );
+}
+
+function FacebookIcon({ size = 24, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke="none">
+      <path d="M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z" />
+    </svg>
+  );
+}
 
 type SocialConnection = {
   id: string;
@@ -172,7 +189,7 @@ export default function SocialPage() {
           marginBottom: 12,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Instagram size={24} color={isConnected('instagram') ? '#E4405F' : 'rgba(255,255,255,0.3)'} />
+            <InstagramIcon size={24} color={isConnected('instagram') ? '#E4405F' : 'rgba(255,255,255,0.3)'} />
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'white' }}>Instagram</div>
               {isConnected('instagram') ? (
@@ -243,7 +260,7 @@ export default function SocialPage() {
           border: `1px solid ${isConnected('facebook') ? 'rgba(24,119,242,0.3)' : 'rgba(255,255,255,0.1)'}`,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Facebook size={24} color={isConnected('facebook') ? '#1877F2' : 'rgba(255,255,255,0.3)'} />
+            <FacebookIcon size={24} color={isConnected('facebook') ? '#1877F2' : 'rgba(255,255,255,0.3)'} />
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'white' }}>Facebook Page</div>
               {isConnected('facebook') ? (
@@ -336,9 +353,9 @@ export default function SocialPage() {
                 }}
               >
                 {share.platform === 'instagram' ? (
-                  <Instagram size={18} color="#E4405F" />
+                  <InstagramIcon size={18} color="#E4405F" />
                 ) : (
-                  <Facebook size={18} color="#1877F2" />
+                  <FacebookIcon size={18} color="#1877F2" />
                 )}
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, color: 'white' }}>
