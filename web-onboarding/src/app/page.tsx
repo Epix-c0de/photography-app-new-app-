@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
 function CountUp({ target, duration = 2000 }: { target: number; duration?: number }) {
   const [count, setCount] = useState(0);
@@ -42,6 +43,12 @@ const features = [
   { icon: '🎵', title: 'Behind the Scenes', desc: 'Share BTS content, announcements, and portfolio pieces to keep clients engaged.' },
 ];
 
+const steps = [
+  { num: '01', title: 'Sign Up', desc: 'Create your account in 60 seconds. Start with a free trial or pay via M-Pesa.' },
+  { num: '02', title: 'Upload Galleries', desc: 'Use the admin app or web dashboard to upload and organize client photos.' },
+  { num: '03', title: 'Share Access', desc: 'Send a unique access code or link. Clients download the app and view their gallery.' },
+];
+
 const testimonials = [
   { name: 'Faith Wanjiru', role: 'Wedding Photographer', text: 'Epix Visuals transformed my business. Clients love the gallery experience, and I love getting paid instantly via M-Pesa.', rating: 5 },
   { name: 'Brian Ochieng', role: 'Portrait Studio', text: 'Finally, a platform built for Kenyan photographers. The M-Pesa integration alone saves me hours every week.', rating: 5 },
@@ -51,11 +58,28 @@ const testimonials = [
 export default function LandingPage() {
   const [scrollY, setScrollY] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [price, setPrice] = useState<number | null>(null);
+  const [currency, setCurrency] = useState('KES');
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY);
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    supabase
+      .from('platform_settings')
+      .select('key, value')
+      .in('key', ['platform_admin_subscription_price', 'platform_admin_subscription_currency'])
+      .then(({ data }) => {
+        if (data) {
+          const map: Record<string, string> = {};
+          data.forEach((r: any) => { map[r.key] = r.value || ''; });
+          if (map['platform_admin_subscription_price']) setPrice(parseInt(map['platform_admin_subscription_price']));
+          if (map['platform_admin_subscription_currency']) setCurrency(map['platform_admin_subscription_currency']);
+        }
+      });
   }, []);
 
   const navBg = scrollY > 50 ? 'rgba(8,8,16,0.95)' : 'transparent';
@@ -80,6 +104,7 @@ export default function LandingPage() {
 
             <div className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-sm text-gray-400 hover:text-white transition-colors">Features</a>
+              <a href="#how-it-works" className="text-sm text-gray-400 hover:text-white transition-colors">How It Works</a>
               <a href="#pricing" className="text-sm text-gray-400 hover:text-white transition-colors">Pricing</a>
               <a href="#testimonials" className="text-sm text-gray-400 hover:text-white transition-colors">Reviews</a>
               <Link
@@ -87,7 +112,7 @@ export default function LandingPage() {
                 className="px-6 py-2.5 rounded-xl text-sm font-bold transition-all hover:scale-105"
                 style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
               >
-                Get Started Free
+                Get Started
               </Link>
             </div>
 
@@ -106,11 +131,11 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Mobile menu */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-white/5" style={{ background: 'rgba(8,8,16,0.98)' }}>
             <div className="px-4 py-6 space-y-4">
               <a href="#features" className="block text-gray-400 hover:text-white transition-colors" onClick={() => setMobileMenuOpen(false)}>Features</a>
+              <a href="#how-it-works" className="block text-gray-400 hover:text-white transition-colors" onClick={() => setMobileMenuOpen(false)}>How It Works</a>
               <a href="#pricing" className="block text-gray-400 hover:text-white transition-colors" onClick={() => setMobileMenuOpen(false)}>Pricing</a>
               <a href="#testimonials" className="block text-gray-400 hover:text-white transition-colors" onClick={() => setMobileMenuOpen(false)}>Reviews</a>
               <Link
@@ -118,7 +143,7 @@ export default function LandingPage() {
                 className="block text-center px-6 py-3 rounded-xl font-bold transition-all"
                 style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
               >
-                Get Started Free
+                Get Started
               </Link>
             </div>
           </div>
@@ -127,7 +152,6 @@ export default function LandingPage() {
 
       {/* Hero */}
       <section className="relative min-h-screen flex items-center justify-center pt-20">
-        {/* Background effects */}
         <div className="absolute inset-0 overflow-hidden">
           <div
             className="absolute w-[600px] h-[600px] rounded-full opacity-10 blur-[120px]"
@@ -147,7 +171,6 @@ export default function LandingPage() {
               animation: 'float 10s ease-in-out infinite reverse',
             }}
           />
-          {/* Grid pattern */}
           <div
             className="absolute inset-0 opacity-[0.03]"
             style={{
@@ -168,7 +191,7 @@ export default function LandingPage() {
             }}
           >
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            Trusted by 500+ Kenyan photographers
+            Built for Kenyan photographers
           </div>
 
           <h1
@@ -195,7 +218,7 @@ export default function LandingPage() {
             className="text-lg sm:text-xl text-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed"
             style={{ animation: 'fadeUp 0.8s ease-out 0.2s both' }}
           >
-            The all-in-one platform for Kenyan photographers. Private galleries, M-Pesa payments, and client management — all from your phone.
+            Private galleries, M-Pesa payments, and client management — all from your phone. The all-in-one platform for professional photographers.
           </p>
 
           <div
@@ -207,7 +230,7 @@ export default function LandingPage() {
               className="w-full sm:w-auto px-8 py-4 rounded-2xl font-black text-lg transition-all hover:scale-105 hover:shadow-lg hover:shadow-gold/20"
               style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
             >
-              Start for Free →
+              Start Free Trial →
             </Link>
             <Link
               href="/login"
@@ -217,7 +240,6 @@ export default function LandingPage() {
             </Link>
           </div>
 
-          {/* Stats */}
           <div
             className="grid grid-cols-3 gap-8 max-w-lg mx-auto"
             style={{ animation: 'fadeUp 0.8s ease-out 0.4s both' }}
@@ -237,10 +259,50 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Scroll indicator */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce">
           <div className="w-6 h-10 rounded-full border-2 border-white/20 flex items-start justify-center p-1.5">
             <div className="w-1.5 h-3 rounded-full bg-gold/60 animate-pulse" />
+          </div>
+        </div>
+      </section>
+
+      {/* How It Works */}
+      <section id="how-it-works" className="relative py-32">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-20">
+            <span
+              className="inline-block px-4 py-1.5 rounded-full text-xs font-bold tracking-wider uppercase mb-6"
+              style={{ background: 'rgba(212,175,55,0.1)', color: '#D4AF37', border: '1px solid rgba(212,175,55,0.2)' }}
+            >
+              How It Works
+            </span>
+            <h2 className="text-4xl sm:text-5xl font-black mb-4">
+              Three steps to
+              <br />
+              <span style={{ color: '#D4AF37' }}>professional galleries</span>
+            </h2>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8 max-w-4xl mx-auto">
+            {steps.map((s, i) => (
+              <div key={s.num} className="text-center relative">
+                {i < steps.length - 1 && (
+                  <div className="hidden md:block absolute top-10 left-[60%] w-[80%] h-px" style={{ background: 'linear-gradient(90deg, rgba(212,175,55,0.3), rgba(212,175,55,0.05))' }} />
+                )}
+                <div
+                  className="w-20 h-20 rounded-2xl mx-auto mb-6 flex items-center justify-center text-2xl font-black"
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(212,175,55,0.15), rgba(212,175,55,0.05))',
+                    border: '1px solid rgba(212,175,55,0.2)',
+                    color: '#D4AF37',
+                  }}
+                >
+                  {s.num}
+                </div>
+                <h3 className="text-xl font-bold mb-3">{s.title}</h3>
+                <p className="text-gray-400 text-sm leading-relaxed">{s.desc}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -273,7 +335,6 @@ export default function LandingPage() {
                 style={{
                   background: 'rgba(255,255,255,0.02)',
                   border: '1px solid rgba(255,255,255,0.06)',
-                  animationDelay: `${i * 0.1}s`,
                 }}
               >
                 <div className="absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
@@ -330,7 +391,9 @@ export default function LandingPage() {
 
               <div className="text-center mb-8">
                 <div className="flex items-baseline justify-center gap-1">
-                  <span className="text-5xl font-black" style={{ color: '#D4AF37' }}>KES 500</span>
+                  <span className="text-5xl font-black" style={{ color: '#D4AF37' }}>
+                    {price !== null ? `${currency} ${price}` : '...'}
+                  </span>
                   <span className="text-gray-400">/month</span>
                 </div>
               </div>
@@ -387,7 +450,7 @@ export default function LandingPage() {
           </div>
 
           <div className="grid md:grid-cols-3 gap-6">
-            {testimonials.map((t, i) => (
+            {testimonials.map((t) => (
               <div
                 key={t.name}
                 className="p-8 rounded-3xl transition-all duration-300 hover:scale-[1.02]"
@@ -436,7 +499,7 @@ export default function LandingPage() {
               <span style={{ color: '#D4AF37' }}>your photography business?</span>
             </h2>
             <p className="text-gray-400 max-w-xl mx-auto mb-10">
-              Join 500+ Kenyan photographers who trust Epix Visuals to power their studios.
+              Join hundreds of Kenyan photographers who trust Epix Visuals to power their studios.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
@@ -444,7 +507,7 @@ export default function LandingPage() {
                 className="w-full sm:w-auto px-8 py-4 rounded-2xl font-black text-lg transition-all hover:scale-105 hover:shadow-lg hover:shadow-gold/20"
                 style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
               >
-                Start for Free →
+                Start Free Trial →
               </Link>
               <Link
                 href="/login"
@@ -471,7 +534,7 @@ export default function LandingPage() {
               <a href="#testimonials" className="text-sm text-gray-500 hover:text-white transition-colors">Reviews</a>
               <a href="mailto:epixshots002@gmail.com" className="text-sm text-gray-500 hover:text-white transition-colors">Support</a>
             </div>
-            <p className="text-xs text-gray-600">© 2026 Epix Visuals. All rights reserved.</p>
+            <p className="text-xs text-gray-600">&copy; {new Date().getFullYear()} Epix Visuals. All rights reserved.</p>
           </div>
         </div>
       </footer>

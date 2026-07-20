@@ -1,20 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 
 export default function SuccessPage() {
   const [countdown, setCountdown] = useState(5);
   const [dashboardUrl, setDashboardUrl] = useState('');
-  const [adminAppAndroid, setAdminAppAndroid] = useState('');
-  const [adminAppIos, setAdminAppIos] = useState('');
   const [loginToken, setLoginToken] = useState('');
   const [adminId, setAdminId] = useState('');
   const [showCheckmark, setShowCheckmark] = useState(false);
 
   useEffect(() => {
-    // Animate checkmark
     const timer = setTimeout(() => setShowCheckmark(true), 300);
 
     const params = new URLSearchParams(window.location.search);
@@ -23,20 +19,6 @@ export default function SuccessPage() {
 
     const url = process.env.NEXT_PUBLIC_PHOTOGRAPHER_DASHBOARD_URL || 'http://localhost:3002';
     setDashboardUrl(url);
-
-    // Fetch app download links from platform_settings
-    supabase
-      .from('platform_settings')
-      .select('key, value')
-      .in('key', ['platform_admin_app_android_link', 'platform_admin_app_ios_link'])
-      .then(({ data }) => {
-        if (data) {
-          const map: Record<string, string> = {};
-          data.forEach((r: any) => { map[r.key] = r.value || ''; });
-          if (map['platform_admin_app_android_link']) setAdminAppAndroid(map['platform_admin_app_android_link']);
-          if (map['platform_admin_app_ios_link']) setAdminAppIos(map['platform_admin_app_ios_link']);
-        }
-      });
 
     // Generate one-time login token
     if (adminIdParam) {
@@ -79,7 +61,6 @@ export default function SuccessPage() {
 
   return (
     <main className="min-h-screen bg-background flex items-center justify-center px-4">
-      {/* Background glow */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute w-[600px] h-[600px] rounded-full opacity-8 blur-[120px]"
           style={{ background: 'radial-gradient(circle, #D4AF37, transparent)', top: '-200px', left: '50%', transform: 'translateX(-50%)' }} />
@@ -109,7 +90,6 @@ export default function SuccessPage() {
               <path d="M20 6L9 17l-5-5" />
             </svg>
           </div>
-          {/* Sparkle dots */}
           {showCheckmark && (
             <>
               <div className="absolute top-0 left-1/2 w-2 h-2 rounded-full bg-gold/40 animate-ping" style={{ animationDelay: '0.2s' }} />
@@ -120,9 +100,9 @@ export default function SuccessPage() {
         </div>
 
         <div style={{ animation: 'fadeUp 0.6s ease-out 0.3s both' }}>
-          <h1 className="text-4xl font-black mb-3" style={{ color: 'white' }}>Payment Successful!</h1>
+          <h1 className="text-4xl font-black mb-3" style={{ color: 'white' }}>Welcome to Epix Visuals!</h1>
           <p className="text-lg leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
-            Your Epix Visuals account is now active. You&apos;re being redirected to your dashboard.
+            Your account is ready. Redirecting to your dashboard...
           </p>
         </div>
 
@@ -136,7 +116,6 @@ export default function SuccessPage() {
           }}
         >
           <div className="flex items-center justify-center gap-3">
-            {/* Circular progress */}
             <div className="relative w-10 h-10">
               <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
                 <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(212,175,55,0.1)" strokeWidth="2" />
@@ -173,7 +152,7 @@ export default function SuccessPage() {
           <ol className="space-y-3 text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>
             {[
               'Your dashboard opens — configure your M-Pesa payment number for clients',
-              'Download the Epix Visuals Admin App from the dashboard to manage galleries on mobile',
+              'Download the Admin App from your dashboard to manage galleries on mobile',
               'Upload your first client gallery and share the access code',
               'Your clients download the Epix Visuals app and unlock their gallery',
             ].map((text, i) => (
@@ -188,48 +167,7 @@ export default function SuccessPage() {
           </ol>
         </div>
 
-        {/* Admin App download */}
-        {(adminAppAndroid || adminAppIos) && (
-          <div
-            className="rounded-2xl p-5 space-y-3"
-            style={{ background: 'rgba(212,175,55,0.04)', border: '1px solid rgba(212,175,55,0.15)', animation: 'fadeUp 0.6s ease-out 0.6s both' }}
-          >
-            <p className="text-sm font-semibold" style={{ color: '#D4AF37' }}>Download the Admin App</p>
-            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
-              Sign in with the email and password you just created.
-            </p>
-            <div className="flex gap-3 justify-center">
-              {adminAppAndroid && (
-                <a href={adminAppAndroid} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all hover:scale-105"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" strokeWidth="1.5">
-                    <path d="M5 16V8a7 7 0 0114 0v8M12 12v4M8 12v4M16 12v4" />
-                  </svg>
-                  <div className="text-left">
-                    <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>Get it on</p>
-                    <p className="text-sm font-bold text-white">Google Play</p>
-                  </div>
-                </a>
-              )}
-              {adminAppIos && (
-                <a href={adminAppIos} target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all hover:scale-105"
-                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" strokeWidth="1.5">
-                    <path d="M12 2a10 10 0 100 20 10 10 0 000-20zM12 6v6l4 2" />
-                  </svg>
-                  <div className="text-left">
-                    <p className="text-[10px]" style={{ color: 'rgba(255,255,255,0.4)' }}>Download on</p>
-                    <p className="text-sm font-bold text-white">App Store</p>
-                  </div>
-                </a>
-              )}
-            </div>
-          </div>
-        )}
-
-        <p className="text-sm" style={{ color: 'rgba(255,255,255,0.3)', animation: 'fadeUp 0.6s ease-out 0.7s both' }}>
+        <p className="text-sm" style={{ color: 'rgba(255,255,255,0.3)', animation: 'fadeUp 0.6s ease-out 0.6s both' }}>
           Need help?{' '}
           <a href="mailto:epixshots002@gmail.com" className="font-medium hover:underline" style={{ color: '#D4AF37' }}>Contact support</a>
         </p>

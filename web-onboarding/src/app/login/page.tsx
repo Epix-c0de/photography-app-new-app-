@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
@@ -11,6 +11,20 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [dashboardUrl, setDashboardUrl] = useState('');
+
+  useEffect(() => {
+    const url = process.env.NEXT_PUBLIC_PHOTOGRAPHER_DASHBOARD_URL || 'http://localhost:3002';
+    setDashboardUrl(url);
+
+    // Check if there's a token in URL params (from success redirect)
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    const emailParam = params.get('email');
+    if (token && emailParam) {
+      window.location.href = `${url}/login?token=${token}&email=${encodeURIComponent(emailParam)}`;
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,11 +54,34 @@ export default function LoginPage() {
           new Date(profile.subscription_expires_at) > new Date());
 
       if (!isActive) {
-        router.push('/renew');
+        // Generate a one-time token and redirect to dashboard renewal
+        const res = await fetch('/api/generate-login-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ admin_id: data.user.id }),
+        });
+        const tokenData = await res.json();
+        if (tokenData.token) {
+          window.location.href = `${dashboardUrl}/login?token=${tokenData.token}&email=${encodeURIComponent(email)}&renew=1`;
+        } else {
+          window.location.href = `${dashboardUrl}`;
+        }
         return;
       }
 
-      router.push('/dashboard');
+      // Generate one-time token for dashboard
+      const res = await fetch('/api/generate-login-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_id: data.user.id }),
+      });
+      const tokenData = await res.json();
+
+      if (tokenData.token) {
+        window.location.href = `${dashboardUrl}/login?token=${tokenData.token}&email=${encodeURIComponent(email)}`;
+      } else {
+        window.location.href = `${dashboardUrl}`;
+      }
     } catch (err: any) {
       setError(err.message || 'Login failed. Please check your credentials.');
     } finally {
@@ -54,7 +91,6 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen bg-background flex items-center justify-center px-4">
-      {/* Background glow */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute w-[500px] h-[500px] rounded-full opacity-5 blur-[100px]"
           style={{ background: 'radial-gradient(circle, #D4AF37, transparent)', top: '-150px', left: '-100px' }} />
@@ -63,7 +99,6 @@ export default function LoginPage() {
       </div>
 
       <div className="relative z-10 w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/" className="text-2xl font-black tracking-tight">
             <span style={{ color: '#D4AF37' }}>Epix</span>
@@ -72,7 +107,6 @@ export default function LoginPage() {
           <p className="text-gray-400 mt-2 text-sm">Sign in to your photographer account</p>
         </div>
 
-        {/* Login card */}
         <div className="rounded-3xl p-8 space-y-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
           <div>
             <h1 className="text-2xl font-black mb-1">Welcome back</h1>

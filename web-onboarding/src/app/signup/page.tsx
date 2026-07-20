@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
-type Step = 'form' | 'paying' | 'waiting' | 'verifying' | 'success' | 'error';
+type Step = 'form' | 'paying' | 'waiting' | 'verifying' | 'success' | 'error' | 'trial';
 
 const steps = [
   { key: 'form', label: 'Details', num: 1 },
@@ -19,6 +20,10 @@ export default function SignupPage() {
   const [step, setStep] = useState<Step>('form');
   const [errorMsg, setErrorMsg] = useState('');
   const [checkoutRequestId, setCheckoutRequestId] = useState('');
+  const [price, setPrice] = useState<number | null>(null);
+  const [currency, setCurrency] = useState('KES');
+  const [trialDays, setTrialDays] = useState(7);
+  const [dashboardUrl, setDashboardUrl] = useState('');
 
   const [form, setForm] = useState({
     name: '',
@@ -29,6 +34,25 @@ export default function SignupPage() {
   });
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const url = process.env.NEXT_PUBLIC_PHOTOGRAPHER_DASHBOARD_URL || 'http://localhost:3002';
+    setDashboardUrl(url);
+
+    supabase
+      .from('platform_settings')
+      .select('key, value')
+      .in('key', ['platform_admin_subscription_price', 'platform_admin_subscription_currency', 'platform_admin_trial_days'])
+      .then(({ data }) => {
+        if (data) {
+          const map: Record<string, string> = {};
+          data.forEach((r: any) => { map[r.key] = r.value || ''; });
+          if (map['platform_admin_subscription_price']) setPrice(parseInt(map['platform_admin_subscription_price']));
+          if (map['platform_admin_subscription_currency']) setCurrency(map['platform_admin_subscription_currency']);
+          if (map['platform_admin_trial_days']) setTrialDays(parseInt(map['platform_admin_trial_days']));
+        }
+      });
+  }, []);
 
   const validate = () => {
     const errors: Record<string, string> = {};
@@ -47,6 +71,31 @@ export default function SignupPage() {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
     if (fieldErrors[name]) setFieldErrors((prev) => ({ ...prev, [name]: '' }));
+  };
+
+  const handleStartTrial = async () => {
+    if (!validate()) return;
+    setErrorMsg('');
+    setStep('paying');
+
+    try {
+      const res = await fetch('/api/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, start_trial: true }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Signup failed');
+
+      setStep('trial');
+      setTimeout(() => {
+        window.location.href = `${dashboardUrl}/login?token=${data.token}&email=${encodeURIComponent(form.email)}`;
+      }, 2000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Something went wrong. Please try again.');
+      setStep('error');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -90,7 +139,9 @@ export default function SignupPage() {
         if (data.status === 'success') {
           clearInterval(interval);
           setStep('success');
-          setTimeout(() => router.push(`/success?admin_id=${adminId}`), 2000);
+          setTimeout(() => {
+            window.location.href = `${dashboardUrl}/login?token=${data.token || ''}&email=${encodeURIComponent(form.email)}`;
+          }, 2000);
         } else if (data.status === 'failed') {
           clearInterval(interval);
           setErrorMsg('Payment was unsuccessful. Please try again.');
@@ -109,20 +160,18 @@ export default function SignupPage() {
     if (step === 'paying') return 1;
     if (step === 'waiting') return 2;
     if (step === 'verifying') return 3;
-    if (step === 'success') return 4;
+    if (step === 'success' || step === 'trial') return 4;
     return 0;
   };
 
   return (
     <main className="min-h-screen bg-background flex items-center justify-center px-4 py-16">
-      {/* Background glow */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute w-[500px] h-[500px] rounded-full opacity-5 blur-[100px]"
           style={{ background: 'radial-gradient(circle, #D4AF37, transparent)', top: '-150px', right: '-100px' }} />
       </div>
 
       <div className="relative z-10 w-full max-w-md">
-        {/* Logo */}
         <div className="text-center mb-8">
           <Link href="/" className="text-2xl font-black tracking-tight">
             <span style={{ color: '#D4AF37' }}>Epix</span>
@@ -131,7 +180,6 @@ export default function SignupPage() {
           <p className="text-gray-400 mt-2 text-sm">Create your photographer account</p>
         </div>
 
-        {/* Step indicator */}
         {step !== 'error' && (
           <div className="flex items-center justify-center gap-2 mb-8">
             {steps.filter(s => {
@@ -169,12 +217,15 @@ export default function SignupPage() {
           </div>
         )}
 
-        {/* Form step */}
         {step === 'form' && (
           <form onSubmit={handleSubmit} className="rounded-3xl p-8 space-y-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
             <div className="mb-2">
               <h1 className="text-2xl font-black mb-1">Get started</h1>
-              <p className="text-gray-400 text-sm">KES 500/month · Cancel anytime · No setup fees</p>
+              <p className="text-gray-400 text-sm">
+                {price !== null
+                  ? `${currency} ${price}/month · Cancel anytime`
+                  : 'Loading pricing...'}
+              </p>
             </div>
 
             {errorMsg && (
@@ -217,13 +268,25 @@ export default function SignupPage() {
               </div>
             ))}
 
-            <button
-              type="submit"
-              className="w-full py-4 rounded-2xl font-black text-lg transition-all hover:scale-[1.01] hover:shadow-lg hover:shadow-gold/20 mt-2"
-              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
-            >
-              Pay KES 500 & Create Account →
-            </button>
+            <div className="space-y-3 pt-2">
+              <button
+                type="submit"
+                className="w-full py-4 rounded-2xl font-black text-lg transition-all hover:scale-[1.01] hover:shadow-lg hover:shadow-gold/20"
+                style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
+              >
+                {price !== null ? `Pay ${currency} ${price} & Create Account →` : 'Create Account →'}
+              </button>
+
+              {trialDays > 0 && (
+                <button
+                  type="button"
+                  onClick={handleStartTrial}
+                  className="w-full py-3 rounded-2xl font-bold text-sm border border-white/10 text-white hover:border-white/20 transition-all"
+                >
+                  Start {trialDays}-Day Free Trial →
+                </button>
+              )}
+            </div>
 
             <p className="text-center text-gray-500 text-xs">
               Already have an account?{' '}
@@ -232,10 +295,8 @@ export default function SignupPage() {
           </form>
         )}
 
-        {/* Payment states */}
         {(step === 'paying' || step === 'waiting' || step === 'verifying') && (
           <div className="rounded-3xl p-10 text-center space-y-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            {/* Animated ring */}
             <div className="relative w-20 h-20 mx-auto">
               <div className="absolute inset-0 rounded-full border-4 border-white/5" />
               <div
@@ -268,7 +329,7 @@ export default function SignupPage() {
               </h2>
               <p className="text-gray-400 text-sm leading-relaxed">
                 {step === 'waiting'
-                  ? `An M-Pesa prompt has been sent to ${form.phone}. Enter your PIN to confirm the KES 500 payment.`
+                  ? `An M-Pesa prompt has been sent to ${form.phone}. Enter your PIN to confirm the payment.`
                   : 'Please wait while we confirm your payment.'}
               </p>
             </div>
@@ -281,7 +342,6 @@ export default function SignupPage() {
           </div>
         )}
 
-        {/* Success */}
         {step === 'success' && (
           <div className="rounded-3xl p-10 text-center space-y-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(34,197,94,0.2)' }}>
             <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center"
@@ -291,11 +351,23 @@ export default function SignupPage() {
               </svg>
             </div>
             <h2 className="text-2xl font-black text-green-400">Payment Successful!</h2>
-            <p className="text-gray-400">Your account is now active. Redirecting...</p>
+            <p className="text-gray-400">Redirecting to your dashboard...</p>
           </div>
         )}
 
-        {/* Error */}
+        {step === 'trial' && (
+          <div className="rounded-3xl p-10 text-center space-y-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(34,197,94,0.2)' }}>
+            <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center"
+              style={{ background: 'rgba(34,197,94,0.1)' }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5">
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-black text-green-400">Trial Activated!</h2>
+            <p className="text-gray-400">Your {trialDays}-day free trial has started. Redirecting to your dashboard...</p>
+          </div>
+        )}
+
         {step === 'error' && (
           <div className="rounded-3xl p-10 text-center space-y-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(239,68,68,0.2)' }}>
             <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center"

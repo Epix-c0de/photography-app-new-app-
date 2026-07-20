@@ -2,10 +2,10 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Epix Visuals Studios — For Photographers',
-  description: 'Deliver stunning photo galleries to your clients. KES 500/month.',
+  title: 'Epix Visuals — Photography Platform for Kenya',
+  description: 'Private galleries, M-Pesa payments, and client management for professional photographers.',
   openGraph: {
-    title: 'Epix Visuals Studios',
+    title: 'Epix Visuals',
     description: 'The professional photography delivery platform for Kenyan photographers.',
     type: 'website',
   },
