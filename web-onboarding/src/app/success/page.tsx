@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { LiquidButton } from '@/components/ui/liquid-glass-button';
 
 export default function SuccessPage() {
   const [countdown, setCountdown] = useState(5);
@@ -136,11 +137,9 @@ export default function SuccessPage() {
             </p>
           </div>
 
-          <button onClick={goToDashboard}
-            className="w-full py-4 rounded-2xl font-black text-lg transition-all hover:scale-[1.01] hover:shadow-lg hover:shadow-gold/20"
-            style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
+          <LiquidButton onClick={goToDashboard} size="xl" className="w-full">
             Go to Dashboard Now →
-          </button>
+          </LiquidButton>
         </div>
 
         {/* What's next */}

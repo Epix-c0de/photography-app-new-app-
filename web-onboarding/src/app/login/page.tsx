@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import { LiquidButton } from '@/components/ui/liquid-glass-button';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -150,11 +151,11 @@ export default function LoginPage() {
               />
             </div>
 
-            <button
+            <LiquidButton
               type="submit"
+              size="xl"
+              className="w-full"
               disabled={loading}
-              className="w-full py-4 rounded-2xl font-black text-lg transition-all hover:scale-[1.01] hover:shadow-lg hover:shadow-gold/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -164,7 +165,7 @@ export default function LoginPage() {
                   Signing in...
                 </span>
               ) : 'Sign in →'}
-            </button>
+            </LiquidButton>
           </form>
 
           <div className="relative">

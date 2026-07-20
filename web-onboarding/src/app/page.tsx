@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { LiquidButton } from '@/components/ui/liquid-glass-button';
 
 function CountUp({ target, duration = 2000 }: { target: number; duration?: number }) {
   const [count, setCount] = useState(0);
@@ -109,7 +110,7 @@ export default function LandingPage() {
               <a href="#testimonials" className="text-sm text-gray-400 hover:text-white transition-colors">Reviews</a>
               <Link
                 href="/signup"
-                className="px-6 py-2.5 rounded-xl text-sm font-bold transition-all hover:scale-105"
+                className="hidden md:inline-flex px-6 py-2.5 rounded-xl text-sm font-bold transition-all hover:scale-105"
                 style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
               >
                 Get Started
@@ -225,16 +226,12 @@ export default function LandingPage() {
             className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
             style={{ animation: 'fadeUp 0.8s ease-out 0.3s both' }}
           >
-            <Link
-              href="/signup"
-              className="w-full sm:w-auto px-8 py-4 rounded-2xl font-black text-lg transition-all hover:scale-105 hover:shadow-lg hover:shadow-gold/20"
-              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
-            >
-              Start Free Trial →
-            </Link>
+            <LiquidButton asChild size="xl" className="w-full sm:w-auto">
+              <Link href="/signup">Start Free Trial →</Link>
+            </LiquidButton>
             <Link
               href="/login"
-              className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold text-lg border border-white/10 text-white hover:border-white/20 transition-all"
+              className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold text-lg border border-white/10 text-white hover:border-white/20 transition-all text-center"
             >
               Sign In
             </Link>
@@ -420,13 +417,9 @@ export default function LandingPage() {
                 ))}
               </ul>
 
-              <Link
-                href="/signup"
-                className="block w-full py-4 rounded-2xl font-black text-lg text-center transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-gold/20"
-                style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
-              >
-                Get Started →
-              </Link>
+              <LiquidButton asChild size="xl" className="w-full">
+                <Link href="/signup">Get Started →</Link>
+              </LiquidButton>
             </div>
           </div>
         </div>
@@ -502,16 +495,12 @@ export default function LandingPage() {
               Join hundreds of Kenyan photographers who trust Epix Visuals to power their studios.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link
-                href="/signup"
-                className="w-full sm:w-auto px-8 py-4 rounded-2xl font-black text-lg transition-all hover:scale-105 hover:shadow-lg hover:shadow-gold/20"
-                style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
-              >
-                Start Free Trial →
-              </Link>
+              <LiquidButton asChild size="xl" className="w-full sm:w-auto">
+                <Link href="/signup">Start Free Trial →</Link>
+              </LiquidButton>
               <Link
                 href="/login"
-                className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold text-lg border border-white/10 text-white hover:border-white/20 transition-all"
+                className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold text-lg border border-white/10 text-white hover:border-white/20 transition-all text-center"
               >
                 Sign In to Dashboard
               </Link>

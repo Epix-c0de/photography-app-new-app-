@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { LiquidButton } from '@/components/ui/liquid-glass-button';
 
 export default function PhotographerLogin() {
   const router = useRouter();
@@ -196,25 +197,14 @@ export default function PhotographerLogin() {
               />
             </div>
 
-            <button
+            <LiquidButton
               type="submit"
+              size="xl"
+              className="w-full mt-2"
               disabled={loading}
-              style={{
-                width: '100%',
-                background: loading ? 'rgba(212,175,55,0.4)' : 'linear-gradient(135deg, #D4AF37 0%, #F0D060 100%)',
-                color: '#080810',
-                fontWeight: 700,
-                borderRadius: 12,
-                padding: '14px',
-                fontSize: 14,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                border: 'none',
-                marginTop: 8,
-                transition: 'opacity 0.2s',
-              }}
             >
               {loading ? 'Signing in...' : 'Access Dashboard →'}
-            </button>
+            </LiquidButton>
           </form>
 
           <p className="text-center text-xs mt-6" style={{ color: 'rgba(255,255,255,0.2)' }}>

@@ -2,6 +2,7 @@ import type { Config } from 'tailwindcss';
 
 const config: Config = {
   content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -14,6 +15,28 @@ const config: Config = {
         'card-hover': '#1A1A2A',
         border: 'rgba(255,255,255,0.06)',
         'border-gold': 'rgba(212,175,55,0.2)',
+        primary: {
+          DEFAULT: '#D4AF37',
+          foreground: '#080810',
+        },
+        secondary: {
+          DEFAULT: 'rgba(255,255,255,0.06)',
+          foreground: '#ffffff',
+        },
+        destructive: {
+          DEFAULT: '#ef4444',
+          foreground: '#ffffff',
+        },
+        muted: {
+          DEFAULT: 'rgba(255,255,255,0.06)',
+          foreground: 'rgba(255,255,255,0.5)',
+        },
+        accent: {
+          DEFAULT: 'rgba(255,255,255,0.06)',
+          foreground: '#ffffff',
+        },
+        input: 'rgba(255,255,255,0.08)',
+        ring: '#D4AF37',
       },
       backgroundImage: {
         'gold-gradient': 'linear-gradient(135deg, #D4AF37 0%, #F0D060 50%, #D4AF37 100%)',
@@ -27,6 +50,11 @@ const config: Config = {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
+      borderRadius: {
+        lg: '1rem',
+        md: '0.5rem',
+        sm: '0.25rem',
       },
     },
   },

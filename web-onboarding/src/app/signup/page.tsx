@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { LiquidButton } from '@/components/ui/liquid-glass-button';
 
 type Step = 'form' | 'paying' | 'waiting' | 'verifying' | 'success' | 'error' | 'trial';
 
@@ -269,13 +270,13 @@ export default function SignupPage() {
             ))}
 
             <div className="space-y-3 pt-2">
-              <button
+              <LiquidButton
                 type="submit"
-                className="w-full py-4 rounded-2xl font-black text-lg transition-all hover:scale-[1.01] hover:shadow-lg hover:shadow-gold/20"
-                style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
+                size="xl"
+                className="w-full"
               >
                 {price !== null ? `Pay ${currency} ${price} & Create Account →` : 'Create Account →'}
-              </button>
+              </LiquidButton>
 
               {trialDays > 0 && (
                 <button
