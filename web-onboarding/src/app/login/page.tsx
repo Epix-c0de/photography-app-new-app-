@@ -5,6 +5,16 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { LiquidButton } from '@/components/ui/liquid-glass-button';
+import {
+  Eye,
+  EyeOff,
+  AlertCircle,
+  ArrowRight,
+  Loader2,
+  Mail,
+  Lock,
+  ShieldCheck,
+} from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,12 +23,12 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [dashboardUrl, setDashboardUrl] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     const url = process.env.NEXT_PUBLIC_PHOTOGRAPHER_DASHBOARD_URL || 'http://localhost:3002';
     setDashboardUrl(url);
 
-    // Check if there's a token in URL params (from success redirect)
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token');
     const emailParam = params.get('email');
@@ -55,7 +65,6 @@ export default function LoginPage() {
           new Date(profile.subscription_expires_at) > new Date());
 
       if (!isActive) {
-        // Generate a one-time token and redirect to dashboard renewal
         const res = await fetch('/api/generate-login-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -70,7 +79,6 @@ export default function LoginPage() {
         return;
       }
 
-      // Generate one-time token for dashboard
       const res = await fetch('/api/generate-login-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -91,101 +99,128 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background flex items-center justify-center px-4">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute w-[500px] h-[500px] rounded-full opacity-5 blur-[100px]"
-          style={{ background: 'radial-gradient(circle, #D4AF37, transparent)', top: '-150px', left: '-100px' }} />
-        <div className="absolute w-[400px] h-[400px] rounded-full opacity-3 blur-[80px]"
-          style={{ background: 'radial-gradient(circle, #D4AF37, transparent)', bottom: '-100px', right: '-50px' }} />
-      </div>
+    <main className="min-h-screen bg-[#080810] text-slate-100 flex items-center justify-center px-4 py-12 relative overflow-hidden">
+      {/* Dynamic Background Glows */}
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-[#D4AF37]/10 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-10 right-10 w-[300px] h-[300px] bg-amber-600/5 blur-[100px] rounded-full pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-md">
+        {/* Brand Header */}
         <div className="text-center mb-8">
-          <Link href="/" className="text-2xl font-black tracking-tight">
-            <span style={{ color: '#D4AF37' }}>Epix</span>
+          <Link href="/" className="inline-block group text-3xl font-black tracking-tight">
+            <span className="text-[#D4AF37] transition-transform duration-300 group-hover:scale-105 inline-block">Epix</span>
             <span className="text-white"> Visuals</span>
           </Link>
-          <p className="text-gray-400 mt-2 text-sm">Sign in to your photographer account</p>
+          <p className="text-zinc-400 mt-2 text-sm font-medium">Sign in to your photographer dashboard</p>
         </div>
 
-        <div className="rounded-3xl p-8 space-y-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+        {/* Main Form Box */}
+        <form
+          onSubmit={handleLogin}
+          className="rounded-3xl p-6 sm:p-8 space-y-5 bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50"
+        >
           <div>
-            <h1 className="text-2xl font-black mb-1">Welcome back</h1>
-            <p className="text-gray-500 text-sm">Enter your credentials to access your dashboard</p>
+            <h1 className="text-2xl font-black tracking-tight text-white">Welcome back</h1>
+            <p className="text-zinc-400 mt-1 text-xs font-medium">Enter your credentials to access your dashboard</p>
           </div>
 
           {error && (
-            <div className="rounded-xl p-3 text-sm flex items-start gap-3" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0 mt-0.5">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 8v4M12 16h.01" />
-              </svg>
+            <div className="rounded-xl p-3 text-xs bg-red-500/10 border border-red-500/20 text-red-400 flex items-start gap-2">
+              <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <div className="space-y-3.5">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Email address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="john@studio.co.ke"
-                className="w-full rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none transition-colors"
-                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
-                required
-              />
+              <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                Email address <span className="text-[#D4AF37]">*</span>
+              </label>
+              <div className="relative">
+                <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="john@studio.co.ke"
+                  className="w-full rounded-xl pl-10 pr-4 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border border-white/10 transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]"
+                  required
+                />
+              </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Your password"
-                className="w-full rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none transition-colors"
-                style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
-                required
-              />
-            </div>
-
-            <LiquidButton
-              type="submit"
-              size="xl"
-              className="w-full"
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                  </svg>
-                  Signing in...
-                </span>
-              ) : 'Sign in →'}
-            </LiquidButton>
-          </form>
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }} />
-            </div>
-            <div className="relative flex justify-center text-xs">
-              <span className="px-3 text-gray-500" style={{ background: 'rgba(255,255,255,0.03)' }}>or</span>
+              <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                Password <span className="text-[#D4AF37]">*</span>
+              </label>
+              <div className="relative">
+                <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Your password"
+                  className="w-full rounded-xl pl-10 pr-12 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border border-white/10 transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
             </div>
           </div>
 
-          <p className="text-center text-gray-500 text-sm">
+          <LiquidButton
+            type="submit"
+            size="xl"
+            className="w-full"
+            disabled={loading}
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <Loader2 size={18} className="animate-spin" />
+                Signing in...
+              </span>
+            ) : (
+              <span className="flex items-center justify-center gap-2">
+                Access Dashboard
+                <ArrowRight size={16} />
+              </span>
+            )}
+          </LiquidButton>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/5" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="px-3 text-zinc-500 bg-[#080810]">or</span>
+            </div>
+          </div>
+
+          <p className="text-center text-zinc-500 text-xs">
             Don&apos;t have an account?{' '}
-            <Link href="/signup" className="font-medium hover:underline" style={{ color: '#D4AF37' }}>Get started free</Link>
+            <Link href="/signup" className="text-[#D4AF37] font-semibold hover:underline">
+              Get started free
+            </Link>
           </p>
+        </form>
+
+        {/* Trust Badge */}
+        <div className="mt-6 flex items-center justify-center gap-2 text-zinc-500 text-[11px]">
+          <ShieldCheck size={12} className="text-emerald-500" />
+          <span>Secured with end-to-end encryption</span>
         </div>
 
-        <p className="text-center text-xs text-gray-600 mt-6">
+        <p className="text-center text-xs text-zinc-600 mt-3">
           Need help?{' '}
-          <a href="mailto:epixshots002@gmail.com" className="hover:underline" style={{ color: 'rgba(212,175,55,0.6)' }}>Contact support</a>
+          <a href="mailto:epixshots002@gmail.com" className="text-[#D4AF37]/60 hover:text-[#D4AF37] hover:underline transition-colors">
+            Contact support
+          </a>
         </p>
       </div>
     </main>

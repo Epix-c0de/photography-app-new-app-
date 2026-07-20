@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { LiquidButton } from '@/components/ui/liquid-glass-button';
+import { Check, ArrowRight, Mail, Download, Share2, Smartphone } from 'lucide-react';
 
 export default function SuccessPage() {
   const [countdown, setCountdown] = useState(5);
@@ -21,7 +22,6 @@ export default function SuccessPage() {
     const url = process.env.NEXT_PUBLIC_PHOTOGRAPHER_DASHBOARD_URL || 'http://localhost:3002';
     setDashboardUrl(url);
 
-    // Generate one-time login token
     if (adminIdParam) {
       fetch('/api/generate-login-token', {
         method: 'POST',
@@ -35,7 +35,6 @@ export default function SuccessPage() {
         .catch(err => console.error('Failed to generate login token:', err));
     }
 
-    // Auto-redirect countdown
     const interval = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
@@ -61,11 +60,10 @@ export default function SuccessPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background flex items-center justify-center px-4">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute w-[600px] h-[600px] rounded-full opacity-8 blur-[120px]"
-          style={{ background: 'radial-gradient(circle, #D4AF37, transparent)', top: '-200px', left: '50%', transform: 'translateX(-50%)' }} />
-      </div>
+    <main className="min-h-screen bg-[#080810] text-slate-100 flex items-center justify-center px-4 py-12 relative overflow-hidden">
+      {/* Background Glows */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-emerald-500/10 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-10 right-10 w-[300px] h-[300px] bg-[#D4AF37]/5 blur-[100px] rounded-full pointer-events-none" />
 
       <div className="relative z-10 max-w-lg w-full text-center space-y-8">
         {/* Animated checkmark */}
@@ -79,42 +77,37 @@ export default function SuccessPage() {
               opacity: showCheckmark ? 1 : 0,
             }}
           >
-            <svg
-              width="40" height="40" viewBox="0 0 24 24" fill="none"
-              stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+            <Check
+              size={40}
+              strokeWidth={2.5}
+              className="text-emerald-400"
               style={{
                 strokeDasharray: 50,
                 strokeDashoffset: showCheckmark ? 0 : 50,
                 transition: 'stroke-dashoffset 0.6s ease-out 0.4s',
               }}
-            >
-              <path d="M20 6L9 17l-5-5" />
-            </svg>
+            />
           </div>
           {showCheckmark && (
             <>
-              <div className="absolute top-0 left-1/2 w-2 h-2 rounded-full bg-gold/40 animate-ping" style={{ animationDelay: '0.2s' }} />
-              <div className="absolute top-2 right-0 w-1.5 h-1.5 rounded-full bg-green-400/30 animate-ping" style={{ animationDelay: '0.4s' }} />
-              <div className="absolute bottom-2 left-0 w-1.5 h-1.5 rounded-full bg-gold/30 animate-ping" style={{ animationDelay: '0.6s' }} />
+              <div className="absolute top-0 left-1/2 w-2 h-2 rounded-full bg-[#D4AF37]/40 animate-ping" style={{ animationDelay: '0.2s' }} />
+              <div className="absolute top-2 right-0 w-1.5 h-1.5 rounded-full bg-emerald-400/30 animate-ping" style={{ animationDelay: '0.4s' }} />
+              <div className="absolute bottom-2 left-0 w-1.5 h-1.5 rounded-full bg-[#D4AF37]/30 animate-ping" style={{ animationDelay: '0.6s' }} />
             </>
           )}
         </div>
 
         <div style={{ animation: 'fadeUp 0.6s ease-out 0.3s both' }}>
-          <h1 className="text-4xl font-black mb-3" style={{ color: 'white' }}>Welcome to Epix Visuals!</h1>
-          <p className="text-lg leading-relaxed" style={{ color: 'rgba(255,255,255,0.5)' }}>
+          <h1 className="text-4xl font-black mb-3 text-white">Welcome to Epix Visuals!</h1>
+          <p className="text-zinc-400 text-sm">
             Your account is ready. Redirecting to your dashboard...
           </p>
         </div>
 
         {/* Redirect card */}
         <div
-          className="rounded-3xl p-8 space-y-5"
-          style={{
-            background: 'rgba(212,175,55,0.04)',
-            border: '1px solid rgba(212,175,55,0.15)',
-            animation: 'fadeUp 0.6s ease-out 0.4s both',
-          }}
+          className="rounded-3xl p-8 space-y-5 bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50"
+          style={{ animation: 'fadeUp 0.6s ease-out 0.4s both' }}
         >
           <div className="flex items-center justify-center gap-3">
             <div className="relative w-10 h-10">
@@ -128,47 +121,51 @@ export default function SuccessPage() {
                   style={{ transition: 'stroke-dashoffset 1s linear' }}
                 />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-sm font-black" style={{ color: '#D4AF37' }}>
+              <span className="absolute inset-0 flex items-center justify-center text-sm font-black text-[#D4AF37]">
                 {countdown}
               </span>
             </div>
-            <p className="font-semibold" style={{ color: 'rgba(255,255,255,0.6)' }}>
+            <p className="font-semibold text-zinc-400 text-sm">
               Redirecting in {countdown}s...
             </p>
           </div>
 
           <LiquidButton onClick={goToDashboard} size="xl" className="w-full">
-            Go to Dashboard Now →
+            <span className="flex items-center justify-center gap-2">
+              Go to Dashboard Now
+              <ArrowRight size={16} />
+            </span>
           </LiquidButton>
         </div>
 
         {/* What's next */}
         <div
-          className="rounded-2xl p-6 text-left space-y-4"
-          style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', animation: 'fadeUp 0.6s ease-out 0.5s both' }}
+          className="rounded-2xl p-6 text-left space-y-4 bg-white/[0.02] border border-white/5"
+          style={{ animation: 'fadeUp 0.6s ease-out 0.5s both' }}
         >
-          <h3 className="font-bold" style={{ color: '#D4AF37' }}>What happens next:</h3>
-          <ol className="space-y-3 text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>
+          <h3 className="font-bold text-[#D4AF37] text-sm">What happens next:</h3>
+          <ol className="space-y-3 text-xs text-zinc-400">
             {[
-              'Your dashboard opens — configure your M-Pesa payment number for clients',
-              'Download the Admin App from your dashboard to manage galleries on mobile',
-              'Upload your first client gallery and share the access code',
-              'Your clients download the Epix Visuals app and unlock their gallery',
-            ].map((text, i) => (
-              <li key={i} className="flex gap-3">
-                <span className="font-bold flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs"
-                  style={{ background: 'rgba(212,175,55,0.15)', color: '#D4AF37' }}>
-                  {i + 1}
+              { icon: Mail, text: 'Your dashboard opens — configure your M-Pesa payment number for clients' },
+              { icon: Download, text: 'Download the Admin App from your dashboard to manage galleries on mobile' },
+              { icon: Share2, text: 'Upload your first client gallery and share the access code' },
+              { icon: Smartphone, text: 'Your clients download the Epix Visuals app and unlock their gallery' },
+            ].map((item, i) => (
+              <li key={i} className="flex gap-3 items-start">
+                <span className="font-bold flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20">
+                  <item.icon size={12} />
                 </span>
-                <span>{text}</span>
+                <span>{item.text}</span>
               </li>
             ))}
           </ol>
         </div>
 
-        <p className="text-sm" style={{ color: 'rgba(255,255,255,0.3)', animation: 'fadeUp 0.6s ease-out 0.6s both' }}>
+        <p className="text-xs text-zinc-500" style={{ animation: 'fadeUp 0.6s ease-out 0.6s both' }}>
           Need help?{' '}
-          <a href="mailto:epixshots002@gmail.com" className="font-medium hover:underline" style={{ color: '#D4AF37' }}>Contact support</a>
+          <a href="mailto:epixshots002@gmail.com" className="text-[#D4AF37]/60 hover:text-[#D4AF37] hover:underline transition-colors font-medium">
+            Contact support
+          </a>
         </p>
       </div>
 
