@@ -39,7 +39,7 @@ export default function ModerationPage() {
           .order('created_at', { ascending: false });
 
         if (btsPosts?.length) {
-          const userIds = Array.from(new Set(btsPosts.map(p => p.photographer_id)));
+          const userIds = Array.from(new Set(btsPosts.map(p => p.created_by || p.photographer_id).filter(Boolean)));
           const { data: profiles } = await supabase.from('user_profiles').select('id, name').in('id', userIds);
           const pMap = new Map(profiles?.map(p => [p.id, p.name]) || []);
 

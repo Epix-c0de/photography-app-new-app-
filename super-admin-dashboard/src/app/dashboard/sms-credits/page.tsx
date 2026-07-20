@@ -43,6 +43,11 @@ export default function SmsCreditsPage() {
   const [showNewPackage, setShowNewPackage] = useState(false);
   const [newPackage, setNewPackage] = useState({ name: '', sms_count: 0, price: 0 });
   const [activeTab, setActiveTab] = useState<'packages' | 'balances' | 'transactions'>('packages');
+  const [adjustingAdmin, setAdjustingAdmin] = useState<string>('');
+  const [adjustAmount, setAdjustAmount] = useState(0);
+  const [adjustReason, setAdjustReason] = useState('');
+  const [adjustType, setAdjustType] = useState<'add' | 'deduct'>('add');
+  const [adjusting, setAdjusting] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -67,7 +72,8 @@ export default function SmsCreditsPage() {
         (profiles || []).forEach((p: any) => adminMap.set(p.id, { name: p.name || 'Unknown', email: p.email }));
       }
 
-      setPackages((pkgRes.data || []) as CreditPackage[]);
+      const pkgList = (pkgRes.data || []) as CreditPackage[];
+      setPackages(pkgList);
       setAdminCredits(
         (creditsRes.data || []).map((c: any) => ({
           ...c,
@@ -79,7 +85,7 @@ export default function SmsCreditsPage() {
         (txRes.data || []).map((t: any) => ({
           ...t,
           admin_name: adminMap.get(t.admin_id)?.name || 'Unknown',
-          package_name: packages.find((p) => p.id === t.package_id)?.name || 'Custom',
+          package_name: pkgList.find((p) => p.id === t.package_id)?.name || 'Custom',
         }))
       );
     } catch (e) {
@@ -132,6 +138,40 @@ export default function SmsCreditsPage() {
       loadData();
     } catch (e: any) {
       alert('Error: ' + (e.message || 'Failed to delete package'));
+    }
+  };
+
+  const handleAdjustCredits = async () => {
+    if (!adjustingAdmin || adjustAmount <= 0) return;
+    setAdjusting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { alert('Not authenticated'); return; }
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/admin-adjust-sms-credits`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          admin_id: adjustingAdmin,
+          credits: adjustAmount,
+          reason: adjustReason || 'Manual adjustment',
+          adjustment_type: adjustType,
+        }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        alert(`${adjustType === 'add' ? 'Added' : 'Deducted'} ${adjustAmount} credits. New balance: ${result.new_balance}`);
+        setAdjustingAdmin(''); setAdjustAmount(0); setAdjustReason('');
+        loadData();
+      } else {
+        alert(result.error || 'Failed to adjust credits');
+      }
+    } catch (e: any) {
+      alert('Error: ' + (e.message || 'Failed'));
+    } finally {
+      setAdjusting(false);
     }
   };
 
@@ -234,9 +274,10 @@ export default function SmsCreditsPage() {
                   style={{ background: '#34C759', color: '#080810' }}>Save Package</button>
                 <button onClick={() => setShowNewPackage(false)} className="px-4 py-2 rounded-xl text-sm font-bold"
                   style={{ background: 'rgba(255,255,255,0.05)', color: '#9CA3AF' }}>Cancel</button>
-              </div>
-            </div>
-          )}
+          </div>
+        </div>
+        </div>
+      )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {packages.map((pkg) => (
@@ -274,7 +315,40 @@ export default function SmsCreditsPage() {
 
       {/* Balances Tab */}
       {activeTab === 'balances' && (
-        <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: '#111118' }}>
+        <div className="space-y-4">
+          {/* Manual Adjustment Card */}
+          <div className="rounded-2xl p-5 border border-white/5" style={{ background: '#111118' }}>
+            <h3 className="font-bold mb-4 text-white">Manual Credit Adjustment</h3>
+            <div className="grid grid-cols-4 gap-3">
+              <select value={adjustingAdmin} onChange={e => setAdjustingAdmin(e.target.value)}
+                className="rounded-xl px-4 py-3 text-sm text-white border border-white/10"
+                style={{ background: '#1A1A2E' }}>
+                <option value="">Select admin...</option>
+                {adminCredits.map(c => (
+                  <option key={c.admin_id} value={c.admin_id}>{c.admin_name} ({c.balance} SMS)</option>
+                ))}
+              </select>
+              <div className="flex gap-1">
+                <button onClick={() => setAdjustType('add')}
+                  className="flex-1 px-3 py-2 rounded-l-xl text-xs font-bold"
+                  style={{ background: adjustType === 'add' ? '#34C759' : 'rgba(255,255,255,0.05)', color: adjustType === 'add' ? '#080810' : '#9CA3AF' }}>+ Add</button>
+                <button onClick={() => setAdjustType('deduct')}
+                  className="flex-1 px-3 py-2 rounded-r-xl text-xs font-bold"
+                  style={{ background: adjustType === 'deduct' ? '#FF3B30' : 'rgba(255,255,255,0.05)', color: adjustType === 'deduct' ? '#fff' : '#9CA3AF' }}>- Deduct</button>
+              </div>
+              <input type="number" placeholder="Credits" value={adjustAmount || ''} onChange={e => setAdjustAmount(parseInt(e.target.value) || 0)}
+                className="rounded-xl px-4 py-3 text-sm text-white border border-white/10" style={{ background: '#1A1A2E' }} />
+              <input placeholder="Reason" value={adjustReason} onChange={e => setAdjustReason(e.target.value)}
+                className="rounded-xl px-4 py-3 text-sm text-white border border-white/10" style={{ background: '#1A1A2E' }} />
+            </div>
+            <button onClick={handleAdjustCredits} disabled={!adjustingAdmin || adjustAmount <= 0 || adjusting}
+              className="mt-3 px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-30"
+              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
+              {adjusting ? 'Processing...' : 'Apply Adjustment'}
+            </button>
+          </div>
+
+          <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: '#111118' }}>
           <div className="px-5 py-4 border-b border-white/5">
             <h2 className="font-bold">Admin Credit Balances</h2>
           </div>

@@ -26,7 +26,7 @@ export default function SuperAdminOverview() {
         supabase.from('user_profiles').select('id, name, email, subscription_status, subscription_expires_at, is_lifetime, created_at').in('role', ['admin', 'super_admin']).order('created_at', { ascending: false }).limit(5) as any,
         supabase.from('galleries').select('owner_admin_id', { count: 'exact' }) as any,
         supabase.from('clients').select('owner_admin_id', { count: 'exact' }) as any,
-        supabase.from('admin_subscriptions').select('admin_id, amount, status, created_at, phone_number').eq('status', 'success').order('created_at', { ascending: false }).limit(10) as any,
+        supabase.from('admin_subscriptions').select('admin_id, amount, status, created_at, phone_number').eq('status', 'success').order('created_at', { ascending: false }) as any,
         supabase.from('gallery_photos').select('*', { count: 'exact', head: true }),
       ]);
 

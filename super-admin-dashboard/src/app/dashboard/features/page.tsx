@@ -68,7 +68,6 @@ export default function FeaturesPage() {
       const { error } = await supabase
         .from('feature_flags')
         .upsert({
-          id: flag.id.startsWith('default-') ? undefined : flag.id,
           key: flag.key,
           label: flag.label,
           description: flag.description,

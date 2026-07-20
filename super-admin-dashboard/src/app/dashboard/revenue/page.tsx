@@ -101,7 +101,7 @@ export default function RevenuePage() {
       // Load active photographers count
       const { count: activeCount } = await supabase
         .from('user_profiles')
-        .select('*', { count: 'only', head: true })
+        .select('*', { count: 'exact', head: true })
         .eq('role', 'admin')
         .eq('subscription_status', 'active');
       setActivePhotographers(activeCount || 0);
@@ -110,7 +110,7 @@ export default function RevenuePage() {
       const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       const { count: expiringCount } = await supabase
         .from('user_profiles')
-        .select('*', { count: 'only', head: true })
+        .select('*', { count: 'exact', head: true })
         .eq('role', 'admin')
         .eq('subscription_status', 'active')
         .lte('subscription_expires_at', thirtyDaysFromNow);

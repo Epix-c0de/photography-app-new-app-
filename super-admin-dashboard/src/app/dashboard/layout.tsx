@@ -10,15 +10,16 @@ const navItems = [
   { href: '/dashboard', label: 'Overview', icon: '◈', exact: true },
   { href: '/dashboard/photographers', label: 'Photographers', icon: '📸' },
   { href: '/dashboard/clients', label: 'All Clients', icon: '👥' },
+  { href: '/dashboard/storage', label: 'Cloud Storage', icon: '☁️' },
   { href: '/dashboard/revenue', label: 'Revenue', icon: '💰' },
   { href: '/dashboard/sms-analytics', label: 'SMS Analytics', icon: '📨' },
+  { href: '/dashboard/sms-credits', label: 'SMS Credits', icon: '💳' },
+  { href: '/dashboard/bulk-sms', label: 'Bulk SMS', icon: '📲' },
   { href: '/dashboard/referrals', label: 'Referrals', icon: '🔗' },
   { href: '/dashboard/analytics', label: 'Analytics', icon: '📊' },
   { href: '/dashboard/fraud', label: 'Fraud Detection', icon: '🛡️' },
   { href: '/dashboard/health', label: 'Platform Health', icon: '💓' },
   { href: '/dashboard/features', label: 'Feature Flags', icon: '🚩' },
-  { href: '/dashboard/sms-credits', label: 'SMS Credits', icon: '💳' },
-  { href: '/dashboard/bulk-sms', label: 'Bulk SMS', icon: '📲' },
   { href: '/dashboard/moderation', label: 'Moderation', icon: '👁️' },
   { href: '/dashboard/chat', label: 'Chat', icon: '💬' },
   { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' },
@@ -45,7 +46,7 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
         .eq('sender_role', 'photographer');
       setUnread(count || 0);
     })();
-  }, [router]);
+  }, []);
 
   if (loading) {
     return (

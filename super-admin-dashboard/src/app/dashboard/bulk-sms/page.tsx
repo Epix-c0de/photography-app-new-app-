@@ -63,21 +63,25 @@ export default function BulkSmsPage() {
     let sent = 0;
     let failed = 0;
 
-    for (const photographerId of selected) {
-      const p = photographers.find(ph => ph.id === photographerId);
-      if (!p?.phone) { failed++; continue; }
-
-      try {
-        const { error } = await supabase.functions.invoke('send-sms', {
-          body: {
-            to: p.phone,
-            message: message.replace(/{name}/g, p.name).replace(/{credits}/g, String(p.sms_credits)),
-          },
-        });
-        if (error) failed++; else sent++;
-      } catch {
-        failed++;
-      }
+    // Send in batches of 5 to avoid rate limits
+    const batchSize = 5;
+    const ids = Array.from(selected);
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize);
+      const results = await Promise.allSettled(
+        batch.map(async (photographerId) => {
+          const p = photographers.find(ph => ph.id === photographerId);
+          if (!p?.phone) throw new Error('No phone');
+          const { error } = await supabase.functions.invoke('send-sms', {
+            body: {
+              to: p.phone,
+              message: message.replace(/{name}/g, p.name).replace(/{credits}/g, String(p.sms_credits)),
+            },
+          });
+          if (error) throw error;
+        })
+      );
+      results.forEach(r => r.status === 'fulfilled' ? sent++ : failed++);
     }
 
     setResult({ sent, failed });

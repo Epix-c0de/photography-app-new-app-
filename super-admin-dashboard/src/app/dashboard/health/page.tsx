@@ -56,7 +56,7 @@ export default function HealthPage() {
 
       // 4. Photographers count
       const { count: photographerCount } = await supabase
-        .from('user_profiles').select('*', { count: 'exact', head: true }).eq('role', 'photographer');
+        .from('user_profiles').select('*', { count: 'exact', head: true }).in('role', ['admin', 'super_admin']);
       results.push({
         label: 'Photographers',
         value: photographerCount ?? 0,
@@ -67,7 +67,7 @@ export default function HealthPage() {
       // 5. Active subscriptions
       const { count: activeSubs } = await supabase
         .from('user_profiles').select('*', { count: 'exact', head: true })
-        .eq('role', 'photographer')
+        .in('role', ['admin', 'super_admin'])
         .eq('subscription_status', 'active');
       results.push({
         label: 'Active Subscriptions',
