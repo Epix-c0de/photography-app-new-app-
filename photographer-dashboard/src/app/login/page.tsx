@@ -90,7 +90,7 @@ export default function PhotographerLogin() {
 
   return (
     <main className="min-h-screen flex items-center justify-center px-4"
-      style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(212,175,55,0.08) 0%, #080810 60%)' }}>
+      style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(212,175,55,0.08) 0%, #12121e 60%)' }}>
 
       {/* Background grid */}
       <div className="fixed inset-0 pointer-events-none" style={{
@@ -104,7 +104,7 @@ export default function PhotographerLogin() {
           style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(212,175,55,0.12) 0%, transparent 70%)', filter: 'blur(20px)' }} />
 
         <div className="relative" style={{
-          background: 'linear-gradient(135deg, rgba(212,175,55,0.06) 0%, rgba(13,13,25,0.95) 100%)',
+          background: 'linear-gradient(135deg, rgba(212,175,55,0.06) 0%, rgba(30,30,48,0.95) 100%)',
           border: '1px solid rgba(212,175,55,0.15)',
           borderRadius: 24,
           padding: 36,

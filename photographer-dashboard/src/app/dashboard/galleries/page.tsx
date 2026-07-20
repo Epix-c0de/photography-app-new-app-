@@ -21,7 +21,7 @@ type Gallery = {
 };
 
 const S = {
-  card: { background: 'linear-gradient(135deg, rgba(212,175,55,0.04) 0%, rgba(13,13,25,0.8) 100%)', border: '1px solid rgba(212,175,55,0.1)', borderRadius: 20, overflow: 'hidden' as const, transition: 'all 0.2s' },
+  card: { background: 'linear-gradient(135deg, rgba(212,175,55,0.04) 0%, rgba(30,30,48,0.8) 100%)', border: '1px solid rgba(212,175,55,0.1)', borderRadius: 20, overflow: 'hidden' as const, transition: 'all 0.2s' },
   input: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '11px 16px', color: 'white', fontSize: 14, outline: 'none', width: '100%', boxSizing: 'border-box' as const },
   btn: (color: string) => ({ padding: '7px 14px', borderRadius: 10, border: `1px solid ${color}30`, background: `${color}10`, color, fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }),
   badge: (paid: boolean) => ({ padding: '3px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700, background: paid ? 'rgba(52,199,89,0.15)' : 'rgba(255,159,10,0.15)', color: paid ? '#34C759' : '#FF9F0A' }),
@@ -148,7 +148,7 @@ export default function GalleriesPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Toast */}
       {toast && (
-        <div style={{ position: 'fixed', top: 24, right: 24, background: 'rgba(13,13,25,0.95)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 14, padding: '12px 20px', color: '#D4AF37', fontWeight: 600, fontSize: 14, zIndex: 100, backdropFilter: 'blur(20px)' }}>
+        <div style={{ position: 'fixed', top: 24, right: 24, background: 'rgba(26,26,46,0.95)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 14, padding: '12px 20px', color: '#D4AF37', fontWeight: 600, fontSize: 14, zIndex: 100, backdropFilter: 'blur(20px)' }}>
           {toast}
         </div>
       )}

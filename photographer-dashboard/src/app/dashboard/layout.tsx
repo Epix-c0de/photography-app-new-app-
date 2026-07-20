@@ -23,26 +23,25 @@ import {
   Headphones,
   Settings,
   LogOut,
-  ChevronRight,
 } from 'lucide-react';
 
 const navItems = [
-  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true },
-  { href: '/dashboard/galleries', label: 'Galleries', icon: Images },
-  { href: '/dashboard/clients', label: 'Clients', icon: Users },
-  { href: '/dashboard/upload', label: 'Upload', icon: Upload },
-  { href: '/dashboard/inbox', label: 'Inbox', icon: MessageSquare },
-  { href: '/dashboard/transactions', label: 'Transactions', icon: CreditCard },
-  { href: '/dashboard/bookings', label: 'Bookings', icon: CalendarDays },
-  { href: '/dashboard/portfolio', label: 'Portfolio', icon: FolderHeart },
-  { href: '/dashboard/bts', label: 'BTS & Posts', icon: Film },
-  { href: '/dashboard/calendar', label: 'Calendar', icon: Calendar },
-  { href: '/dashboard/reviews', label: 'Reviews', icon: Star },
-  { href: '/dashboard/referrals', label: 'Referrals', icon: Gift },
-  { href: '/dashboard/social', label: 'Social', icon: Globe },
-  { href: '/dashboard/notifications', label: 'Notifications', icon: Bell },
-  { href: '/dashboard/support', label: 'Support', icon: Headphones },
-  { href: '/dashboard/settings', label: 'Settings', icon: Settings },
+  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard, exact: true, color: '#D4AF37' },
+  { href: '/dashboard/galleries', label: 'Galleries', icon: Images, color: '#8B5CF6' },
+  { href: '/dashboard/clients', label: 'Clients', icon: Users, color: '#3B82F6' },
+  { href: '/dashboard/upload', label: 'Upload', icon: Upload, color: '#10B981' },
+  { href: '/dashboard/inbox', label: 'Inbox', icon: MessageSquare, color: '#F59E0B' },
+  { href: '/dashboard/transactions', label: 'Transactions', icon: CreditCard, color: '#10B981' },
+  { href: '/dashboard/bookings', label: 'Bookings', icon: CalendarDays, color: '#3B82F6' },
+  { href: '/dashboard/portfolio', label: 'Portfolio', icon: FolderHeart, color: '#F43F5E' },
+  { href: '/dashboard/bts', label: 'BTS & Posts', icon: Film, color: '#8B5CF6' },
+  { href: '/dashboard/calendar', label: 'Calendar', icon: Calendar, color: '#F59E0B' },
+  { href: '/dashboard/reviews', label: 'Reviews', icon: Star, color: '#D4AF37' },
+  { href: '/dashboard/referrals', label: 'Referrals', icon: Gift, color: '#10B981' },
+  { href: '/dashboard/social', label: 'Social', icon: Globe, color: '#3B82F6' },
+  { href: '/dashboard/notifications', label: 'Notifications', icon: Bell, color: '#F59E0B' },
+  { href: '/dashboard/support', label: 'Support', icon: Headphones, color: '#8B5CF6' },
+  { href: '/dashboard/settings', label: 'Settings', icon: Settings, color: 'rgba(255,255,255,0.5)' },
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -109,7 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#080810' }}>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: '#12121e' }}>
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: 'rgba(212,175,55,0.6)', borderTopColor: 'transparent' }} />
           <p className="text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>Loading dashboard...</p>
@@ -119,42 +118,42 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="min-h-screen flex" style={{ background: '#080810' }}>
+    <div className="min-h-screen flex" style={{ background: '#12121e' }}>
       {/* Sidebar */}
       <aside className="w-60 flex flex-col fixed h-full" style={{
-        background: 'linear-gradient(180deg, rgba(15,15,26,0.95) 0%, rgba(8,8,16,0.98) 100%)',
+        background: 'linear-gradient(180deg, rgba(26,26,46,0.98) 0%, rgba(18,18,30,0.99) 100%)',
         borderRight: '1px solid rgba(255,255,255,0.06)',
-        backdropFilter: 'blur(20px)',
+        backdropFilter: 'blur(24px)',
       }}>
         {/* Logo */}
         <div className="px-6 py-6 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-black"
-              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
+              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#12121e', boxShadow: '0 4px 12px rgba(212,175,55,0.3)' }}>
               E
             </div>
             <div>
               <p className="font-black text-sm" style={{ color: '#D4AF37' }}>Epix Visuals</p>
-              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Studio Dashboard</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>Studio Dashboard</p>
             </div>
           </div>
         </div>
 
         {/* Admin info */}
-        <div className="px-4 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+        <div className="px-4 py-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
           <div className="flex items-center gap-3 px-2">
             <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-              style={{ background: 'rgba(212,175,55,0.15)', color: '#D4AF37', border: '1px solid rgba(212,175,55,0.2)' }}>
+              style={{ background: 'linear-gradient(135deg, rgba(212,175,55,0.2), rgba(139,92,246,0.2))', color: '#D4AF37', border: '1px solid rgba(212,175,55,0.2)' }}>
               {adminName.charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold truncate text-white">{adminName}</p>
-              <p className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.3)' }}>{adminEmail}</p>
+              <p className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.35)' }}>{adminEmail}</p>
             </div>
           </div>
           {daysLeft !== null && daysLeft <= 7 && (
             <div className="mt-3 px-3 py-2 rounded-xl text-xs font-semibold"
-              style={{ background: 'rgba(255,59,48,0.1)', color: '#FF3B30', border: '1px solid rgba(255,59,48,0.2)' }}>
+              style={{ background: 'rgba(244,63,94,0.1)', color: '#F43F5E', border: '1px solid rgba(244,63,94,0.2)' }}>
               ⚠️ {daysLeft} days left — renew soon
             </div>
           )}
@@ -171,10 +170,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             return (
               <Link key={item.href} href={item.href}
                 className={`nav-item ${isActive ? 'active' : ''}`}>
-                <Icon size={16} className={isActive ? 'text-[#D4AF37]' : 'text-current'} />
+                <Icon size={16} style={{ color: isActive ? '#D4AF37' : item.color, opacity: isActive ? 1 : 0.7 }} />
                 <span className="flex-1">{item.label}</span>
                 {badge && (
-                  <span className="ml-auto min-w-[20px] h-5 rounded-full bg-[#D4AF37] text-[#080810] text-[10px] font-bold flex items-center justify-center px-1.5">
+                  <span className="ml-auto min-w-[20px] h-5 rounded-full bg-[#D4AF37] text-[#12121e] text-[10px] font-bold flex items-center justify-center px-1.5">
                     {badge > 9 ? '9+' : badge}
                   </span>
                 )}
@@ -188,7 +187,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button
             onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }}
             className="nav-item w-full text-left"
-            style={{ color: 'rgba(255,59,48,0.7)' }}
+            style={{ color: 'rgba(244,63,94,0.7)' }}
           >
             <LogOut size={16} />
             <span>Sign out</span>
@@ -200,13 +199,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className="ml-60 flex-1 min-h-screen">
         {/* Top bar */}
         <div className="sticky top-0 z-10 px-8 py-4 flex items-center justify-between"
-          style={{ background: 'rgba(8,8,16,0.8)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-          <div className="text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          style={{ background: 'rgba(18,18,30,0.85)', backdropFilter: 'blur(20px)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+          <div className="text-sm" style={{ color: 'rgba(255,255,255,0.35)' }}>
             {new Date().toLocaleDateString('en-KE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
           </div>
           <div className="flex items-center gap-3">
             <div className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-              style={{ background: 'rgba(52,199,89,0.1)', color: '#34C759', border: '1px solid rgba(52,199,89,0.2)' }}>
+              style={{ background: 'rgba(16,185,129,0.1)', color: '#10B981', border: '1px solid rgba(16,185,129,0.2)' }}>
               ● Active
             </div>
           </div>

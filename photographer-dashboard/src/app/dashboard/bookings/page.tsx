@@ -34,7 +34,7 @@ const AVAIL_COLORS: Record<AvailabilityStatus, { bg: string; border: string }> =
 };
 
 const S = {
-  card: { background: 'linear-gradient(135deg, rgba(212,175,55,0.04) 0%, rgba(13,13,25,0.8) 100%)', border: '1px solid rgba(212,175,55,0.1)', borderRadius: 20, padding: '20px 22px', transition: 'all 0.2s' },
+  card: { background: 'linear-gradient(135deg, rgba(212,175,55,0.04) 0%, rgba(30,30,48,0.8) 100%)', border: '1px solid rgba(212,175,55,0.1)', borderRadius: 20, padding: '20px 22px', transition: 'all 0.2s' },
   btn: (color: string) => ({ padding: '7px 14px', borderRadius: 10, border: `1px solid ${color}30`, background: `${color}10`, color, fontSize: 12, fontWeight: 700, cursor: 'pointer' }),
   input: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '10px 14px', color: 'white', fontSize: 14, outline: 'none', width: '100%', boxSizing: 'border-box' as const },
 };
@@ -153,7 +153,7 @@ export default function BookingsPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {toast && (
-        <div style={{ position: 'fixed', top: 24, right: 24, background: 'rgba(13,13,25,0.95)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 14, padding: '12px 20px', color: '#D4AF37', fontWeight: 600, fontSize: 14, zIndex: 100, backdropFilter: 'blur(20px)' }}>
+        <div style={{ position: 'fixed', top: 24, right: 24, background: 'rgba(26,26,46,0.95)', border: '1px solid rgba(212,175,55,0.3)', borderRadius: 14, padding: '12px 20px', color: '#D4AF37', fontWeight: 600, fontSize: 14, zIndex: 100, backdropFilter: 'blur(20px)' }}>
           {toast}
         </div>
       )}
@@ -172,7 +172,7 @@ export default function BookingsPage() {
 
       {/* Availability Calendar */}
       {showCalendar && (
-        <div style={{ background: 'linear-gradient(135deg, rgba(212,175,55,0.04) 0%, rgba(13,13,25,0.8) 100%)', border: '1px solid rgba(212,175,55,0.15)', borderRadius: 24, padding: 24 }}>
+        <div style={{ background: 'linear-gradient(135deg, rgba(212,175,55,0.04) 0%, rgba(30,30,48,0.8) 100%)', border: '1px solid rgba(212,175,55,0.15)', borderRadius: 24, padding: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <button onClick={() => setCalendarOffset(p => p - 1)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 20, cursor: 'pointer' }}>‹</button>
             <h3 style={{ fontWeight: 800, fontSize: 16 }}>{monthName}</h3>

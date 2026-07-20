@@ -123,7 +123,7 @@ export default function DashboardOverview() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
       {/* Header */}
-      <div style={{ background: 'linear-gradient(135deg, rgba(212,175,55,0.08) 0%, rgba(13,13,25,0.6) 100%)', border: '1px solid rgba(212,175,55,0.12)', borderRadius: 24, padding: '28px 32px' }}>
+      <div style={{ background: 'linear-gradient(135deg, rgba(212,175,55,0.08) 0%, rgba(30,30,48,0.6) 100%)', border: '1px solid rgba(212,175,55,0.12)', borderRadius: 24, padding: '28px 32px' }}>
         <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>{greeting}</p>
         <h1 style={{ fontSize: 32, fontWeight: 900, color: 'white', letterSpacing: -0.5, marginBottom: 4 }}>{adminName}</h1>
         <p style={{ fontSize: 13, color: '#D4AF37', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.15em' }}>Admin Command Center</p>

@@ -149,7 +149,7 @@ export default function SocialPage() {
       {/* Toast */}
       {toast && (
         <div style={{
-          position: 'fixed', top: 24, right: 24, background: 'rgba(13,13,25,0.95)',
+          position: 'fixed', top: 24, right: 24, background: 'rgba(26,26,46,0.95)',
           border: '1px solid rgba(212,175,55,0.3)', borderRadius: 14, padding: '12px 20px',
           color: '#D4AF37', fontWeight: 600, fontSize: 14, zIndex: 100, backdropFilter: 'blur(20px)',
         }}>

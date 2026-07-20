@@ -26,7 +26,7 @@ const DEFAULT_SETTINGS: BrandingSettings = {
   business_name: 'Epix Visuals',
   logo_url: null,
   primary_color: '#D4AF37',
-  secondary_color: '#080810',
+  secondary_color: '#12121e',
   watermark_text: null,
   watermark_opacity: 30,
   watermark_rotation: 45,
