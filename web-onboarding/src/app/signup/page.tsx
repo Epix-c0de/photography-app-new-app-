@@ -5,6 +5,17 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { LiquidButton } from '@/components/ui/liquid-glass-button';
+import {
+  Eye,
+  EyeOff,
+  Check,
+  AlertCircle,
+  Phone,
+  Sparkles,
+  ArrowRight,
+  Loader2,
+  ShieldCheck,
+} from 'lucide-react';
 
 type Step = 'form' | 'paying' | 'waiting' | 'verifying' | 'success' | 'error' | 'trial';
 
@@ -25,6 +36,7 @@ export default function SignupPage() {
   const [currency, setCurrency] = useState('KES');
   const [trialDays, setTrialDays] = useState(7);
   const [dashboardUrl, setDashboardUrl] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -166,224 +178,281 @@ export default function SignupPage() {
   };
 
   return (
-    <main className="min-h-screen bg-background flex items-center justify-center px-4 py-16">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute w-[500px] h-[500px] rounded-full opacity-5 blur-[100px]"
-          style={{ background: 'radial-gradient(circle, #D4AF37, transparent)', top: '-150px', right: '-100px' }} />
-      </div>
+    <main className="min-h-screen bg-[#080810] text-slate-100 flex items-center justify-center px-4 py-12 relative overflow-hidden">
+      {/* Dynamic Background Glows */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-[#D4AF37]/10 blur-[130px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-10 right-10 w-[300px] h-[300px] bg-amber-600/5 blur-[100px] rounded-full pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-md">
+        {/* Brand Header */}
         <div className="text-center mb-8">
-          <Link href="/" className="text-2xl font-black tracking-tight">
-            <span style={{ color: '#D4AF37' }}>Epix</span>
+          <Link href="/" className="inline-block group text-3xl font-black tracking-tight">
+            <span className="text-[#D4AF37] transition-transform duration-300 group-hover:scale-105 inline-block">Epix</span>
             <span className="text-white"> Visuals</span>
           </Link>
-          <p className="text-gray-400 mt-2 text-sm">Create your photographer account</p>
+          <p className="text-zinc-400 mt-2 text-sm font-medium">Powering Kenya&apos;s Professional Photographers</p>
         </div>
 
+        {/* Stepper Progress */}
         {step !== 'error' && (
-          <div className="flex items-center justify-center gap-2 mb-8">
-            {steps.filter(s => {
-              const idx = steps.indexOf(s);
-              const current = getStepIndex();
-              return idx <= current + 1 && idx <= 4;
-            }).map((s, i, arr) => {
-              const idx = steps.indexOf(s);
+          <div className="flex items-center justify-between mb-8 px-2">
+            {steps.map((s, idx) => {
               const current = getStepIndex();
               const isActive = idx === current;
               const isComplete = idx < current;
+              
               return (
-                <div key={s.key} className="flex items-center gap-2">
-                  {i > 0 && (
-                    <div className="w-6 h-px" style={{ background: isComplete ? '#D4AF37' : 'rgba(255,255,255,0.1)' }} />
-                  )}
-                  <div className="flex items-center gap-1.5">
+                <div key={s.key} className="flex items-center">
+                  <div className="flex flex-col items-center gap-1.5 relative">
                     <div
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all"
-                      style={{
-                        background: isComplete ? '#D4AF37' : isActive ? 'rgba(212,175,55,0.2)' : 'rgba(255,255,255,0.05)',
-                        color: isComplete ? '#080810' : isActive ? '#D4AF37' : 'rgba(255,255,255,0.3)',
-                        border: isActive ? '1px solid rgba(212,175,55,0.4)' : '1px solid transparent',
-                      }}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
+                        isComplete
+                          ? 'bg-[#D4AF37] text-[#080810] shadow-md shadow-[#D4AF37]/20'
+                          : isActive
+                          ? 'bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37] ring-4 ring-[#D4AF37]/10'
+                          : 'bg-white/5 text-zinc-500 border border-white/5'
+                      }`}
                     >
-                      {isComplete ? '✓' : s.num}
+                      {isComplete ? <Check size={12} strokeWidth={3} /> : s.num}
                     </div>
-                    <span className="text-xs hidden sm:inline" style={{ color: isActive ? '#D4AF37' : 'rgba(255,255,255,0.3)' }}>
+                    <span className={`text-[11px] font-medium transition-colors ${isActive ? 'text-[#D4AF37]' : 'text-zinc-500'}`}>
                       {s.label}
                     </span>
                   </div>
+                  {idx < steps.length - 1 && (
+                    <div 
+                      className={`h-[2px] w-6 sm:w-10 mx-1 rounded-full transition-colors duration-500 ${
+                        idx < current ? 'bg-[#D4AF37]' : 'bg-white/10'
+                      }`} 
+                    />
+                  )}
                 </div>
               );
             })}
           </div>
         )}
 
+        {/* Main Form Box */}
         {step === 'form' && (
-          <form onSubmit={handleSubmit} className="rounded-3xl p-8 space-y-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <div className="mb-2">
-              <h1 className="text-2xl font-black mb-1">Get started</h1>
-              <p className="text-gray-400 text-sm">
-                {price !== null
-                  ? `${currency} ${price}/month · Cancel anytime`
-                  : 'Loading pricing...'}
-              </p>
+          <form 
+            onSubmit={handleSubmit} 
+            className="rounded-3xl p-6 sm:p-8 space-y-4 bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50"
+          >
+            <div>
+              <h1 className="text-2xl font-black tracking-tight text-white">Create Account</h1>
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-zinc-400 text-xs font-medium">
+                  {price !== null ? `${currency} ${price.toLocaleString()}/month · Cancel anytime` : 'Loading plan pricing...'}
+                </p>
+                <span className="text-[10px] bg-[#D4AF37]/10 text-[#D4AF37] px-2 py-0.5 rounded-full border border-[#D4AF37]/20 flex items-center gap-1">
+                  <Phone size={10} /> M-Pesa Ready
+                </span>
+              </div>
             </div>
 
             {errorMsg && (
-              <div className="rounded-xl p-3 text-sm" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}>
-                {errorMsg}
+              <div className="rounded-xl p-3 text-xs bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2">
+                <AlertCircle size={14} />
+                <p>{errorMsg}</p>
               </div>
             )}
 
-            {[
-              { name: 'name', label: 'Your name', type: 'text', placeholder: 'John Kamau', required: true },
-              { name: 'studioName', label: 'Studio name', type: 'text', placeholder: 'Kamau Photography (optional)', required: false },
-              { name: 'email', label: 'Email address', type: 'email', placeholder: 'john@studio.co.ke', required: true },
-              { name: 'phone', label: 'M-Pesa phone number', type: 'tel', placeholder: '0712345678', required: true, hint: 'Payment prompt sent to this number' },
-              { name: 'password', label: 'Password', type: 'password', placeholder: 'Min. 8 characters', required: true, minLength: 8 },
-            ].map((field) => (
-              <div key={field.name}>
-                <label className="block text-sm font-medium text-gray-300 mb-1.5">
-                  {field.label} {field.required && <span style={{ color: '#D4AF37' }}>*</span>}
+            {/* Inputs */}
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Full Name <span className="text-[#D4AF37]">*</span>
                 </label>
                 <input
-                  name={field.name}
-                  type={field.type}
-                  value={(form as any)[field.name]}
+                  name="name"
+                  type="text"
+                  value={form.name}
                   onChange={handleChange}
-                  placeholder={field.placeholder}
-                  className="w-full rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none transition-colors"
-                  style={{
-                    background: 'rgba(255,255,255,0.03)',
-                    border: fieldErrors[field.name] ? '1px solid rgba(239,68,68,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                  }}
-                  required={field.required}
-                  minLength={field.minLength}
+                  placeholder="e.g. John Kamau"
+                  className={`w-full rounded-xl px-4 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
+                    fieldErrors.name ? 'border-red-500/50' : 'border-white/10'
+                  }`}
                 />
-                {fieldErrors[field.name] && (
-                  <p className="text-xs mt-1" style={{ color: '#f87171' }}>{fieldErrors[field.name]}</p>
-                )}
-                {field.hint && !fieldErrors[field.name] && (
-                  <p className="text-xs mt-1 text-gray-500">{field.hint}</p>
+                {fieldErrors.name && <p className="text-[11px] text-red-400 mt-1">{fieldErrors.name}</p>}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Studio/Brand Name <span className="text-zinc-500">(Optional)</span>
+                </label>
+                <input
+                  name="studioName"
+                  type="text"
+                  value={form.studioName}
+                  onChange={handleChange}
+                  placeholder="e.g. Kamau Visuals Studio"
+                  className="w-full rounded-xl px-4 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border border-white/10 transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Email Address <span className="text-[#D4AF37]">*</span>
+                </label>
+                <input
+                  name="email"
+                  type="email"
+                  value={form.email}
+                  onChange={handleChange}
+                  placeholder="john@studio.co.ke"
+                  className={`w-full rounded-xl px-4 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
+                    fieldErrors.email ? 'border-red-500/50' : 'border-white/10'
+                  }`}
+                />
+                {fieldErrors.email && <p className="text-[11px] text-red-400 mt-1">{fieldErrors.email}</p>}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  M-Pesa Phone Number <span className="text-[#D4AF37]">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    name="phone"
+                    type="tel"
+                    value={form.phone}
+                    onChange={handleChange}
+                    placeholder="0712345678"
+                    className={`w-full rounded-xl pl-4 pr-14 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
+                      fieldErrors.phone ? 'border-red-500/50' : 'border-white/10'
+                    }`}
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+                    <Sparkles size={10} /> STK
+                  </span>
+                </div>
+                {fieldErrors.phone ? (
+                  <p className="text-[11px] text-red-400 mt-1">{fieldErrors.phone}</p>
+                ) : (
+                  <p className="text-[11px] text-zinc-500 mt-1">Prompt sent directly to this phone</p>
                 )}
               </div>
-            ))}
 
-            <div className="space-y-3 pt-2">
-              <LiquidButton
-                type="submit"
-                size="xl"
-                className="w-full"
-              >
-                {price !== null ? `Pay ${currency} ${price} & Create Account →` : 'Create Account →'}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                  Password <span className="text-[#D4AF37]">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    name="password"
+                    type={showPassword ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={handleChange}
+                    placeholder="Min. 8 characters"
+                    className={`w-full rounded-xl pl-4 pr-12 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
+                      fieldErrors.password ? 'border-red-500/50' : 'border-white/10'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {fieldErrors.password && <p className="text-[11px] text-red-400 mt-1">{fieldErrors.password}</p>}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="space-y-2.5 pt-2">
+              <LiquidButton type="submit" size="xl" className="w-full">
+                <span className="flex items-center justify-center gap-2">
+                  {price !== null ? `Pay ${currency} ${price.toLocaleString()} & Access` : 'Create Account'}
+                  <ArrowRight size={16} />
+                </span>
               </LiquidButton>
 
               {trialDays > 0 && (
                 <button
                   type="button"
                   onClick={handleStartTrial}
-                  className="w-full py-3 rounded-2xl font-bold text-sm border border-white/10 text-white hover:border-white/20 transition-all"
+                  className="w-full py-3 rounded-xl font-semibold text-xs border border-white/10 text-zinc-300 hover:bg-white/5 hover:border-white/20 transition-all flex items-center justify-center gap-2"
                 >
-                  Start {trialDays}-Day Free Trial →
+                  <Sparkles size={14} className="text-[#D4AF37]" />
+                  Start {trialDays}-Day Free Trial First
                 </button>
               )}
             </div>
 
-            <p className="text-center text-gray-500 text-xs">
+            <p className="text-center text-zinc-500 text-xs pt-1">
               Already have an account?{' '}
-              <Link href="/login" className="font-medium hover:underline" style={{ color: '#D4AF37' }}>Sign in</Link>
+              <Link href="/login" className="text-[#D4AF37] font-semibold hover:underline">
+                Sign in
+              </Link>
             </p>
           </form>
         )}
 
+        {/* Status Views: Paying / Waiting / Verifying */}
         {(step === 'paying' || step === 'waiting' || step === 'verifying') && (
-          <div className="rounded-3xl p-10 text-center space-y-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <div className="relative w-20 h-20 mx-auto">
-              <div className="absolute inset-0 rounded-full border-4 border-white/5" />
-              <div
-                className="absolute inset-0 rounded-full border-4 border-t-transparent animate-spin"
-                style={{ borderColor: 'rgba(212,175,55,0.3)', borderTopColor: 'transparent' }}
-              />
-              <div className="absolute inset-2 rounded-full flex items-center justify-center"
-                style={{ background: 'rgba(212,175,55,0.1)' }}>
-                {step === 'waiting' ? (
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" strokeWidth="2">
-                    <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
-                  </svg>
-                ) : step === 'verifying' ? (
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" strokeWidth="2">
-                    <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
-                    <path d="M22 4L12 14.01l-3-3" />
-                  </svg>
-                ) : (
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4AF37" strokeWidth="2">
-                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                  </svg>
-                )}
+          <div className="rounded-3xl p-8 text-center space-y-6 bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl">
+            <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border-2 border-white/5" />
+              <div className="absolute inset-0 rounded-full border-2 border-t-[#D4AF37] animate-spin" />
+              <div className="w-14 h-14 rounded-full bg-[#D4AF37]/10 flex items-center justify-center">
+                <Phone size={24} className="text-[#D4AF37]" />
               </div>
             </div>
 
-            <div>
-              <h2 className="text-xl font-bold mb-2">
-                {step === 'paying' ? 'Initiating payment...' :
-                 step === 'waiting' ? 'Check your phone' : 'Verifying payment...'}
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold text-white">
+                {step === 'paying' && 'Initiating M-Pesa...'}
+                {step === 'waiting' && 'Check Your Phone'}
+                {step === 'verifying' && 'Confirming Payment...'}
               </h2>
-              <p className="text-gray-400 text-sm leading-relaxed">
+              <p className="text-zinc-400 text-xs leading-relaxed max-w-xs mx-auto">
                 {step === 'waiting'
-                  ? `An M-Pesa prompt has been sent to ${form.phone}. Enter your PIN to confirm the payment.`
-                  : 'Please wait while we confirm your payment.'}
+                  ? `An M-Pesa PIN prompt was sent to ${form.phone}. Enter your PIN to approve.`
+                  : 'We are verifying your transaction with Safaricom M-Pesa.'}
               </p>
             </div>
 
             {step === 'waiting' && (
-              <div className="rounded-xl p-4 text-sm" style={{ background: 'rgba(212,175,55,0.06)', border: '1px solid rgba(212,175,55,0.15)', color: '#D4AF37' }}>
-                Enter your M-Pesa PIN on your phone to complete the payment
+              <div className="rounded-xl p-3 text-xs bg-[#D4AF37]/10 border border-[#D4AF37]/20 text-[#D4AF37] animate-pulse flex items-center justify-center gap-2">
+                <ShieldCheck size={14} />
+                Keep this window open while entering your PIN
               </div>
             )}
           </div>
         )}
 
-        {step === 'success' && (
-          <div className="rounded-3xl p-10 text-center space-y-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(34,197,94,0.2)' }}>
-            <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center"
-              style={{ background: 'rgba(34,197,94,0.1)' }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5">
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
+        {/* Status View: Success & Trial */}
+        {(step === 'success' || step === 'trial') && (
+          <div className="rounded-3xl p-8 text-center space-y-4 bg-white/[0.03] backdrop-blur-xl border border-emerald-500/20 shadow-2xl">
+            <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 mx-auto flex items-center justify-center">
+              <Check size={32} className="text-emerald-400" strokeWidth={2.5} />
             </div>
-            <h2 className="text-2xl font-black text-green-400">Payment Successful!</h2>
-            <p className="text-gray-400">Redirecting to your dashboard...</p>
+            <h2 className="text-2xl font-black text-emerald-400">
+              {step === 'trial' ? 'Trial Activated!' : 'Payment Complete!'}
+            </h2>
+            <p className="text-zinc-400 text-xs">
+              {step === 'trial' 
+                ? `Your ${trialDays}-day trial is active. Redirecting to dashboard...`
+                : 'Setting up your photography workspace now...'}
+            </p>
           </div>
         )}
 
-        {step === 'trial' && (
-          <div className="rounded-3xl p-10 text-center space-y-4" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(34,197,94,0.2)' }}>
-            <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center"
-              style={{ background: 'rgba(34,197,94,0.1)' }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5">
-                <path d="M20 6L9 17l-5-5" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-black text-green-400">Trial Activated!</h2>
-            <p className="text-gray-400">Your {trialDays}-day free trial has started. Redirecting to your dashboard...</p>
-          </div>
-        )}
-
+        {/* Status View: Error */}
         {step === 'error' && (
-          <div className="rounded-3xl p-10 text-center space-y-6" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(239,68,68,0.2)' }}>
-            <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center"
-              style={{ background: 'rgba(239,68,68,0.1)' }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M15 9l-6 6M9 9l6 6" />
-              </svg>
+          <div className="rounded-3xl p-8 text-center space-y-5 bg-white/[0.03] backdrop-blur-xl border border-red-500/20 shadow-2xl">
+            <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 mx-auto flex items-center justify-center">
+              <AlertCircle size={32} className="text-red-400" />
             </div>
-            <h2 className="text-xl font-bold text-red-400">Something went wrong</h2>
-            <p className="text-gray-400 text-sm">{errorMsg}</p>
+            <div className="space-y-1">
+              <h2 className="text-xl font-bold text-red-400">Transaction Stopped</h2>
+              <p className="text-zinc-400 text-xs max-w-xs mx-auto">{errorMsg}</p>
+            </div>
             <button
               onClick={() => { setStep('form'); setErrorMsg(''); setFieldErrors({}); }}
-              className="px-8 py-3 rounded-xl font-bold transition-all hover:scale-105"
-              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}
+              className="w-full py-3 rounded-xl font-bold text-xs bg-gradient-to-r from-[#D4AF37] to-[#F0D060] text-[#080810] hover:brightness-110 transition-all"
             >
               Try Again
             </button>
