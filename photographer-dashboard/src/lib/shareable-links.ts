@@ -16,9 +16,10 @@ export interface BrandSettings {
   share_app_link: string;
 }
 
-// Cache domain from platform_settings
+// Cache domain and deep link scheme from platform_settings
 let cachedDomain: string | null = null;
 let cacheTimestamp = 0;
+let cachedScheme: string | null = null;
 const CACHE_TTL = 5 * 60 * 1000;
 
 async function getPlatformDomain(): Promise<string> {
@@ -45,6 +46,24 @@ async function getPlatformDomain(): Promise<string> {
   return 'https://epixvisuals.co.ke';
 }
 
+async function getDeepLinkScheme(): Promise<string> {
+  if (cachedScheme) return cachedScheme;
+  try {
+    const { data } = await supabase
+      .from('platform_settings')
+      .select('value')
+      .eq('key', 'platform_deep_link_scheme')
+      .single();
+    if (data?.value) {
+      cachedScheme = data.value;
+      return data.value;
+    }
+  } catch (e) {
+    console.warn('[ShareableLinks] Failed to fetch deep link scheme:', e);
+  }
+  return 'epix-visuals';
+}
+
 /**
  * Generate branded shareable links for galleries, BTS posts, and announcements
  */
@@ -58,8 +77,9 @@ export async function generateShareableLink(
     customSlug?: string;
   }
 ): Promise<ShareableLink> {
-  // Fetch domain from DB instead of hardcoding
+  // Fetch domain and deep link scheme from DB instead of hardcoding
   const baseUrl = brandSettings.custom_domain || await getPlatformDomain();
+  const scheme = await getDeepLinkScheme();
   const brandSlug = brandSettings.brand_slug || brandSettings.brand_name.toLowerCase().replace(/\s+/g, '-');
 
   // Generate the canonical URL
@@ -69,7 +89,7 @@ export async function generateShareableLink(
   switch (type) {
     case 'gallery':
       canonicalUrl = `${baseUrl}/${brandSlug}/gallery/${itemId}`;
-      deepLink = `epix-visuals://gallery?id=${itemId}`;
+      deepLink = `${scheme}://gallery?id=${itemId}`;
       if (options?.accessCode) {
         canonicalUrl += `?code=${options.accessCode}`;
         deepLink += `&accessCode=${options.accessCode}`;
@@ -78,22 +98,22 @@ export async function generateShareableLink(
 
     case 'bts':
       canonicalUrl = `${baseUrl}/${brandSlug}/bts/${itemId}`;
-      deepLink = `epix-visuals://bts?id=${itemId}`;
+      deepLink = `${scheme}://bts?id=${itemId}`;
       break;
 
     case 'announcement':
       canonicalUrl = `${baseUrl}/${brandSlug}/announcement/${itemId}`;
-      deepLink = `epix-visuals://announcement?id=${itemId}`;
+      deepLink = `${scheme}://announcement?id=${itemId}`;
       break;
 
     case 'portfolio':
       canonicalUrl = `${baseUrl}/${brandSlug}/portfolio/${itemId}`;
-      deepLink = `epix-visuals://portfolio?id=${itemId}`;
+      deepLink = `${scheme}://portfolio?id=${itemId}`;
       break;
 
     default:
       canonicalUrl = baseUrl;
-      deepLink = 'epix-visuals://';
+      deepLink = `${scheme}://`;
   }
 
   // Generate short URL using a service (e.g., your own shortener or bit.ly)
@@ -165,8 +185,9 @@ export async function generateAccessCodeLink(
 /**
  * Get deep link for opening in app
  */
-export function getDeepLink(type: string, itemId: string, params?: Record<string, string>): string {
-  let deepLink = `epix-visuals://${type}?id=${itemId}`;
+export async function getDeepLink(type: string, itemId: string, params?: Record<string, string>): Promise<string> {
+  const scheme = await getDeepLinkScheme();
+  let deepLink = `${scheme}://${type}?id=${itemId}`;
 
   if (params) {
     const queryString = Object.entries(params)

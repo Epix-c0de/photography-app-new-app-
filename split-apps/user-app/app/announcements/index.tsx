@@ -256,8 +256,11 @@ export default function AnnouncementsFeedScreen() {
 
   const handleShare = async (ann: AnnouncementWithSocial) => {
     try {
+      const { getAnnouncementShareUrl } = await import('@/lib/platform-config');
+      const link = await getAnnouncementShareUrl(ann.id, ann.admin_id);
       await Share.share({
-        message: `${ann.title || 'Check this out!'}\n\n${ann.description || ''}`,
+        message: `${ann.title || 'Check this out!'}\n\n${ann.description || ''}\n\n${link}`,
+        url: link,
         title: ann.title || 'Announcement',
       });
     } catch {
