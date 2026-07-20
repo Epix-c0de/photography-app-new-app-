@@ -226,9 +226,9 @@ export default function LandingPage() {
             className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
             style={{ animation: 'fadeUp 0.8s ease-out 0.3s both' }}
           >
-            <LiquidButton asChild size="xl" className="w-full sm:w-auto">
-              <Link href="/signup">Start Free Trial →</Link>
-            </LiquidButton>
+            <Link href="/signup" className="w-full sm:w-auto">
+              <LiquidButton size="xl" className="w-full">Start Free Trial →</LiquidButton>
+            </Link>
             <Link
               href="/login"
               className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold text-lg border border-white/10 text-white hover:border-white/20 transition-all text-center"
@@ -417,9 +417,9 @@ export default function LandingPage() {
                 ))}
               </ul>
 
-              <LiquidButton asChild size="xl" className="w-full">
-                <Link href="/signup">Get Started →</Link>
-              </LiquidButton>
+              <Link href="/signup" className="block w-full">
+                <LiquidButton size="xl" className="w-full">Get Started →</LiquidButton>
+              </Link>
             </div>
           </div>
         </div>
@@ -495,9 +495,9 @@ export default function LandingPage() {
               Join hundreds of Kenyan photographers who trust Epix Visuals to power their studios.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <LiquidButton asChild size="xl" className="w-full sm:w-auto">
-                <Link href="/signup">Start Free Trial →</Link>
-              </LiquidButton>
+              <Link href="/signup" className="w-full sm:w-auto">
+                <LiquidButton size="xl" className="w-full">Start Free Trial →</LiquidButton>
+              </Link>
               <Link
                 href="/login"
                 className="w-full sm:w-auto px-8 py-4 rounded-2xl font-bold text-lg border border-white/10 text-white hover:border-white/20 transition-all text-center"
