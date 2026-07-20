@@ -178,17 +178,17 @@ export default function SignupPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#080810] text-slate-100 flex items-center justify-center px-4 py-12 relative overflow-hidden">
+    <main className="min-h-screen bg-white text-zinc-900 flex items-center justify-center px-4 py-12 relative overflow-hidden">
       {/* Dynamic Background Glows */}
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-[#D4AF37]/10 blur-[130px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-10 right-10 w-[300px] h-[300px] bg-amber-600/5 blur-[100px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-10 right-10 w-[300px] h-[300px] bg-amber-100/40 blur-[100px] rounded-full pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-md">
         {/* Brand Header */}
         <div className="text-center mb-8">
           <Link href="/" className="inline-block group text-3xl font-black tracking-tight">
             <span className="text-[#D4AF37] transition-transform duration-300 group-hover:scale-105 inline-block">Epix</span>
-            <span className="text-white"> Visuals</span>
+            <span className="text-zinc-900"> Visuals</span>
           </Link>
           <p className="text-zinc-400 mt-2 text-sm font-medium">Powering Kenya&apos;s Professional Photographers</p>
         </div>
@@ -207,22 +207,22 @@ export default function SignupPage() {
                     <div
                       className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300 ${
                         isComplete
-                          ? 'bg-[#D4AF37] text-[#080810] shadow-md shadow-[#D4AF37]/20'
+                          ? 'bg-[#D4AF37] text-white shadow-md shadow-[#D4AF37]/20'
                           : isActive
-                          ? 'bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37] ring-4 ring-[#D4AF37]/10'
-                          : 'bg-white/5 text-zinc-500 border border-white/5'
+                          ? 'bg-[#D4AF37]/20 text-[#b8941e] border border-[#D4AF37] ring-4 ring-[#D4AF37]/10'
+                          : 'bg-zinc-100 text-zinc-400 border border-zinc-200'
                       }`}
                     >
                       {isComplete ? <Check size={12} strokeWidth={3} /> : s.num}
                     </div>
-                    <span className={`text-[11px] font-medium transition-colors ${isActive ? 'text-[#D4AF37]' : 'text-zinc-500'}`}>
+                    <span className={`text-[11px] font-medium transition-colors ${isActive ? 'text-[#D4AF37]' : 'text-zinc-400'}`}>
                       {s.label}
                     </span>
                   </div>
                   {idx < steps.length - 1 && (
                     <div 
                       className={`h-[2px] w-6 sm:w-10 mx-1 rounded-full transition-colors duration-500 ${
-                        idx < current ? 'bg-[#D4AF37]' : 'bg-white/10'
+                        idx < current ? 'bg-[#D4AF37]' : 'bg-zinc-200'
                       }`} 
                     />
                   )}
@@ -236,22 +236,22 @@ export default function SignupPage() {
         {step === 'form' && (
           <form 
             onSubmit={handleSubmit} 
-            className="rounded-3xl p-6 sm:p-8 space-y-4 bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50"
+            className="rounded-3xl p-6 sm:p-8 space-y-4 bg-white border border-zinc-200 shadow-xl shadow-zinc-200/50"
           >
             <div>
-              <h1 className="text-2xl font-black tracking-tight text-white">Create Account</h1>
+              <h1 className="text-2xl font-black tracking-tight text-zinc-900">Create Account</h1>
               <div className="flex items-center justify-between mt-1">
                 <p className="text-zinc-400 text-xs font-medium">
                   {price !== null ? `${currency} ${price.toLocaleString()}/month · Cancel anytime` : 'Loading plan pricing...'}
                 </p>
-                <span className="text-[10px] bg-[#D4AF37]/10 text-[#D4AF37] px-2 py-0.5 rounded-full border border-[#D4AF37]/20 flex items-center gap-1">
+                <span className="text-[10px] bg-[#D4AF37]/10 text-[#b8941e] px-2 py-0.5 rounded-full border border-[#D4AF37]/20 flex items-center gap-1">
                   <Phone size={10} /> M-Pesa Ready
                 </span>
               </div>
             </div>
 
             {errorMsg && (
-              <div className="rounded-xl p-3 text-xs bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2">
+              <div className="rounded-xl p-3 text-xs bg-red-50 border border-red-200 text-red-600 flex items-center gap-2">
                 <AlertCircle size={14} />
                 <p>{errorMsg}</p>
               </div>
@@ -260,7 +260,7 @@ export default function SignupPage() {
             {/* Inputs */}
             <div className="space-y-3.5">
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                <label className="block text-xs font-semibold text-zinc-600 mb-1">
                   Full Name <span className="text-[#D4AF37]">*</span>
                 </label>
                 <input
@@ -269,16 +269,16 @@ export default function SignupPage() {
                   value={form.name}
                   onChange={handleChange}
                   placeholder="e.g. John Kamau"
-                  className={`w-full rounded-xl px-4 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
-                    fieldErrors.name ? 'border-red-500/50' : 'border-white/10'
+                  className={`w-full rounded-xl px-4 py-3 text-sm bg-zinc-50 text-zinc-900 placeholder-zinc-400 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
+                    fieldErrors.name ? 'border-red-300' : 'border-zinc-200'
                   }`}
                 />
-                {fieldErrors.name && <p className="text-[11px] text-red-400 mt-1">{fieldErrors.name}</p>}
+                {fieldErrors.name && <p className="text-[11px] text-red-500 mt-1">{fieldErrors.name}</p>}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
-                  Studio/Brand Name <span className="text-zinc-500">(Optional)</span>
+                <label className="block text-xs font-semibold text-zinc-600 mb-1">
+                  Studio/Brand Name <span className="text-zinc-400">(Optional)</span>
                 </label>
                 <input
                   name="studioName"
@@ -286,12 +286,12 @@ export default function SignupPage() {
                   value={form.studioName}
                   onChange={handleChange}
                   placeholder="e.g. Kamau Visuals Studio"
-                  className="w-full rounded-xl px-4 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border border-white/10 transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]"
+                  className="w-full rounded-xl px-4 py-3 text-sm bg-zinc-50 text-zinc-900 placeholder-zinc-400 outline-none border border-zinc-200 transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                <label className="block text-xs font-semibold text-zinc-600 mb-1">
                   Email Address <span className="text-[#D4AF37]">*</span>
                 </label>
                 <input
@@ -300,15 +300,15 @@ export default function SignupPage() {
                   value={form.email}
                   onChange={handleChange}
                   placeholder="john@studio.co.ke"
-                  className={`w-full rounded-xl px-4 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
-                    fieldErrors.email ? 'border-red-500/50' : 'border-white/10'
+                  className={`w-full rounded-xl px-4 py-3 text-sm bg-zinc-50 text-zinc-900 placeholder-zinc-400 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
+                    fieldErrors.email ? 'border-red-300' : 'border-zinc-200'
                   }`}
                 />
-                {fieldErrors.email && <p className="text-[11px] text-red-400 mt-1">{fieldErrors.email}</p>}
+                {fieldErrors.email && <p className="text-[11px] text-red-500 mt-1">{fieldErrors.email}</p>}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                <label className="block text-xs font-semibold text-zinc-600 mb-1">
                   M-Pesa Phone Number <span className="text-[#D4AF37]">*</span>
                 </label>
                 <div className="relative">
@@ -318,23 +318,23 @@ export default function SignupPage() {
                     value={form.phone}
                     onChange={handleChange}
                     placeholder="0712345678"
-                    className={`w-full rounded-xl pl-4 pr-14 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
-                      fieldErrors.phone ? 'border-red-500/50' : 'border-white/10'
+                    className={`w-full rounded-xl pl-4 pr-14 py-3 text-sm bg-zinc-50 text-zinc-900 placeholder-zinc-400 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
+                      fieldErrors.phone ? 'border-red-300' : 'border-zinc-200'
                     }`}
                   />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
                     <Sparkles size={10} /> STK
                   </span>
                 </div>
                 {fieldErrors.phone ? (
-                  <p className="text-[11px] text-red-400 mt-1">{fieldErrors.phone}</p>
+                  <p className="text-[11px] text-red-500 mt-1">{fieldErrors.phone}</p>
                 ) : (
-                  <p className="text-[11px] text-zinc-500 mt-1">Prompt sent directly to this phone</p>
+                  <p className="text-[11px] text-zinc-400 mt-1">Prompt sent directly to this phone</p>
                 )}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-300 mb-1">
+                <label className="block text-xs font-semibold text-zinc-600 mb-1">
                   Password <span className="text-[#D4AF37]">*</span>
                 </label>
                 <div className="relative">
@@ -344,19 +344,19 @@ export default function SignupPage() {
                     value={form.password}
                     onChange={handleChange}
                     placeholder="Min. 8 characters"
-                    className={`w-full rounded-xl pl-4 pr-12 py-3 text-sm bg-white/[0.03] text-white placeholder-zinc-600 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
-                      fieldErrors.password ? 'border-red-500/50' : 'border-white/10'
+                    className={`w-full rounded-xl pl-4 pr-12 py-3 text-sm bg-zinc-50 text-zinc-900 placeholder-zinc-400 outline-none border transition-all focus:border-[#D4AF37] focus:ring-1 focus:ring-[#D4AF37] ${
+                      fieldErrors.password ? 'border-red-300' : 'border-zinc-200'
                     }`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors"
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
-                {fieldErrors.password && <p className="text-[11px] text-red-400 mt-1">{fieldErrors.password}</p>}
+                {fieldErrors.password && <p className="text-[11px] text-red-500 mt-1">{fieldErrors.password}</p>}
               </div>
             </div>
 
@@ -373,7 +373,7 @@ export default function SignupPage() {
                 <button
                   type="button"
                   onClick={handleStartTrial}
-                  className="w-full py-3 rounded-xl font-semibold text-xs border border-white/10 text-zinc-300 hover:bg-white/5 hover:border-white/20 transition-all flex items-center justify-center gap-2"
+                  className="w-full py-3 rounded-xl font-semibold text-xs border border-zinc-200 text-zinc-600 hover:bg-zinc-50 hover:border-zinc-300 transition-all flex items-center justify-center gap-2"
                 >
                   <Sparkles size={14} className="text-[#D4AF37]" />
                   Start {trialDays}-Day Free Trial First
@@ -381,7 +381,7 @@ export default function SignupPage() {
               )}
             </div>
 
-            <p className="text-center text-zinc-500 text-xs pt-1">
+            <p className="text-center text-zinc-400 text-xs pt-1">
               Already have an account?{' '}
               <Link href="/login" className="text-[#D4AF37] font-semibold hover:underline">
                 Sign in
@@ -392,9 +392,9 @@ export default function SignupPage() {
 
         {/* Status Views: Paying / Waiting / Verifying */}
         {(step === 'paying' || step === 'waiting' || step === 'verifying') && (
-          <div className="rounded-3xl p-8 text-center space-y-6 bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl">
+          <div className="rounded-3xl p-8 text-center space-y-6 bg-white border border-zinc-200 shadow-xl shadow-zinc-200/50">
             <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full border-2 border-white/5" />
+              <div className="absolute inset-0 rounded-full border-2 border-zinc-100" />
               <div className="absolute inset-0 rounded-full border-2 border-t-[#D4AF37] animate-spin" />
               <div className="w-14 h-14 rounded-full bg-[#D4AF37]/10 flex items-center justify-center">
                 <Phone size={24} className="text-[#D4AF37]" />
@@ -402,7 +402,7 @@ export default function SignupPage() {
             </div>
 
             <div className="space-y-2">
-              <h2 className="text-xl font-bold text-white">
+              <h2 className="text-xl font-bold text-zinc-900">
                 {step === 'paying' && 'Initiating M-Pesa...'}
                 {step === 'waiting' && 'Check Your Phone'}
                 {step === 'verifying' && 'Confirming Payment...'}
@@ -415,7 +415,7 @@ export default function SignupPage() {
             </div>
 
             {step === 'waiting' && (
-              <div className="rounded-xl p-3 text-xs bg-[#D4AF37]/10 border border-[#D4AF37]/20 text-[#D4AF37] animate-pulse flex items-center justify-center gap-2">
+              <div className="rounded-xl p-3 text-xs bg-[#D4AF37]/10 border border-[#D4AF37]/20 text-[#b8941e] animate-pulse flex items-center justify-center gap-2">
                 <ShieldCheck size={14} />
                 Keep this window open while entering your PIN
               </div>
@@ -425,11 +425,11 @@ export default function SignupPage() {
 
         {/* Status View: Success & Trial */}
         {(step === 'success' || step === 'trial') && (
-          <div className="rounded-3xl p-8 text-center space-y-4 bg-white/[0.03] backdrop-blur-xl border border-emerald-500/20 shadow-2xl">
-            <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 mx-auto flex items-center justify-center">
-              <Check size={32} className="text-emerald-400" strokeWidth={2.5} />
+          <div className="rounded-3xl p-8 text-center space-y-4 bg-white border border-emerald-200 shadow-xl shadow-emerald-100/50">
+            <div className="w-16 h-16 rounded-full bg-emerald-50 border border-emerald-200 mx-auto flex items-center justify-center">
+              <Check size={32} className="text-emerald-500" strokeWidth={2.5} />
             </div>
-            <h2 className="text-2xl font-black text-emerald-400">
+            <h2 className="text-2xl font-black text-emerald-600">
               {step === 'trial' ? 'Trial Activated!' : 'Payment Complete!'}
             </h2>
             <p className="text-zinc-400 text-xs">
@@ -442,17 +442,17 @@ export default function SignupPage() {
 
         {/* Status View: Error */}
         {step === 'error' && (
-          <div className="rounded-3xl p-8 text-center space-y-5 bg-white/[0.03] backdrop-blur-xl border border-red-500/20 shadow-2xl">
-            <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 mx-auto flex items-center justify-center">
-              <AlertCircle size={32} className="text-red-400" />
+          <div className="rounded-3xl p-8 text-center space-y-5 bg-white border border-red-200 shadow-xl shadow-red-100/50">
+            <div className="w-16 h-16 rounded-full bg-red-50 border border-red-200 mx-auto flex items-center justify-center">
+              <AlertCircle size={32} className="text-red-500" />
             </div>
             <div className="space-y-1">
-              <h2 className="text-xl font-bold text-red-400">Transaction Stopped</h2>
+              <h2 className="text-xl font-bold text-red-600">Transaction Stopped</h2>
               <p className="text-zinc-400 text-xs max-w-xs mx-auto">{errorMsg}</p>
             </div>
             <button
               onClick={() => { setStep('form'); setErrorMsg(''); setFieldErrors({}); }}
-              className="w-full py-3 rounded-xl font-bold text-xs bg-gradient-to-r from-[#D4AF37] to-[#F0D060] text-[#080810] hover:brightness-110 transition-all"
+              className="w-full py-3 rounded-xl font-bold text-xs bg-gradient-to-r from-[#D4AF37] to-[#F0D060] text-white hover:brightness-110 transition-all"
             >
               Try Again
             </button>

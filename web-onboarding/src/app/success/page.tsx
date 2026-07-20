@@ -60,10 +60,10 @@ export default function SuccessPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#080810] text-slate-100 flex items-center justify-center px-4 py-12 relative overflow-hidden">
+    <main className="min-h-screen bg-white text-zinc-900 flex items-center justify-center px-4 py-12 relative overflow-hidden">
       {/* Background Glows */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-emerald-500/10 blur-[120px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-10 right-10 w-[300px] h-[300px] bg-[#D4AF37]/5 blur-[100px] rounded-full pointer-events-none" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-emerald-100/40 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-10 right-10 w-[300px] h-[300px] bg-[#D4AF37]/10 blur-[100px] rounded-full pointer-events-none" />
 
       <div className="relative z-10 max-w-lg w-full text-center space-y-8">
         {/* Animated checkmark */}
@@ -71,8 +71,8 @@ export default function SuccessPage() {
           <div
             className="w-24 h-24 rounded-full flex items-center justify-center mx-auto transition-all duration-700"
             style={{
-              background: showCheckmark ? 'rgba(34,197,94,0.1)' : 'rgba(212,175,55,0.05)',
-              border: showCheckmark ? '2px solid rgba(34,197,94,0.3)' : '2px solid rgba(212,175,55,0.1)',
+              background: showCheckmark ? 'rgba(34,197,94,0.1)' : 'rgba(212,175,55,0.08)',
+              border: showCheckmark ? '2px solid rgba(34,197,94,0.3)' : '2px solid rgba(212,175,55,0.2)',
               transform: showCheckmark ? 'scale(1)' : 'scale(0.8)',
               opacity: showCheckmark ? 1 : 0,
             }}
@@ -80,7 +80,7 @@ export default function SuccessPage() {
             <Check
               size={40}
               strokeWidth={2.5}
-              className="text-emerald-400"
+              className="text-emerald-500"
               style={{
                 strokeDasharray: 50,
                 strokeDashoffset: showCheckmark ? 0 : 50,
@@ -98,7 +98,7 @@ export default function SuccessPage() {
         </div>
 
         <div style={{ animation: 'fadeUp 0.6s ease-out 0.3s both' }}>
-          <h1 className="text-4xl font-black mb-3 text-white">Welcome to Epix Visuals!</h1>
+          <h1 className="text-4xl font-black mb-3 text-zinc-900">Welcome to Epix Visuals!</h1>
           <p className="text-zinc-400 text-sm">
             Your account is ready. Redirecting to your dashboard...
           </p>
@@ -106,13 +106,13 @@ export default function SuccessPage() {
 
         {/* Redirect card */}
         <div
-          className="rounded-3xl p-8 space-y-5 bg-white/[0.03] backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/50"
+          className="rounded-3xl p-8 space-y-5 bg-white border border-zinc-200 shadow-xl shadow-zinc-200/50"
           style={{ animation: 'fadeUp 0.6s ease-out 0.4s both' }}
         >
           <div className="flex items-center justify-center gap-3">
             <div className="relative w-10 h-10">
               <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
-                <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(212,175,55,0.1)" strokeWidth="2" />
+                <circle cx="18" cy="18" r="16" fill="none" stroke="rgba(212,175,55,0.15)" strokeWidth="2" />
                 <circle
                   cx="18" cy="18" r="16" fill="none"
                   stroke="#D4AF37" strokeWidth="2" strokeLinecap="round"
@@ -140,11 +140,11 @@ export default function SuccessPage() {
 
         {/* What's next */}
         <div
-          className="rounded-2xl p-6 text-left space-y-4 bg-white/[0.02] border border-white/5"
+          className="rounded-2xl p-6 text-left space-y-4 bg-zinc-50 border border-zinc-100"
           style={{ animation: 'fadeUp 0.6s ease-out 0.5s both' }}
         >
           <h3 className="font-bold text-[#D4AF37] text-sm">What happens next:</h3>
-          <ol className="space-y-3 text-xs text-zinc-400">
+          <ol className="space-y-3 text-xs text-zinc-500">
             {[
               { icon: Mail, text: 'Your dashboard opens — configure your M-Pesa payment number for clients' },
               { icon: Download, text: 'Download the Admin App from your dashboard to manage galleries on mobile' },
@@ -152,7 +152,7 @@ export default function SuccessPage() {
               { icon: Smartphone, text: 'Your clients download the Epix Visuals app and unlock their gallery' },
             ].map((item, i) => (
               <li key={i} className="flex gap-3 items-start">
-                <span className="font-bold flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20">
+                <span className="font-bold flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] bg-[#D4AF37]/10 text-[#b8941e] border border-[#D4AF37]/20">
                   <item.icon size={12} />
                 </span>
                 <span>{item.text}</span>
@@ -161,7 +161,7 @@ export default function SuccessPage() {
           </ol>
         </div>
 
-        <p className="text-xs text-zinc-500" style={{ animation: 'fadeUp 0.6s ease-out 0.6s both' }}>
+        <p className="text-xs text-zinc-400" style={{ animation: 'fadeUp 0.6s ease-out 0.6s both' }}>
           Need help?{' '}
           <a href="mailto:epixshots002@gmail.com" className="text-[#D4AF37]/60 hover:text-[#D4AF37] hover:underline transition-colors font-medium">
             Contact support
