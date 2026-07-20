@@ -2,8 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { 
-  ExternalLink, CheckCircle, Unlink, Loader2, Share2, Image as ImageIcon, AlertTriangle 
+import {
+  ExternalLink,
+  CheckCircle,
+  Unlink,
+  Loader2,
+  Share2,
+  AlertCircle,
+  Globe,
+  Copy,
+  Check,
+  RefreshCw,
+  Clock,
+  Zap,
 } from 'lucide-react';
 
 function InstagramIcon({ size = 24, color = 'currentColor' }: { size?: number; color?: string }) {
@@ -24,21 +35,78 @@ function FacebookIcon({ size = 24, color = 'currentColor' }: { size?: number; co
   );
 }
 
-type SocialConnection = {
+function TikTokIcon({ size = 24, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1V9a6.33 6.33 0 00-.79-.05 6.34 6.34 0 00-6.34 6.34 6.34 6.34 0 006.34 6.34A6.34 6.34 0 0015.81 15.94V9.41a8.16 8.16 0 004.77 1.52V7.49a4.85 4.85 0 01-1-.8z" />
+    </svg>
+  );
+}
+
+type Platform = 'instagram' | 'facebook' | 'tiktok';
+
+interface PlatformConfig {
+  key: Platform;
+  label: string;
+  color: string;
+  icon: typeof InstagramIcon;
+  description: string;
+  gradient: string;
+}
+
+const PLATFORMS: PlatformConfig[] = [
+  {
+    key: 'instagram',
+    label: 'Instagram',
+    color: '#E4405F',
+    icon: InstagramIcon,
+    description: 'Share photos directly to your feed',
+    gradient: 'linear-gradient(135deg, #833AB4, #E4405F, #FCAF45)',
+  },
+  {
+    key: 'facebook',
+    label: 'Facebook Page',
+    color: '#1877F2',
+    icon: FacebookIcon,
+    description: 'Share to your business page',
+    gradient: 'linear-gradient(135deg, #1877F2, #42A5F5)',
+  },
+  {
+    key: 'tiktok',
+    label: 'TikTok',
+    color: '#00F2EA',
+    icon: TikTokIcon,
+    description: 'Post videos and content to your profile',
+    gradient: 'linear-gradient(135deg, #00F2EA, #FF0050)',
+  },
+];
+
+interface SocialConnection {
   id: string;
   platform: string;
   profile_name: string;
   profile_url: string | null;
   is_active: boolean;
   created_at: string;
-};
+}
+
+interface SocialShare {
+  id: string;
+  platform: string;
+  caption: string | null;
+  status: string;
+  post_url: string | null;
+  created_at: string;
+}
 
 export default function SocialPage() {
   const [connections, setConnections] = useState<SocialConnection[]>([]);
+  const [shares, setShares] = useState<SocialShare[]>([]);
   const [loading, setLoading] = useState(true);
-  const [connecting, setConnecting] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState<Platform | null>(null);
   const [toast, setToast] = useState('');
-  const [recentShares, setRecentShares] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'accounts' | 'history'>('accounts');
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -46,73 +114,56 @@ export default function SocialPage() {
   };
 
   useEffect(() => {
-    loadConnections();
-    loadRecentShares();
+    loadData();
   }, []);
 
-  const loadConnections = async () => {
+  const loadData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data } = await supabase
-      .from('social_connections')
-      .select('*')
-      .eq('photographer_id', user.id)
-      .order('created_at', { ascending: false });
+    const [connectionsRes, sharesRes] = await Promise.all([
+      supabase
+        .from('social_connections')
+        .select('*')
+        .eq('photographer_id', user.id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('social_shares')
+        .select('*')
+        .eq('photographer_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(20),
+    ]);
 
-    setConnections(data || []);
+    setConnections(connectionsRes.data || []);
+    setShares(sharesRes.data || []);
     setLoading(false);
   };
 
-  const loadRecentShares = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data } = await supabase
-      .from('social_shares')
-      .select('*')
-      .eq('photographer_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    setRecentShares(data || []);
+  const isConnected = (platform: Platform) => {
+    return connections.some(c => c.platform === platform && c.is_active);
   };
 
-  const connectInstagram = async () => {
-    setConnecting('instagram');
+  const getConnection = (platform: Platform) => {
+    return connections.find(c => c.platform === platform && c.is_active);
+  };
+
+  const handleConnect = async (platform: Platform) => {
+    setConnecting(platform);
     try {
-      // Redirect to Instagram OAuth
-      const clientId = process.env.NEXT_PUBLIC_INSTAGRAM_CLIENT_ID || '';
-      const redirectUri = `${window.location.origin}/auth/instagram/callback`;
-      const scope = 'instagram_basic,instagram_content_publish';
-      
-      const authUrl = `https://api.instagram.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&response_type=code`;
-      
-      window.location.href = authUrl;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // For now, show a message that OAuth needs to be configured
+      showToast(`${platform} OAuth is not yet configured. Contact admin to set up.`);
+      setConnecting(null);
     } catch (error) {
-      showToast('Failed to connect Instagram');
+      showToast(`Failed to connect ${platform}`);
       setConnecting(null);
     }
   };
 
-  const connectFacebook = async () => {
-    setConnecting('facebook');
-    try {
-      // Redirect to Facebook OAuth
-      const clientId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '';
-      const redirectUri = `${window.location.origin}/auth/facebook/callback`;
-      const scope = 'pages_manage_posts,pages_read_engagement';
-      
-      const authUrl = `https://www.facebook.com/v17.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&response_type=code`;
-      
-      window.location.href = authUrl;
-    } catch (error) {
-      showToast('Failed to connect Facebook');
-      setConnecting(null);
-    }
-  };
-
-  const disconnectAccount = async (connectionId: string, platform: string) => {
+  const handleDisconnect = async (connectionId: string, platform: string) => {
     if (!confirm(`Disconnect ${platform}? You can reconnect later.`)) return;
 
     try {
@@ -121,31 +172,43 @@ export default function SocialPage() {
         .update({ is_active: false })
         .eq('id', connectionId);
 
-      loadConnections();
+      loadData();
       showToast(`${platform} disconnected`);
     } catch (error) {
       showToast('Failed to disconnect');
     }
   };
 
-  const isConnected = (platform: string) => {
-    return connections.some(c => c.platform === platform && c.is_active);
+  const copyLink = (url: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiedLink(url);
+    setTimeout(() => setCopiedLink(null), 2000);
   };
 
-  const getConnection = (platform: string) => {
-    return connections.find(c => c.platform === platform && c.is_active);
+  const formatTimeAgo = (dateStr: string) => {
+    const now = new Date();
+    const date = new Date(dateStr);
+    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return date.toLocaleDateString();
   };
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px', color: 'rgba(255,255,255,0.5)' }}>
-        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} /> Loading social accounts...
+      <div className="flex items-center justify-center h-96" style={{ color: 'rgba(255,255,255,0.5)' }}>
+        <Loader2 size={24} className="animate-spin" /> <span className="ml-3">Loading social accounts...</span>
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px' }}>
+    <div style={{ maxWidth: 800, margin: '0 auto' }}>
       {/* Toast */}
       {toast && (
         <div style={{
@@ -161,242 +224,272 @@ export default function SocialPage() {
       <div style={{ marginBottom: 32 }}>
         <h1 style={{ fontSize: 28, fontWeight: 900, color: 'white', marginBottom: 8 }}>Social Media</h1>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>
-          Connect your social accounts to share BTS content
+          Connect your social accounts to share content across platforms
         </p>
       </div>
 
-      {/* Connected Accounts */}
-      <div style={{
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 16,
-        padding: 24,
-        marginBottom: 24,
-      }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: 'white', marginBottom: 20 }}>
-          Connected Accounts
-        </h3>
-
-        {/* Instagram */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: 16,
-          borderRadius: 12,
-          background: isConnected('instagram') ? 'rgba(131,58,180,0.1)' : 'rgba(255,255,255,0.03)',
-          border: `1px solid ${isConnected('instagram') ? 'rgba(131,58,180,0.3)' : 'rgba(255,255,255,0.1)'}`,
-          marginBottom: 12,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <InstagramIcon size={24} color={isConnected('instagram') ? '#E4405F' : 'rgba(255,255,255,0.3)'} />
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: 'white' }}>Instagram</div>
-              {isConnected('instagram') ? (
-                <div style={{ fontSize: 12, color: '#E4405F' }}>
-                  Connected as {getConnection('instagram')?.profile_name}
-                </div>
-              ) : (
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
-                  Share photos directly to your feed
-                </div>
-              )}
-            </div>
-          </div>
-          {isConnected('instagram') ? (
-            <button
-              onClick={() => {
-                const conn = getConnection('instagram');
-                if (conn) disconnectAccount(conn.id, 'instagram');
-              }}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 8,
-                border: '1px solid rgba(255,59,48,0.3)',
-                background: 'rgba(255,59,48,0.1)',
-                color: '#FF3B30',
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <Unlink size={14} /> Disconnect
-            </button>
-          ) : (
-            <button
-              onClick={connectInstagram}
-              disabled={connecting === 'instagram'}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 8,
-                border: 'none',
-                background: connecting === 'instagram' ? 'rgba(228,64,95,0.5)' : 'linear-gradient(135deg, #833AB4, #E4405F)',
-                color: 'white',
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: connecting === 'instagram' ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              {connecting === 'instagram' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <ExternalLink size={14} />}
-              {connecting === 'instagram' ? 'Connecting...' : 'Connect'}
-            </button>
-          )}
-        </div>
-
-        {/* Facebook */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: 16,
-          borderRadius: 12,
-          background: isConnected('facebook') ? 'rgba(24,119,242,0.1)' : 'rgba(255,255,255,0.03)',
-          border: `1px solid ${isConnected('facebook') ? 'rgba(24,119,242,0.3)' : 'rgba(255,255,255,0.1)'}`,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <FacebookIcon size={24} color={isConnected('facebook') ? '#1877F2' : 'rgba(255,255,255,0.3)'} />
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: 'white' }}>Facebook Page</div>
-              {isConnected('facebook') ? (
-                <div style={{ fontSize: 12, color: '#1877F2' }}>
-                  Connected as {getConnection('facebook')?.profile_name}
-                </div>
-              ) : (
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
-                  Share to your business page
-                </div>
-              )}
-            </div>
-          </div>
-          {isConnected('facebook') ? (
-            <button
-              onClick={() => {
-                const conn = getConnection('facebook');
-                if (conn) disconnectAccount(conn.id, 'facebook');
-              }}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 8,
-                border: '1px solid rgba(255,59,48,0.3)',
-                background: 'rgba(255,59,48,0.1)',
-                color: '#FF3B30',
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              <Unlink size={14} /> Disconnect
-            </button>
-          ) : (
-            <button
-              onClick={connectFacebook}
-              disabled={connecting === 'facebook'}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 8,
-                border: 'none',
-                background: connecting === 'facebook' ? 'rgba(24,119,242,0.5)' : 'linear-gradient(135deg, #1877F2, #42A5F5)',
-                color: 'white',
-                fontWeight: 600,
-                fontSize: 13,
-                cursor: connecting === 'facebook' ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              {connecting === 'facebook' ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <ExternalLink size={14} />}
-              {connecting === 'facebook' ? 'Connecting...' : 'Connect'}
-            </button>
-          )}
-        </div>
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6">
+        {(['accounts', 'history'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            style={{
+              padding: '10px 20px',
+              borderRadius: 12,
+              border: 'none',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              background: activeTab === tab ? 'linear-gradient(135deg, #D4AF37, #F0D060)' : 'rgba(255,255,255,0.05)',
+              color: activeTab === tab ? '#12121e' : 'rgba(255,255,255,0.5)',
+              transition: 'all 0.2s',
+            }}
+          >
+            {tab === 'accounts' ? 'Connected Accounts' : 'Share History'}
+            {tab === 'history' && shares.length > 0 && (
+              <span style={{
+                marginLeft: 8,
+                padding: '2px 6px',
+                borderRadius: 6,
+                background: activeTab === tab ? 'rgba(18,18,30,0.2)' : 'rgba(212,175,55,0.2)',
+                fontSize: 11,
+              }}>
+                {shares.length}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      {/* Recent Shares */}
-      <div style={{
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 16,
-        padding: 24,
-      }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: 'white', marginBottom: 16 }}>
-          Recent Shares
-        </h3>
+      {/* Accounts Tab */}
+      {activeTab === 'accounts' && (
+        <div className="space-y-4">
+          {/* Platform Cards */}
+          {PLATFORMS.map((platform) => {
+            const connected = isConnected(platform.key);
+            const connection = getConnection(platform.key);
+            const Icon = platform.icon;
 
-        {recentShares.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 32 }}>
-            <Share2 size={40} color="rgba(255,255,255,0.2)" style={{ marginBottom: 12 }} />
-            <p style={{ color: 'rgba(255,255,255,0.5)' }}>No shares yet</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {recentShares.map((share) => (
+            return (
               <div
-                key={share.id}
+                key={platform.key}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 12,
-                  padding: 12,
-                  borderRadius: 10,
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.08)',
+                  justifyContent: 'space-between',
+                  padding: 20,
+                  borderRadius: 16,
+                  background: connected
+                    ? `linear-gradient(135deg, ${platform.color}10, ${platform.color}05)`
+                    : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${connected ? `${platform.color}30` : 'rgba(255,255,255,0.08)'}`,
+                  transition: 'all 0.2s',
                 }}
               >
-                {share.platform === 'instagram' ? (
-                  <InstagramIcon size={18} color="#E4405F" />
-                ) : (
-                  <FacebookIcon size={18} color="#1877F2" />
-                )}
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, color: 'white' }}>
-                    {share.caption?.substring(0, 50)}{share.caption?.length > 50 ? '...' : ''}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 14,
+                    background: connected ? platform.gradient : 'rgba(255,255,255,0.05)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: connected ? `0 4px 12px ${platform.color}30` : 'none',
+                  }}>
+                    <Icon size={24} color={connected ? 'white' : 'rgba(255,255,255,0.3)'} />
                   </div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
-                    {new Date(share.created_at).toLocaleDateString('en-KE')}
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: 'white', marginBottom: 2 }}>
+                      {platform.label}
+                    </div>
+                    {connected ? (
+                      <div style={{ fontSize: 13, color: platform.color }}>
+                        Connected as {connection?.profile_name}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>
+                        {platform.description}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <span style={{
-                  padding: '4px 8px',
-                  borderRadius: 6,
-                  background: share.status === 'posted' ? 'rgba(52,199,89,0.15)' : 'rgba(255,59,48,0.15)',
-                  color: share.status === 'posted' ? '#34C759' : '#FF3B30',
-                  fontSize: 11,
-                  fontWeight: 600,
-                }}>
-                  {share.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
 
-      {/* Info */}
-      <div style={{
-        background: 'rgba(212,175,55,0.05)',
-        border: '1px solid rgba(212,175,55,0.2)',
-        borderRadius: 16,
-        padding: 20,
-        marginTop: 24,
-      }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: '#D4AF37', marginBottom: 12 }}>About Social Sharing</h3>
-        <ul style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 1.8, paddingLeft: 20 }}>
-          <li>Share BTS content directly to Instagram and Facebook</li>
-          <li>Photos are posted with your watermark and branding</li>
-          <li>You can share from the BTS & Announcements section</li>
-          <li>Posts include your studio name and contact info</li>
-        </ul>
-      </div>
+                {connected ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => connection && handleDisconnect(connection.id, platform.label)}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: 10,
+                        border: '1px solid rgba(244,63,94,0.3)',
+                        background: 'rgba(244,63,94,0.1)',
+                        color: '#F43F5E',
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      <Unlink size={14} /> Disconnect
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => handleConnect(platform.key)}
+                    disabled={connecting === platform.key}
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: 10,
+                      border: 'none',
+                      background: connecting === platform.key ? `${platform.color}80` : platform.gradient,
+                      color: 'white',
+                      fontWeight: 600,
+                      fontSize: 13,
+                      cursor: connecting === platform.key ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      boxShadow: `0 4px 12px ${platform.color}30`,
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {connecting === platform.key ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <ExternalLink size={14} />
+                    )}
+                    {connecting === platform.key ? 'Connecting...' : 'Connect'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Info Card */}
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(212,175,55,0.06), rgba(139,92,246,0.04))',
+            border: '1px solid rgba(212,175,55,0.15)',
+            borderRadius: 16,
+            padding: 20,
+            marginTop: 24,
+          }}>
+            <div className="flex items-center gap-2 mb-3">
+              <Zap size={16} style={{ color: '#D4AF37' }} />
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#D4AF37' }}>About Social Sharing</h3>
+            </div>
+            <ul style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 1.8, paddingLeft: 20 }}>
+              <li>Share BTS content and galleries directly to your social platforms</li>
+              <li>Photos are posted with your watermark and branding</li>
+              <li>Auto-post when galleries are published (coming soon)</li>
+              <li>Posts include your studio name and contact info</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* History Tab */}
+      {activeTab === 'history' && (
+        <div>
+          {shares.length === 0 ? (
+            <div style={{
+              textAlign: 'center',
+              padding: 60,
+              background: 'rgba(255,255,255,0.02)',
+              borderRadius: 16,
+              border: '1px solid rgba(255,255,255,0.06)',
+            }}>
+              <Share2 size={40} style={{ color: 'rgba(255,255,255,0.15)', marginBottom: 16 }} />
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>No shares yet</p>
+              <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12, marginTop: 4 }}>
+                Connect a platform and share your first gallery
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {shares.map((share) => {
+                const platformConfig = PLATFORMS.find(p => p.key === share.platform);
+                return (
+                  <div
+                    key={share.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 14,
+                      padding: 16,
+                      borderRadius: 14,
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                    }}
+                  >
+                    <div style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      background: platformConfig?.gradient || 'rgba(255,255,255,0.1)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      {platformConfig && <platformConfig.icon size={18} color="white" />}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: 'white', fontWeight: 500 }}>
+                        {share.caption?.substring(0, 60)}{share.caption && share.caption.length > 60 ? '...' : ''}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Clock size={12} />
+                        {formatTimeAgo(share.created_at)}
+                        {share.platform && (
+                          <span style={{ color: platformConfig?.color || 'rgba(255,255,255,0.3)' }}>
+                            • {platformConfig?.label || share.platform}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {share.post_url && (
+                        <button
+                          onClick={() => copyLink(share.post_url!)}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: 8,
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            background: copiedLink === share.post_url ? 'rgba(16,185,129,0.1)' : 'rgba(255,255,255,0.05)',
+                            color: copiedLink === share.post_url ? '#10B981' : 'rgba(255,255,255,0.5)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: 12,
+                          }}
+                        >
+                          {copiedLink === share.post_url ? <Check size={12} /> : <Copy size={12} />}
+                        </button>
+                      )}
+                      <span style={{
+                        padding: '4px 10px',
+                        borderRadius: 8,
+                        background: share.status === 'posted' ? 'rgba(16,185,129,0.15)' : share.status === 'failed' ? 'rgba(244,63,94,0.15)' : 'rgba(245,158,11,0.15)',
+                        color: share.status === 'posted' ? '#10B981' : share.status === 'failed' ? '#F43F5E' : '#F59E0B',
+                        fontSize: 11,
+                        fontWeight: 600,
+                      }}>
+                        {share.status}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
