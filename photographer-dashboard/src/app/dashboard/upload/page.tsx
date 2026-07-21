@@ -112,12 +112,21 @@ export default function UploadPage() {
       // Normalize phone
       const normalizedPhone = normalizePhone(phoneSearch);
 
-      // Create client with phone only — owner_admin_id links them to this photographer
+      // Check if a user_profile exists with this phone number
+      const { data: existingProfile } = await supabase
+        .from('user_profiles')
+        .select('id, name, email')
+        .eq('phone', normalizedPhone)
+        .maybeSingle();
+
+      // Create client — link user_id if profile exists
       const { data, error: err } = await supabase.from('clients').insert({
         owner_admin_id: user.id,
-        name: normalizedPhone,   // use phone as name placeholder until client sets their name
+        user_id: existingProfile?.id || null,
+        name: existingProfile?.name || normalizedPhone,
         phone: normalizedPhone,
         mobile_number: normalizedPhone,
+        email: existingProfile?.email || '',
       }).select().single();
       if (err) throw err;
       setClients(prev => [data, ...prev]);

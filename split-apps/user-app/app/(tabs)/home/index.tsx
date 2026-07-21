@@ -1002,9 +1002,10 @@ export default function HomeScreen() {
   // Subscribe to realtime updates only once on mount
   useEffect(() => {
     if (isDemoMode) return;
-    // Use stable channel name to avoid conflicts
+    // Don't use a fixed channel name — Supabase caches channels by name, and
+    // React StrictMode re-runs effects, causing "cannot add callbacks after subscribe"
     const channel = supabase
-      .channel('user_app_home_feed')
+      .channel(`home_feed_${Date.now()}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bts_posts' }, () => fetchBtsRef.current())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => fetchUnreadCountRef.current())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'galleries' }, () => fetchGalleriesRef.current())

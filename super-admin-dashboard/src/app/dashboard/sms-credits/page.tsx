@@ -58,7 +58,6 @@ export default function SmsCreditsPage() {
         supabase.from('sms_purchase_transactions').select('*').order('created_at', { ascending: false }).limit(100),
       ]);
 
-      // Enrich credits with admin names
       const adminIds = (creditsRes.data || []).map((c: any) => c.admin_id);
       const txAdminIds = (txRes.data || []).map((t: any) => t.admin_id);
       const allAdminIds = Array.from(new Set([...adminIds, ...txAdminIds]));
@@ -195,7 +194,6 @@ export default function SmsCreditsPage() {
         <p className="text-gray-400 mt-1">Manage credit packages, view admin balances, and track purchases</p>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
           { label: 'Total Credits Issued', value: totalCreditsIssued.toLocaleString(), color: '#D4AF37', icon: '📦' },
@@ -211,7 +209,6 @@ export default function SmsCreditsPage() {
         ))}
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-2 border-b border-white/5 pb-2">
         {(['packages', 'balances', 'transactions'] as const).map((tab) => (
           <button
@@ -228,7 +225,6 @@ export default function SmsCreditsPage() {
         ))}
       </div>
 
-      {/* Packages Tab */}
       {activeTab === 'packages' && (
         <div className="space-y-4">
           <div className="flex justify-end">
@@ -274,10 +270,9 @@ export default function SmsCreditsPage() {
                   style={{ background: '#34C759', color: '#080810' }}>Save Package</button>
                 <button onClick={() => setShowNewPackage(false)} className="px-4 py-2 rounded-xl text-sm font-bold"
                   style={{ background: 'rgba(255,255,255,0.05)', color: '#9CA3AF' }}>Cancel</button>
-          </div>
-        </div>
-        </div>
-      )}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {packages.map((pkg) => (
@@ -313,10 +308,8 @@ export default function SmsCreditsPage() {
         </div>
       )}
 
-      {/* Balances Tab */}
       {activeTab === 'balances' && (
         <div className="space-y-4">
-          {/* Manual Adjustment Card */}
           <div className="rounded-2xl p-5 border border-white/5" style={{ background: '#111118' }}>
             <h3 className="font-bold mb-4 text-white">Manual Credit Adjustment</h3>
             <div className="grid grid-cols-4 gap-3">
@@ -349,37 +342,37 @@ export default function SmsCreditsPage() {
           </div>
 
           <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: '#111118' }}>
-          <div className="px-5 py-4 border-b border-white/5">
-            <h2 className="font-bold">Admin Credit Balances</h2>
-          </div>
-          <div className="divide-y divide-white/5">
-            {adminCredits.length === 0 ? (
-              <p className="text-center text-gray-500 text-sm py-8">No credit balances yet</p>
-            ) : adminCredits.map((c) => (
-              <div key={c.admin_id} className="flex items-center gap-4 px-5 py-4">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
-                  style={{ background: 'rgba(212,175,55,0.1)', color: '#D4AF37' }}>
-                  {c.admin_name.charAt(0).toUpperCase()}
+            <div className="px-5 py-4 border-b border-white/5">
+              <h2 className="font-bold">Admin Credit Balances</h2>
+            </div>
+            <div className="divide-y divide-white/5">
+              {adminCredits.length === 0 ? (
+                <p className="text-center text-gray-500 text-sm py-8">No credit balances yet</p>
+              ) : adminCredits.map((c) => (
+                <div key={c.admin_id} className="flex items-center gap-4 px-5 py-4">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold"
+                    style={{ background: 'rgba(212,175,55,0.1)', color: '#D4AF37' }}>
+                    {c.admin_name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white">{c.admin_name}</p>
+                    <p className="text-xs text-gray-500">{c.admin_email}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-black" style={{ color: c.balance > 0 ? '#34C759' : '#FF3B30' }}>
+                      {c.balance.toLocaleString()} SMS
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {c.total_purchased.toLocaleString()} purchased · {c.total_used.toLocaleString()} used
+                    </p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white">{c.admin_name}</p>
-                  <p className="text-xs text-gray-500">{c.admin_email}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-lg font-black" style={{ color: c.balance > 0 ? '#34C759' : '#FF3B30' }}>
-                    {c.balance.toLocaleString()} SMS
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {c.total_purchased.toLocaleString()} purchased · {c.total_used.toLocaleString()} used
-                  </p>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Transactions Tab */}
       {activeTab === 'transactions' && (
         <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: '#111118' }}>
           <div className="px-5 py-4 border-b border-white/5">
@@ -409,7 +402,6 @@ export default function SmsCreditsPage() {
         </div>
       )}
 
-      {/* Edit Package Modal */}
       {editingPackage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.8)' }}
           onClick={() => setEditingPackage(null)}>

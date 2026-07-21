@@ -109,8 +109,9 @@ export default function GalleriesPage() {
         title: `New Gallery: ${gallery.name}`,
         description: `Check out the photos from ${gallery.name}!`,
         is_active: true,
-        owner_admin_id: user!.id,
         created_by: user!.id,
+        owner_admin_id: user!.id,
+        content: `Check out the photos from ${gallery.name}!`,
       });
       showToast('Promoted to announcement!');
     } catch { showToast('Failed to promote'); }

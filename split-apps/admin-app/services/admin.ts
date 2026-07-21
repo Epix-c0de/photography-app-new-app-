@@ -1483,7 +1483,8 @@ export const AdminService = {
       
       const { data: profiles, error: profileError } = await supabase
         .from('user_profiles')
-        .select('id');
+        .select('id')
+        .eq('role', 'client');
       
       if (profileError) throw profileError;
       if (!profiles || profiles.length === 0) return true;

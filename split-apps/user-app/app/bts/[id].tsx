@@ -389,7 +389,7 @@ export default function BTSViewerScreen() {
       setActivePostId(postId);
       // Track view
       if (!isDemoMode && user) {
-        supabase.rpc('increment_views_count', { post_id: postId }).catch(() => {});
+        supabase.rpc('increment_views_count', { post_id: postId }).then(() => {}).catch(() => {});
         setPosts(prev => prev.map(p => p.id === postId ? { ...p, views_count: (p.views_count ?? 0) + 1 } : p));
       }
     }
