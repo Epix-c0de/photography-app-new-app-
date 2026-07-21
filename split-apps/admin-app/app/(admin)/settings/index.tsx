@@ -107,13 +107,6 @@ const settingsGroups: SettingsGroup[] = [
         color: '#14B8A6',
       },
       {
-        icon: Star,
-        label: 'Reviews',
-        subtitle: 'Client feedback',
-        route: '/(admin)/reviews',
-        color: '#F59E0B',
-      },
-      {
         icon: Gift,
         label: 'Referrals',
         subtitle: 'Invite, earn credits',

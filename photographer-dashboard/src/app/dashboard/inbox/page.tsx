@@ -62,28 +62,29 @@ export default function InboxPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Get all clients for this admin
+      // Get all clients for this admin — we need user_id for the messages FK
       const { data: clientsData } = await supabase
         .from('clients')
-        .select('id, name, phone')
+        .select('id, user_id, name, phone')
         .eq('owner_admin_id', user.id);
 
       if (!clientsData?.length) { setThreads([]); return; }
 
-      const clientIds = clientsData.map(c => c.id);
+      // messages.client_id references user_profiles(id), so we use clients.user_id
+      const userProfileIds = clientsData.filter(c => c.user_id).map(c => c.user_id);
 
-      // Get latest message per client
+      // Get latest message per user_profile
       const { data: msgs } = await supabase
         .from('messages')
         .select('*')
-        .in('client_id', clientIds)
+        .in('client_id', userProfileIds)
         .order('created_at', { ascending: false });
 
-      // Build thread map
+      // Build thread map keyed by user_profile id
       const threadMap = new Map<string, Thread>();
       (msgs || []).forEach(m => {
         if (!threadMap.has(m.client_id)) {
-          const client = clientsData.find(c => c.id === m.client_id);
+          const client = clientsData.find(c => c.user_id === m.client_id);
           if (client) {
             threadMap.set(m.client_id, {
               id: m.client_id,
@@ -107,9 +108,9 @@ export default function InboxPage() {
 
       // Add clients with no messages
       clientsData.forEach(c => {
-        if (!threadMap.has(c.id)) {
-          threadMap.set(c.id, {
-            id: c.id, clientId: c.id, clientName: c.name,
+        if (c.user_id && !threadMap.has(c.user_id)) {
+          threadMap.set(c.user_id, {
+            id: c.user_id, clientId: c.user_id, clientName: c.name,
             clientPhone: c.phone || '', clientAvatar: null,
             lastMessage: '', lastMessageAt: '', unread: 0, isOnline: false,
           });
@@ -126,7 +127,7 @@ export default function InboxPage() {
   const loadClients = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase.from('clients').select('id, name, phone').eq('owner_admin_id', user.id).order('name');
+    const { data } = await supabase.from('clients').select('id, user_id, name, phone').eq('owner_admin_id', user.id).order('name');
     setClients(data || []);
   };
 
@@ -220,49 +221,39 @@ export default function InboxPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Verify the client row exists — if it was created by a different admin
-      // we need to ensure we have a client row under our own admin_id.
-      let resolvedClientId = selectedThread.clientId;
-      const { data: clientCheck } = await supabase
+      // Verify the client row exists — we need the user_id for messages.client_id FK
+      let resolvedUserId = selectedThread.clientId; // clientId is now user_profiles.id
+      const { data: clientRow } = await supabase
         .from('clients')
-        .select('id')
-        .eq('id', selectedThread.clientId)
+        .select('id, user_id')
+        .eq('user_id', resolvedUserId)
+        .eq('owner_admin_id', user.id)
         .maybeSingle();
 
-      if (!clientCheck) {
-        // Client row doesn't exist under this ID — try to find it by phone
+      if (!clientRow) {
+        // Try to find by phone
         if (selectedThread.clientPhone) {
           const { data: byPhone } = await supabase
             .from('clients')
-            .select('id')
+            .select('id, user_id')
             .eq('owner_admin_id', user.id)
             .or(`phone.eq.${selectedThread.clientPhone},mobile_number.eq.${selectedThread.clientPhone}`)
             .maybeSingle();
 
-          if (byPhone) {
-            resolvedClientId = byPhone.id;
+          if (byPhone && byPhone.user_id) {
+            resolvedUserId = byPhone.user_id;
           } else {
-            // Create a client row for this admin so we can message them
-            const { data: newClient, error: createErr } = await supabase
-              .from('clients')
-              .insert({
-                owner_admin_id: user.id,
-                name: selectedThread.clientName,
-                phone: selectedThread.clientPhone,
-                mobile_number: selectedThread.clientPhone,
-              })
-              .select('id')
-              .single();
-            if (createErr) throw new Error('Could not create client record: ' + createErr.message);
-            resolvedClientId = newClient.id;
+            throw new Error('Client record not found. Please refresh the page.');
           }
         } else {
           throw new Error('Client record not found. Please refresh the page.');
         }
+      } else if (clientRow.user_id) {
+        resolvedUserId = clientRow.user_id;
       }
 
       const { data: msg, error } = await supabase.from('messages').insert({
-        client_id: resolvedClientId,
+        client_id: resolvedUserId,
         owner_admin_id: user.id,
         content,
         sender_role: 'admin',
@@ -281,11 +272,13 @@ export default function InboxPage() {
   }, [newMessage, selectedThread, sending]);
 
   const startNewChat = (client: any) => {
-    const existing = threads.find(t => t.clientId === client.id);
+    // Use user_id as the thread identifier (messages.client_id -> user_profiles.id)
+    const userId = client.user_id || client.id;
+    const existing = threads.find(t => t.clientId === userId);
     if (existing) { openThread(existing); }
     else {
       const newThread: Thread = {
-        id: client.id, clientId: client.id, clientName: client.name,
+        id: userId, clientId: userId, clientName: client.name,
         clientPhone: client.phone || '', clientAvatar: null,
         lastMessage: '', lastMessageAt: '', unread: 0, isOnline: false,
       };

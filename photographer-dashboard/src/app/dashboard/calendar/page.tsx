@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { 
-  Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, 
-  Clock, MapPin, User, Loader2, Trash2, Edit, X 
+import {
+  Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus,
+  Clock, MapPin, User, Loader2, Trash2, Edit, X, Check, Users, AlertTriangle
 } from 'lucide-react';
 import { getHolidaysForYear, getHolidayColor, formatHolidayDate, KENYAN_HOLIDAYS } from '@/lib/kenyan-holidays';
 
@@ -20,6 +20,7 @@ type Event = {
   status: string;
   clientName?: string;
   client_id?: string;
+  is_busy?: boolean;
 };
 
 type CalendarDay = {
@@ -28,6 +29,13 @@ type CalendarDay = {
   isToday: boolean;
   events: Event[];
   holidays: Array<{ name: string; type: string; description?: string }>;
+};
+
+type Client = {
+  id: string;
+  user_id: string | null;
+  name: string;
+  phone: string;
 };
 
 const EVENT_TYPES = [
@@ -47,6 +55,7 @@ export default function CalendarPage() {
   const [showEventModal, setShowEventModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [toast, setToast] = useState('');
+  const [saving, setSaving] = useState(false);
 
   // Form state
   const [formTitle, setFormTitle] = useState('');
@@ -56,7 +65,10 @@ export default function CalendarPage() {
   const [formLocation, setFormLocation] = useState('');
   const [formNotes, setFormNotes] = useState('');
   const [formClientId, setFormClientId] = useState('');
-  const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
+  const [formSelectedClients, setFormSelectedClients] = useState<string[]>([]);
+  const [formIsBusy, setFormIsBusy] = useState(true);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [busyDates, setBusyDates] = useState<Set<string>>(new Set());
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -76,10 +88,19 @@ export default function CalendarPage() {
       p_month: month,
     });
 
-    setEvents((data || []).map((e: any) => ({
+    const loadedEvents = (data || []).map((e: any) => ({
       ...e,
       clientName: e.client_name || 'No Client',
-    })));
+      is_busy: e.is_busy !== false,
+    }));
+    setEvents(loadedEvents);
+
+    // Build busy dates set
+    const busy = new Set<string>();
+    loadedEvents.filter((e: Event) => e.is_busy && e.status === 'scheduled').forEach((e: Event) => {
+      busy.add(e.event_date);
+    });
+    setBusyDates(busy);
     setLoading(false);
   }, [currentDate]);
 
@@ -89,7 +110,7 @@ export default function CalendarPage() {
 
     const { data } = await supabase
       .from('clients')
-      .select('id, name')
+      .select('id, user_id, name, phone')
       .eq('owner_admin_id', user.id)
       .order('name');
 
@@ -170,10 +191,12 @@ export default function CalendarPage() {
     setFormLocation('');
     setFormNotes('');
     setFormClientId('');
+    setFormSelectedClients([]);
+    setFormIsBusy(true);
     setShowEventModal(true);
   };
 
-  const handleEditEvent = (event: Event) => {
+  const handleEditEvent = async (event: Event) => {
     setEditingEvent(event);
     setFormTitle(event.title);
     setFormType(event.event_type);
@@ -182,38 +205,111 @@ export default function CalendarPage() {
     setFormLocation(event.location || '');
     setFormNotes(event.notes || '');
     setFormClientId(event.client_id || '');
+    setFormIsBusy(event.is_busy !== false);
+
+    // Load assigned clients
+    const { data: assigned } = await supabase
+      .from('event_clients')
+      .select('client_id')
+      .eq('event_id', event.id);
+    setFormSelectedClients((assigned || []).map((a: any) => a.client_id));
+
     setShowEventModal(true);
   };
 
-  const handleSaveEvent = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  const toggleClientSelection = (userId: string) => {
+    setFormSelectedClients(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
 
-    const eventData = {
-      photographer_id: user.id,
-      title: formTitle,
-      event_type: formType,
-      event_date: formDate,
-      event_time: formTime || null,
-      location: formLocation || null,
-      notes: formNotes || null,
-      client_id: formClientId || null,
-      status: 'scheduled',
-    };
+  const sendEventNotifications = async (eventId: string, eventDate: string, eventTitle: string, userIds: string[]) => {
+    // Send notifications to all selected clients
+    const notifications = userIds.map(uid => ({
+      user_id: uid,
+      type: 'event',
+      title: `New Booking: ${eventTitle}`,
+      body: `You have a shoot scheduled for ${new Date(eventDate).toLocaleDateString('en-KE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
+      data: { event_id: eventId },
+    }));
 
-    if (editingEvent) {
-      await supabase.from('events').update(eventData).eq('id', editingEvent.id);
-      showToast('Event updated!');
-    } else {
-      await supabase.from('events').insert(eventData);
-      showToast('Event created!');
+    if (notifications.length > 0) {
+      await supabase.from('notifications').insert(notifications);
     }
+  };
 
-    setShowEventModal(false);
-    loadEvents();
+  const handleSaveEvent = async () => {
+    if (!formTitle.trim()) { showToast('Title is required'); return; }
+    setSaving(true);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Check for busy date conflict (only when creating new events)
+      if (!editingEvent && busyDates.has(formDate)) {
+        if (!confirm('This date already has a booked event. Create anyway?')) {
+          setSaving(false);
+          return;
+        }
+      }
+
+      const eventData = {
+        photographer_id: user.id,
+        title: formTitle,
+        event_type: formType,
+        event_date: formDate,
+        event_time: formTime || null,
+        location: formLocation || null,
+        notes: formNotes || null,
+        client_id: formClientId || null,
+        is_busy: formIsBusy,
+        status: 'scheduled',
+      };
+
+      let eventId: string;
+
+      if (editingEvent) {
+        await supabase.from('events').update(eventData).eq('id', editingEvent.id);
+        eventId = editingEvent.id;
+        showToast('Event updated!');
+      } else {
+        const { data: newEvent } = await supabase.from('events').insert(eventData).select('id').single();
+        eventId = newEvent?.id || '';
+        showToast('Event created!');
+      }
+
+      // Save event_clients junction
+      if (eventId) {
+        // Delete existing assignments
+        await supabase.from('event_clients').delete().eq('event_id', eventId);
+
+        // Insert new assignments
+        const allUserIds = [...new Set([...formSelectedClients, formClientId].filter(Boolean))];
+        if (allUserIds.length > 0) {
+          const assignments = allUserIds.map(uid => ({
+            event_id: eventId,
+            client_id: uid,
+            notified: false,
+          }));
+          await supabase.from('event_clients').insert(assignments);
+
+          // Send notifications
+          await sendEventNotifications(eventId, formDate, formTitle, allUserIds);
+        }
+      }
+
+      setShowEventModal(false);
+      loadEvents();
+    } catch (e: any) {
+      showToast('Error: ' + e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteEvent = async (eventId: string) => {
+    if (!confirm('Delete this event?')) return;
     await supabase.from('events').delete().eq('id', eventId);
     showToast('Event deleted!');
     loadEvents();
@@ -226,532 +322,263 @@ export default function CalendarPage() {
   const days = getDaysInMonth(currentDate);
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+  const scheduledEvents = events.filter(e => e.status === 'scheduled');
+  const busyDaysCount = busyDates.size;
+  const thisMonthEvents = events.length;
+
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: '0 24px' }}>
+    <div className="space-y-6">
       {/* Toast */}
       {toast && (
-        <div style={{
-          position: 'fixed', top: 24, right: 24, background: 'rgba(26,26,46,0.95)',
-          border: '1px solid rgba(212,175,55,0.3)', borderRadius: 14, padding: '12px 20px',
-          color: '#D4AF37', fontWeight: 600, fontSize: 14, zIndex: 100, backdropFilter: 'blur(20px)',
-        }}>
+        <div className="fixed top-6 right-6 rounded-xl px-5 py-3 text-sm font-bold z-50" style={{ background: '#111118', border: '1px solid rgba(212,175,55,0.3)', color: '#D4AF37', backdropFilter: 'blur(20px)' }}>
           {toast}
         </div>
       )}
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+      <div className="flex justify-between items-center">
         <div>
-          <h1 style={{ fontSize: 28, fontWeight: 900, color: 'white', marginBottom: 8 }}>Calendar</h1>
-          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>
-            Manage your photography schedule
-          </p>
+          <h1 className="text-3xl font-black">Calendar</h1>
+          <p className="text-gray-400 mt-1">Manage your photography schedule</p>
         </div>
-        <button
-          onClick={handleAddEvent}
-          style={{
-            padding: '12px 24px',
-            borderRadius: 12,
-            border: 'none',
-            background: 'linear-gradient(135deg, #D4AF37, #F0D060)',
-            color: '#080810',
-            fontWeight: 700,
-            fontSize: 14,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
+        <button onClick={handleAddEvent}
+          className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold"
+          style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
           <Plus size={18} /> Add Event
         </button>
       </div>
 
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Total Events', value: thisMonthEvents.toString(), color: '#D4AF37', icon: '📅' },
+          { label: 'Scheduled', value: scheduledEvents.length.toString(), color: '#3B82F6', icon: '📌' },
+          { label: 'Busy Days', value: busyDaysCount.toString(), color: '#F43F5E', icon: '🚫' },
+          { label: 'This Month', value: currentDate.toLocaleDateString('en-KE', { month: 'short' }), color: '#10B981', icon: '📆' },
+        ].map((s) => (
+          <div key={s.label} className="rounded-2xl p-5 border border-white/5" style={{ background: '#111118' }}>
+            <div className="text-2xl mb-3">{s.icon}</div>
+            <p className="text-2xl font-black" style={{ color: s.color }}>{s.value}</p>
+            <p className="text-sm font-semibold text-white mt-1">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
       {/* Calendar Navigation */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: 24,
-      }}>
-        <button
-          onClick={handlePrevMonth}
-          style={{
-            padding: '10px 16px',
-            borderRadius: 10,
-            border: '1px solid rgba(255,255,255,0.1)',
-            background: 'rgba(255,255,255,0.05)',
-            color: 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
+      <div className="flex items-center justify-between">
+        <button onClick={handlePrevMonth}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }}>
           <ChevronLeft size={18} /> Prev
         </button>
-
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: 'white' }}>
+        <h2 className="text-xl font-bold text-white">
           {currentDate.toLocaleDateString('en-KE', { month: 'long', year: 'numeric' })}
         </h2>
-
-        <button
-          onClick={handleNextMonth}
-          style={{
-            padding: '10px 16px',
-            borderRadius: 10,
-            border: '1px solid rgba(255,255,255,0.1)',
-            background: 'rgba(255,255,255,0.05)',
-            color: 'white',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
+        <button onClick={handleNextMonth}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }}>
           Next <ChevronRight size={18} />
         </button>
       </div>
 
       {/* Calendar Grid */}
-      <div style={{
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 16,
-        overflow: 'hidden',
-        marginBottom: 24,
-      }}>
-        {/* Week Days Header */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(7, 1fr)',
-          borderBottom: '1px solid rgba(255,255,255,0.1)',
-        }}>
+      <div className="rounded-2xl border border-white/5 overflow-hidden" style={{ background: '#111118' }}>
+        <div className="grid grid-cols-7 border-b border-white/5">
           {weekDays.map(day => (
-            <div key={day} style={{
-              padding: '12px 8px',
-              textAlign: 'center',
-              fontSize: 13,
-              fontWeight: 700,
-              color: 'rgba(255,255,255,0.5)',
-            }}>
-              {day}
-            </div>
+            <div key={day} className="py-3 text-center text-sm font-bold text-gray-400">{day}</div>
           ))}
         </div>
-
-        {/* Calendar Days */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
-          {days.map((day, index) => (
-            <div
-              key={index}
-              onClick={() => handleDayClick(day)}
-              style={{
-                minHeight: 100,
-                padding: 8,
-                borderRight: (index + 1) % 7 !== 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                borderBottom: index < 35 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                background: day.isToday ? 'rgba(212,175,55,0.1)' : 'transparent',
-                cursor: 'pointer',
-                transition: 'background 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                if (!day.isToday) e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
-              }}
-              onMouseLeave={(e) => {
-                if (!day.isToday) e.currentTarget.style.background = 'transparent';
-              }}
-            >
-              <div style={{
-                fontSize: 14,
-                fontWeight: day.isToday ? 700 : 500,
-                color: day.isCurrentMonth ? (day.isToday ? '#D4AF37' : 'white') : 'rgba(255,255,255,0.2)',
-                marginBottom: 4,
-              }}>
-                {day.date.getDate()}
-              </div>
-
-              {/* Events */}
-              {day.events.slice(0, 2).map((event) => (
-                <div
-                  key={event.id}
-                  onClick={(e) => { e.stopPropagation(); handleEditEvent(event); }}
-                  style={{
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    background: `${getEventTypeColor(event.event_type)}30`,
-                    borderLeft: `3px solid ${getEventTypeColor(event.event_type)}`,
-                    fontSize: 11,
-                    color: getEventTypeColor(event.event_type),
-                    marginBottom: 2,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {event.title}
-                </div>
-              ))}
-
-              {day.events.length > 2 && (
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>
-                  +{day.events.length - 2} more
-                </div>
-              )}
-
-              {/* Holidays */}
-              {day.holidays.slice(0, 1).map((holiday, i) => (
-                <div
-                  key={i}
-                  style={{
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    background: `${getHolidayColor(holiday.type)}20`,
-                    fontSize: 10,
-                    color: getHolidayColor(holiday.type),
-                    marginTop: 2,
-                  }}
-                >
-                  {holiday.name}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Event Type Legend */}
-      <div style={{
-        display: 'flex',
-        gap: 12,
-        flexWrap: 'wrap',
-        marginBottom: 24,
-      }}>
-        {EVENT_TYPES.map(type => (
-          <div key={type.value} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 12, height: 12, borderRadius: 3, background: type.color }} />
-            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{type.label}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Upcoming Events */}
-      <div style={{
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 16,
-        padding: 24,
-      }}>
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: 'white', marginBottom: 16 }}>Upcoming Events</h3>
-        {events.length === 0 ? (
-          <p style={{ color: 'rgba(255,255,255,0.5)', textAlign: 'center', padding: 20 }}>
-            No events scheduled this month
-          </p>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {events.slice(0, 5).map(event => (
+        <div className="grid grid-cols-7">
+          {days.map((day, index) => {
+            const isBusy = busyDates.has(day.date.toISOString().split('T')[0]);
+            return (
               <div
-                key={event.id}
+                key={index}
+                onClick={() => handleDayClick(day)}
+                className="min-h-[100px] p-2 cursor-pointer transition-colors relative"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 16,
-                  padding: 16,
-                  borderRadius: 12,
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRight: (index + 1) % 7 !== 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                  borderBottom: index < 35 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                  background: day.isToday ? 'rgba(212,175,55,0.1)' : isBusy ? 'rgba(244,63,94,0.05)' : 'transparent',
                 }}
               >
-                <div style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 12,
-                  background: `${getEventTypeColor(event.event_type)}20`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <CalendarIcon size={20} color={getEventTypeColor(event.event_type)} />
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium" style={{ color: day.isCurrentMonth ? (day.isToday ? '#D4AF37' : 'white') : 'rgba(255,255,255,0.2)' }}>
+                    {day.date.getDate()}
+                  </span>
+                  {isBusy && day.isCurrentMonth && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded font-bold" style={{ background: 'rgba(244,63,94,0.2)', color: '#F43F5E' }}>BUSY</span>
+                  )}
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, color: 'white', fontSize: 15, marginBottom: 2 }}>
+                {day.events.slice(0, 2).map((event) => (
+                  <div key={event.id}
+                    onClick={(e) => { e.stopPropagation(); handleEditEvent(event); }}
+                    className="px-1.5 py-0.5 rounded text-[11px] mb-0.5 truncate cursor-pointer"
+                    style={{ background: `${getEventTypeColor(event.event_type)}30`, borderLeft: `3px solid ${getEventTypeColor(event.event_type)}`, color: getEventTypeColor(event.event_type) }}>
                     {event.title}
                   </div>
-                  <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
-                    <span>{new Date(event.event_date).toLocaleDateString('en-KE', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
-                    {event.event_time && <span>• {event.event_time}</span>}
-                    {event.location && <span>• {event.location}</span>}
+                ))}
+                {day.events.length > 2 && (
+                  <div className="text-[10px] text-gray-500">+{day.events.length - 2} more</div>
+                )}
+                {day.holidays.slice(0, 1).map((holiday, i) => (
+                  <div key={i} className="px-1.5 py-0.5 rounded text-[10px] mt-0.5"
+                    style={{ background: `${getHolidayColor(holiday.type)}20`, color: getHolidayColor(holiday.type) }}>
+                    {holiday.name}
                   </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button
-                    onClick={() => handleEditEvent(event)}
-                    style={{
-                      padding: 8,
-                      borderRadius: 8,
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      background: 'rgba(255,255,255,0.05)',
-                      color: 'rgba(255,255,255,0.5)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <Edit size={14} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteEvent(event.id)}
-                    style={{
-                      padding: 8,
-                      borderRadius: 8,
-                      border: '1px solid rgba(255,59,48,0.3)',
-                      background: 'rgba(255,59,48,0.1)',
-                      color: '#FF3B30',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+                ))}
               </div>
-            ))}
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Event Types Legend */}
+      <div className="flex flex-wrap gap-3">
+        {EVENT_TYPES.map((t) => (
+          <div key={t.value} className="flex items-center gap-2 text-xs text-gray-400">
+            <div className="w-3 h-3 rounded" style={{ background: t.color }} />
+            {t.label}
           </div>
-        )}
+        ))}
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <div className="w-3 h-3 rounded" style={{ background: '#F43F5E' }} />
+          Busy Day
+        </div>
       </div>
 
       {/* Event Modal */}
       {showEventModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0,0,0,0.8)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-        }}>
-          <div style={{
-            background: '#1a1a2e',
-            borderRadius: 20,
-            padding: 32,
-            width: '90%',
-            maxWidth: 500,
-            maxHeight: '90vh',
-            overflow: 'auto',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-              <h2 style={{ fontSize: 20, fontWeight: 700, color: 'white' }}>
-                {editingEvent ? 'Edit Event' : 'Add Event'}
-              </h2>
-              <button
-                onClick={() => setShowEventModal(false)}
-                style={{
-                  padding: 8,
-                  borderRadius: 8,
-                  border: 'none',
-                  background: 'rgba(255,255,255,0.1)',
-                  color: 'white',
-                  cursor: 'pointer',
-                }}
-              >
-                <X size={18} />
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.8)' }}
+          onClick={() => setShowEventModal(false)}>
+          <div className="w-full max-w-lg rounded-2xl p-6 border border-white/10 max-h-[90vh] overflow-y-auto" style={{ background: '#111118' }}
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-bold text-white">{editingEvent ? 'Edit Event' : 'New Event'}</h3>
+              <button onClick={() => setShowEventModal(false)} className="text-gray-400 hover:text-white"><X size={20} /></button>
             </div>
 
-            {/* Title */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
-                Event Title *
-              </label>
-              <input
-                type="text"
-                value={formTitle}
-                onChange={(e) => setFormTitle(e.target.value)}
-                placeholder="e.g., Smith Wedding"
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  background: 'rgba(255,255,255,0.05)',
-                  color: 'white',
-                  fontSize: 14,
-                }}
-              />
-            </div>
-
-            {/* Event Type */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
-                Event Type
-              </label>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {EVENT_TYPES.map(type => (
-                  <button
-                    key={type.value}
-                    onClick={() => setFormType(type.value)}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 8,
-                      border: formType === type.value ? `2px solid ${type.color}` : '1px solid rgba(255,255,255,0.1)',
-                      background: formType === type.value ? `${type.color}20` : 'rgba(255,255,255,0.03)',
-                      color: formType === type.value ? type.color : 'rgba(255,255,255,0.5)',
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {type.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Date & Time */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+            <div className="space-y-4">
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
-                  Date *
-                </label>
-                <input
-                  type="date"
-                  value={formDate}
-                  onChange={(e) => setFormDate(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    borderRadius: 10,
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    background: 'rgba(255,255,255,0.05)',
-                    color: 'white',
-                    fontSize: 14,
-                  }}
-                />
+                <label className="block text-sm text-gray-400 mb-1">Event Title *</label>
+                <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 text-sm text-white border border-white/10 focus:outline-none focus:border-[#D4AF37]/50"
+                  style={{ background: '#1A1A2E' }} placeholder="e.g., Smith Wedding" />
               </div>
+
               <div>
-                <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
-                  Time
-                </label>
-                <input
-                  type="time"
-                  value={formTime}
-                  onChange={(e) => setFormTime(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    borderRadius: 10,
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    background: 'rgba(255,255,255,0.05)',
-                    color: 'white',
-                    fontSize: 14,
-                  }}
-                />
+                <label className="block text-sm text-gray-400 mb-2">Event Type</label>
+                <div className="flex flex-wrap gap-2">
+                  {EVENT_TYPES.map((t) => (
+                    <button key={t.value} onClick={() => setFormType(t.value)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                      style={{ background: formType === t.value ? t.color : 'rgba(255,255,255,0.05)', color: formType === t.value ? '#080810' : '#9CA3AF' }}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Date *</label>
+                  <input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)}
+                    className="w-full rounded-xl px-4 py-3 text-sm text-white border border-white/10 focus:outline-none"
+                    style={{ background: '#1A1A2E' }} />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Time</label>
+                  <input type="time" value={formTime} onChange={(e) => setFormTime(e.target.value)}
+                    className="w-full rounded-xl px-4 py-3 text-sm text-white border border-white/10 focus:outline-none"
+                    style={{ background: '#1A1A2E' }} />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Location</label>
+                <input value={formLocation} onChange={(e) => setFormLocation(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 text-sm text-white border border-white/10 focus:outline-none"
+                  style={{ background: '#1A1A2E' }} placeholder="e.g., Nairobi, Kenya" />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Notes</label>
+                <textarea value={formNotes} onChange={(e) => setFormNotes(e.target.value)} rows={2}
+                  className="w-full rounded-xl px-4 py-3 text-sm text-white border border-white/10 focus:outline-none resize-none"
+                  style={{ background: '#1A1A2E' }} placeholder="Additional notes..." />
+              </div>
+
+              {/* Primary Client */}
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Primary Client</label>
+                <select value={formClientId} onChange={(e) => setFormClientId(e.target.value)}
+                  className="w-full rounded-xl px-4 py-3 text-sm text-white border border-white/10 focus:outline-none"
+                  style={{ background: '#1A1A2E' }}>
+                  <option value="">No client</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.user_id || c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Batch Client Selection */}
+              <div>
+                <label className="block text-sm text-gray-400 mb-2">
+                  <Users size={14} className="inline mr-1" /> Assign to Clients ({formSelectedClients.length} selected)
+                </label>
+                <div className="max-h-40 overflow-y-auto rounded-xl border border-white/10 p-2 space-y-1" style={{ background: '#1A1A2E' }}>
+                  {clients.length === 0 ? (
+                    <p className="text-gray-500 text-xs text-center py-2">No clients yet</p>
+                  ) : clients.map(c => {
+                    const userId = c.user_id || c.id;
+                    const isSelected = formSelectedClients.includes(userId);
+                    return (
+                      <div key={c.id} onClick={() => toggleClientSelection(userId)}
+                        className="flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors"
+                        style={{ background: isSelected ? 'rgba(212,175,55,0.1)' : 'transparent' }}>
+                        <div className="w-5 h-5 rounded flex items-center justify-center border"
+                          style={{ borderColor: isSelected ? '#D4AF37' : 'rgba(255,255,255,0.2)', background: isSelected ? '#D4AF37' : 'transparent' }}>
+                          {isSelected && <Check size={12} color="#080810" />}
+                        </div>
+                        <span className="text-sm" style={{ color: isSelected ? '#D4AF37' : 'white' }}>{c.name}</span>
+                        {c.phone && <span className="text-xs text-gray-500 ml-auto">{c.phone}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Block Date Toggle */}
+              <div className="flex items-center justify-between p-3 rounded-xl" style={{ background: 'rgba(244,63,94,0.05)', border: '1px solid rgba(244,63,94,0.1)' }}>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={16} color="#F43F5E" />
+                  <span className="text-sm text-white">Block date for other bookings</span>
+                </div>
+                <button onClick={() => setFormIsBusy(!formIsBusy)}
+                  className="w-12 h-6 rounded-full transition-all relative"
+                  style={{ background: formIsBusy ? '#F43F5E' : '#333' }}>
+                  <div className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-all"
+                    style={{ left: formIsBusy ? '26px' : '2px' }} />
+                </button>
+              </div>
+
+              {formIsBusy && (
+                <p className="text-xs text-gray-500 -mt-2">Other clients won't be able to book this date</p>
+              )}
             </div>
 
-            {/* Client */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
-                Client
-              </label>
-              <select
-                value={formClientId}
-                onChange={(e) => setFormClientId(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  background: 'rgba(255,255,255,0.05)',
-                  color: 'white',
-                  fontSize: 14,
-                }}
-              >
-                <option value="">No client</option>
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Location */}
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
-                Location
-              </label>
-              <input
-                type="text"
-                value={formLocation}
-                onChange={(e) => setFormLocation(e.target.value)}
-                placeholder="e.g., Nairobi, Kenya"
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  background: 'rgba(255,255,255,0.05)',
-                  color: 'white',
-                  fontSize: 14,
-                }}
-              />
-            </div>
-
-            {/* Notes */}
-            <div style={{ marginBottom: 24 }}>
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.7)', marginBottom: 8 }}>
-                Notes
-              </label>
-              <textarea
-                value={formNotes}
-                onChange={(e) => setFormNotes(e.target.value)}
-                placeholder="Additional notes..."
-                rows={3}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  background: 'rgba(255,255,255,0.05)',
-                  color: 'white',
-                  fontSize: 14,
-                  resize: 'vertical',
-                }}
-              />
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowEventModal(false)}
-                style={{
-                  padding: '12px 24px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  background: 'transparent',
-                  color: 'rgba(255,255,255,0.7)',
-                  fontWeight: 600,
-                  fontSize: 14,
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveEvent}
-                disabled={!formTitle || !formDate}
-                style={{
-                  padding: '12px 32px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: (!formTitle || !formDate) ? 'rgba(212,175,55,0.3)' : 'linear-gradient(135deg, #D4AF37, #F0D060)',
-                  color: '#080810',
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: (!formTitle || !formDate) ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {editingEvent ? 'Update Event' : 'Create Event'}
+            <div className="flex gap-2 mt-6">
+              {editingEvent && (
+                <button onClick={() => { handleDeleteEvent(editingEvent.id); setShowEventModal(false); }}
+                  className="px-4 py-2.5 rounded-xl text-sm font-bold"
+                  style={{ background: 'rgba(255,59,48,0.1)', color: '#FF3B30' }}>
+                  Delete
+                </button>
+              )}
+              <button onClick={handleSaveEvent} disabled={saving}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
+                style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
+                {saving ? 'Saving...' : editingEvent ? 'Update Event' : 'Create Event'}
               </button>
             </div>
           </div>

@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Calendar, MapPin, Clock, Check, Edit3, Camera, ChevronRight, ChevronLeft, Star, Zap, User, Shield, Smartphone, X, Image as ImageIcon, ArrowRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '@/constants/colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { demoBookings, demoPackages } from '@/lib/demo';
@@ -258,6 +259,28 @@ function getOrdinalSuffix(n: number): string {
 
 function BookingCard({ booking }: { booking: Booking }) {
   const config = statusConfig[booking.status] || statusConfig.booked;
+  const [reminderSet, setReminderSet] = useState(false);
+
+  useEffect(() => {
+    // Check if reminder is already set
+    AsyncStorage.getItem(`reminder_${booking.id}`).then(v => setReminderSet(!!v));
+  }, [booking.id]);
+
+  const toggleReminder = async () => {
+    if (reminderSet) {
+      await AsyncStorage.removeItem(`reminder_${booking.id}`);
+      setReminderSet(false);
+      Alert.alert('Reminder Removed', 'You will no longer be reminded about this booking.');
+    } else {
+      await AsyncStorage.setItem(`reminder_${booking.id}`, JSON.stringify({
+        date: booking.date,
+        time: booking.time,
+        title: booking.packages?.name || 'Photography Session',
+      }));
+      setReminderSet(true);
+      Alert.alert('Reminder Set', `You'll be reminded about your ${booking.packages?.name || 'session'} on ${booking.date}.`);
+    }
+  };
 
   return (
     <Pressable style={styles.bookingCard} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
@@ -266,7 +289,12 @@ function BookingCard({ booking }: { booking: Booking }) {
           {config.icon}
           <Text style={[styles.statusText, { color: config.color }]}>{config.label}</Text>
         </View>
-        <Text style={styles.bookingType}>Session</Text>
+        <Pressable onPress={toggleReminder}
+          style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: reminderSet ? 'rgba(212,175,55,0.15)' : 'rgba(255,255,255,0.05)' }}>
+          <Text style={{ fontSize: 11, color: reminderSet ? '#D4AF37' : '#666' }}>
+            {reminderSet ? '🔔 Reminder Set' : '🔕 Set Reminder'}
+          </Text>
+        </Pressable>
       </View>
       <Text style={styles.bookingPackage}>{booking.packages?.name || 'Unknown Package'}</Text>
       <View style={styles.bookingDetails}>

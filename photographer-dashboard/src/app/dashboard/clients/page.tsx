@@ -531,25 +531,28 @@ function ClientDetail({ client, onBack }: { client: Client; onBack: () => void }
   /* ── Chat ───────────────────────────────────────────────── */
   const loadMessages = useCallback(async () => {
     setMsgLoading(true);
+    // messages.client_id references user_profiles(id), use client.user_id
+    const userId = client.user_id || client.id;
     const { data } = await supabase
       .from('messages')
       .select('*')
-      .eq('client_id', client.id)
+      .eq('client_id', userId)
       .order('created_at', { ascending: true });
     setMessages(data || []);
     await supabase.from('messages').update({ is_read: true })
-      .eq('client_id', client.id).eq('sender_role', 'client');
+      .eq('client_id', userId).eq('sender_role', 'client');
     setMsgLoading(false);
     setTimeout(() => scrollRef.current?.scrollTo({ top: 99999, behavior: 'smooth' }), 100);
-  }, [client.id]);
+  }, [client.id, client.user_id]);
 
   const subscribeMessages = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    const userId = client.user_id || client.id;
 
     if (msgChannelRef.current) supabase.removeChannel(msgChannelRef.current);
-    const ch = supabase.channel(`client_chat_${client.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `client_id=eq.${client.id}` }, payload => {
+    const ch = supabase.channel(`client_chat_${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `client_id=eq.${userId}` }, payload => {
         const m = payload.new as Message;
         setMessages(prev => prev.some(p => p.id === m.id) ? prev : [...prev, m]);
         setTimeout(() => scrollRef.current?.scrollTo({ top: 99999, behavior: 'smooth' }), 50);
@@ -586,36 +589,11 @@ function ClientDetail({ client, onBack }: { client: Client; onBack: () => void }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Ensure we have a valid client row before inserting the message
-      let resolvedClientId = client.id;
-      const { data: clientCheck } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('id', client.id)
-        .maybeSingle();
-
-      if (!clientCheck) {
-        // Try to find/create client row for this admin
-        const { data: byPhone } = client.phone ? await supabase
-          .from('clients').select('id')
-          .eq('owner_admin_id', user.id)
-          .or(`phone.eq.${client.phone},mobile_number.eq.${client.phone}`)
-          .maybeSingle() : { data: null };
-
-        if (byPhone) {
-          resolvedClientId = byPhone.id;
-        } else {
-          const { data: newRow, error: ce } = await supabase
-            .from('clients')
-            .insert({ owner_admin_id: user.id, name: client.name, phone: client.phone, mobile_number: client.phone })
-            .select('id').single();
-          if (ce) throw new Error('Could not create client record: ' + ce.message);
-          resolvedClientId = newRow.id;
-        }
-      }
+      // messages.client_id references user_profiles(id), use client.user_id
+      let resolvedUserId = client.user_id || client.id;
 
       const { data: msg, error } = await supabase.from('messages').insert({
-        client_id: resolvedClientId,
+        client_id: resolvedUserId,
         owner_admin_id: user.id,
         content,
         sender_role: 'admin',
