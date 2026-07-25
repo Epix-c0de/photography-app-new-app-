@@ -91,6 +91,28 @@ export async function getAppLinks(): Promise<{
 }
 
 /**
+ * Get the primary app share URL from platform_settings.
+ * Returns the Android link if available, falls back to iOS, then web domain.
+ */
+export async function getAppShareUrl(): Promise<string> {
+  const links = await getAppLinks();
+  return links.androidLink || links.iosLink || (await getPlatformDomain());
+}
+
+/**
+ * Get the share message with both content link and app download link.
+ */
+export async function getShareMessage(contentTitle: string, contentType: string, contentId: string): Promise<{ message: string; url: string }> {
+  const appUrl = await getAppShareUrl();
+  const webDomain = await getPlatformDomain();
+  const webUrl = `${webDomain}/${contentType}/${contentId}`;
+  return {
+    message: `Check out this ${contentType}: ${contentTitle}\n\nView on web: ${webUrl}\n\nDownload our app: ${appUrl}`,
+    url: appUrl,
+  };
+}
+
+/**
  * Generate a shareable announcement URL using the admin's domain from DB.
  */
 export async function getAnnouncementShareUrl(announcementId: string, adminId?: string): Promise<string> {

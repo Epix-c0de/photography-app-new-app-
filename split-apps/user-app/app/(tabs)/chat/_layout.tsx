@@ -4,6 +4,7 @@ import Colors from '@/constants/colors';
 export default function ChatLayout() {
   return (
     <Stack
+      initialRouteName="threads"
       screenOptions={{
         headerStyle: { backgroundColor: Colors.background },
         headerTintColor: Colors.white,
@@ -11,8 +12,8 @@ export default function ChatLayout() {
         headerShadowVisible: false,
       }}
     >
-      <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="threads" options={{ headerShown: false }} />
+      <Stack.Screen name="index" options={{ headerShown: false }} />
     </Stack>
   );
 }

@@ -523,13 +523,29 @@ export default function HomeScreen() {
 
         setBtsPosts(enriched || []);
       } else {
-        // Direct query — show all active BTS posts (RLS allows public read)
-        // Fetch user_profiles separately since created_by references auth.users, not user_profiles
+        // Direct query — show BTS posts from linked admins only
         const nowIso = new Date().toISOString();
+
+        // Get linked admin IDs
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setBtsPosts([]); setBtsLoading(false); return; }
+        const { data: myClients } = await supabase
+          .from('clients')
+          .select('owner_admin_id')
+          .eq('user_id', user.id);
+        const adminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
+
+        if (adminIds.length === 0) {
+          setBtsPosts([]);
+          setBtsLoading(false);
+          return;
+        }
+
         const { data, error } = await supabase
           .from('bts_posts')
           .select('*')
           .eq('is_active', true)
+          .in('created_by', adminIds)
           .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
           .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
           .order('created_at', { ascending: false })
@@ -872,11 +888,28 @@ export default function HomeScreen() {
         setAnnouncements(enriched);
         setAnnouncementsLoading(false);
       } else {
-        // Direct query — show all active announcements (RLS allows public read)
+        // Direct query — show announcements from linked admins only
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setAnnouncements([]); setAnnouncementsLoading(false); return; }
+
+        // Get linked admin IDs
+        const { data: myClients } = await supabase
+          .from('clients')
+          .select('owner_admin_id')
+          .eq('user_id', user.id);
+        const adminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
+
+        if (adminIds.length === 0) {
+          setAnnouncements([]);
+          setAnnouncementsLoading(false);
+          return;
+        }
+
         const { data, error } = await supabase
           .from('announcements')
           .select('*')
           .eq('is_active', true)
+          .in('owner_admin_id', adminIds)
           .order('created_at', { ascending: false })
           .limit(20);
 

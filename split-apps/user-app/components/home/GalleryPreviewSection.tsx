@@ -28,14 +28,14 @@ function GalleryPreviewCard({ item }: GalleryPreviewCardProps) {
         ) : (
           <View style={[styles.galleryThumbImage, styles.galleryThumbPlaceholder]}>
             <Text style={styles.galleryThumbPlaceholderText}>
-              {(item.title || 'G')[0]?.toUpperCase()}
+              {(item.name || 'G')[0]?.toUpperCase()}
             </Text>
           </View>
         )}
         <View style={styles.galleryThumbOverlay} />
         <View style={styles.galleryThumbInfo}>
           <Text style={styles.galleryThumbTitle} numberOfLines={1}>
-            {item.title || 'Untitled Gallery'}
+            {item.name || 'Untitled Gallery'}
           </Text>
           <Text style={styles.galleryThumbCount}>
             {photoCount} {photoCount === 1 ? 'photo' : 'photos'}

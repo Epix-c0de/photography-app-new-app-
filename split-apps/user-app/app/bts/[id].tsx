@@ -55,6 +55,11 @@ interface BTSWithSocial extends BTSPostRow {
   likesCount: number;
   commentsCount: number;
   isBookmarked: boolean;
+  user_profiles?: {
+    id: string | null;
+    name: string | null;
+    avatar_url: string | null;
+  } | null;
 }
 
 interface BTSComment {
@@ -123,10 +128,27 @@ export default function BTSViewerScreen() {
       }
 
       const nowIso = new Date().toISOString();
+
+      // Get linked admin IDs
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      if (!currentUser) { setPosts([]); setLoading(false); return; }
+      const { data: myClients } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', currentUser.id);
+      const linkedAdminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
+
+      if (linkedAdminIds.length === 0) {
+        setPosts([]);
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('bts_posts')
         .select('*')
         .eq('is_active', true)
+        .in('created_by', linkedAdminIds)
         .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
         .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
         .order('created_at', { ascending: false });
@@ -163,6 +185,18 @@ export default function BTSViewerScreen() {
         commentsCount: typeof p.comments_count === 'number' ? p.comments_count : 0,
         isBookmarked: userBookmarkSet.has(p.id),
       })) as BTSWithSocial[];
+
+      const adminIds = [...new Set(withSocial.map(p => p.created_by).filter(Boolean))] as string[];
+      if (adminIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, name, avatar_url')
+          .in('id', adminIds);
+        const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+        withSocial.forEach(p => {
+          if (p.created_by) p.user_profiles = profileMap.get(p.created_by) || null;
+        });
+      }
 
       setPosts(withSocial);
 
@@ -414,8 +448,9 @@ export default function BTSViewerScreen() {
         }}
         onShare={async () => {
           try {
-            const link = await getBtsShareUrl(item.id, item.created_by || item.admin_id);
-            Share.share({ message: `Check out this BTS: ${item.title}\n${link}`, url: link });
+            const { getShareMessage } = await import('@/lib/platform-config');
+            const { message, url } = await getShareMessage(item.title || 'BTS', 'bts', item.id);
+            Share.share({ message, url });
           } catch (error) {
             console.error('Share error:', error);
           }
@@ -843,9 +878,9 @@ function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onBookmark
         <Text style={styles.postTitle} numberOfLines={2}>{item.title}</Text>
         <View style={styles.photographerRow}>
           <View style={styles.photographerAvatar}>
-            <Text style={styles.photographerAvatarText}>{(item.created_by || 'E').charAt(0).toUpperCase()}</Text>
+            <Text style={styles.photographerAvatarText}>{(item.user_profiles?.name || 'E').charAt(0).toUpperCase()}</Text>
           </View>
-          <Text style={styles.photographerName}>Epix Visuals</Text>
+          <Text style={styles.photographerName}>{item.user_profiles?.name || 'Epix Visuals'}</Text>
         </View>
         {(item as any).caption && (
           <Text style={styles.postCaption} numberOfLines={3}>{(item as any).caption}</Text>

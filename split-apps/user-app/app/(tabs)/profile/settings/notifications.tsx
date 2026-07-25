@@ -7,6 +7,7 @@ import { Bell, Calendar, Tag, ChevronRight, MessageCircle, Star } from 'lucide-r
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';
+import { supabase } from '@/lib/supabase';
 
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -80,6 +81,26 @@ export default function Notifications() {
   useEffect(() => {
     (async () => {
       try {
+        // Try loading from database first
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: profile } = await supabase
+            .from('user_profiles')
+            .select('notification_preferences')
+            .eq('id', user.id)
+            .maybeSingle();
+          if (profile?.notification_preferences) {
+            const saved = profile.notification_preferences as NotifPrefs;
+            setPush(saved.push);
+            setReminders(saved.reminders);
+            setOffers(saved.offers);
+            setMessages(saved.messages);
+            setGalleryUpdates(saved.galleryUpdates);
+            setLoaded(true);
+            return;
+          }
+        }
+        // Fallback to AsyncStorage
         const raw = await AsyncStorage.getItem(NOTIF_PREFS_KEY);
         if (raw) {
           const saved: NotifPrefs = JSON.parse(raw);
@@ -99,6 +120,17 @@ export default function Notifications() {
     if (!loaded) return;
     const prefs: NotifPrefs = { push, reminders, offers, messages, galleryUpdates };
     AsyncStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(prefs)).catch(() => {});
+    // Also save to database so server can check preferences
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from('user_profiles').update({
+            notification_preferences: prefs,
+          } as any).eq('id', user.id);
+        }
+      } catch {}
+    })();
   }, [push, reminders, offers, messages, galleryUpdates, loaded]);
 
   return (

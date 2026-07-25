@@ -28,6 +28,7 @@ export default function BtsAndAnnouncementsPage() {
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [selectedPost, setSelectedPost] = useState<any>(null);
 
   useEffect(() => { loadPosts(); }, []);
 
@@ -122,7 +123,6 @@ export default function BtsAndAnnouncementsPage() {
         is_active: true,
         created_by: user!.id,
         owner_admin_id: user!.id,
-        content: annDescription || annTitle,
       });
 
       if (error) throw error;
@@ -330,7 +330,7 @@ export default function BtsAndAnnouncementsPage() {
         <h2 className="text-xl font-bold mb-4">{tab === 'bts' ? 'Your BTS Posts' : 'Your Announcements'}</h2>
         <div className="space-y-3">
           {(tab === 'bts' ? btsPosts : announcements).map((post) => (
-            <div key={post.id} className="rounded-xl p-4 border border-white/5 flex items-center justify-between gap-4" style={{ background: '#111118' }}>
+            <div key={post.id} className="rounded-xl p-4 border border-white/5 flex items-center justify-between gap-4 cursor-pointer transition-all hover:border-white/10" style={{ background: '#111118' }} onClick={() => setSelectedPost(post)}>
               <div className="flex items-center gap-3 flex-1 min-w-0">
                 {post.media_url && (
                   <img src={post.media_url} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" alt="" />
@@ -350,7 +350,7 @@ export default function BtsAndAnnouncementsPage() {
                   </div>
                 </div>
               </div>
-              <button onClick={() => handleDelete(post.id, tab)}
+              <button onClick={(e) => { e.stopPropagation(); handleDelete(post.id, tab); }}
                 className="text-xs px-3 py-1.5 rounded-lg border transition-colors flex-shrink-0"
                 style={{ background: 'rgba(255,59,48,0.1)', borderColor: 'rgba(255,59,48,0.2)', color: '#FF3B30' }}>
                 Delete
@@ -366,6 +366,95 @@ export default function BtsAndAnnouncementsPage() {
           )}
         </div>
       </div>
+
+      {/* Post detail modal */}
+      {selectedPost && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', zIndex: 60 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div>
+              <h2 style={{ fontSize: 18, fontWeight: 800, color: 'white' }}>{selectedPost.title}</h2>
+              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>
+                {new Date(selectedPost.created_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' })}
+                {selectedPost.category && ` · ${selectedPost.category}`}
+                {selectedPost.tag && ` · ${selectedPost.tag}`}
+              </p>
+            </div>
+            <button onClick={() => setSelectedPost(null)} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '8px 16px', color: 'rgba(255,255,255,0.6)', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+              Close
+            </button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+            {/* Media */}
+            {selectedPost.media_url && (
+              <div style={{ marginBottom: 24, borderRadius: 16, overflow: 'hidden', background: '#0A0A0E' }}>
+                {selectedPost.media_type === 'video'
+                  ? <video src={selectedPost.media_url} style={{ width: '100%', maxHeight: 400, objectFit: 'contain' }} controls />
+                  : <img src={selectedPost.media_url} style={{ width: '100%', maxHeight: 400, objectFit: 'contain' }} alt="" />
+                }
+              </div>
+            )}
+
+            {/* Description / Caption */}
+            {(selectedPost.description || selectedPost.caption) && (
+              <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, padding: 20, marginBottom: 24, border: '1px solid rgba(255,255,255,0.06)' }}>
+                <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                  {selectedPost.description || selectedPost.caption}
+                </p>
+              </div>
+            )}
+
+            {/* Stats with animated bars */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
+              {[
+                { label: 'Views', value: selectedPost.views_count || 0, color: '#3B82F6', icon: '👁️' },
+                { label: 'Likes', value: selectedPost.likes_count || 0, color: '#F43F5E', icon: '❤️' },
+                { label: 'Comments', value: selectedPost.comments_count || 0, color: '#10B981', icon: '💬' },
+              ].map((stat) => (
+                <div key={stat.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 14, padding: 16, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ fontSize: 20, marginBottom: 8 }}>{stat.icon}</div>
+                  <p style={{ fontSize: 24, fontWeight: 800, color: stat.color }}>{stat.value}</p>
+                  <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>{stat.label}</p>
+                  {/* Animated bar */}
+                  <div style={{ height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 4, marginTop: 8, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.min((stat.value / Math.max((selectedPost.views_count || 1), 1)) * 100, 100)}%`, background: stat.color, borderRadius: 4, transition: 'width 1s ease-out' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Engagement chart placeholder */}
+            <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, padding: 20, border: '1px solid rgba(255,255,255,0.06)' }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: 'white', marginBottom: 16 }}>Engagement Overview</h3>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 120 }}>
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => {
+                  const h = Math.max(10, Math.random() * 100);
+                  return (
+                    <div key={day} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                      <div style={{ width: '100%', height: h, background: `linear-gradient(180deg, #D4AF37 0%, rgba(212,175,55,0.3) 100%)`, borderRadius: 6, transition: 'height 0.8s ease-out' }} />
+                      <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{day}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Meta info */}
+            <div style={{ display: 'flex', gap: 12, marginTop: 20, flexWrap: 'wrap' }}>
+              {selectedPost.visibility && (
+                <span style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: selectedPost.visibility === 'admin_only' ? 'rgba(255,159,10,0.1)' : 'rgba(52,199,89,0.1)', color: selectedPost.visibility === 'admin_only' ? '#FF9F0A' : '#34C759' }}>
+                  {selectedPost.visibility === 'admin_only' ? '🔒 Private' : '🌍 Public'}
+                </span>
+              )}
+              {selectedPost.is_active !== undefined && (
+                <span style={{ padding: '4px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: selectedPost.is_active ? 'rgba(52,199,89,0.1)' : 'rgba(255,59,48,0.1)', color: selectedPost.is_active ? '#34C759' : '#FF3B30' }}>
+                  {selectedPost.is_active ? 'Active' : 'Inactive'}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

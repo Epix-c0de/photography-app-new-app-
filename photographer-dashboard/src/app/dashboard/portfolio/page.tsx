@@ -48,7 +48,7 @@ export default function PortfolioPage() {
       const { data, error: err } = await supabase
         .from('portfolio_items')
         .select('*')
-        .eq('created_by', user.id)
+        .or(`created_by.eq.${user.id},admin_id.eq.${user.id},owner_admin_id.eq.${user.id}`)
         .order('display_order', { ascending: true });
 
       if (err) throw err;
@@ -96,6 +96,7 @@ export default function PortfolioPage() {
       const maxOrder = items.length > 0 ? Math.max(...items.map(i => i.display_order)) + 1 : 0;
 
       const { error: dbErr } = await supabase.from('portfolio_items').insert({
+        admin_id: user!.id,
         created_by: user!.id,
         owner_admin_id: user!.id,
         title: uploadTitle.trim(),

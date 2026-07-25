@@ -19,6 +19,7 @@ type Client = {
   name: string;
   phone: string;
   email?: string;
+  user_id?: string | null;
 };
 
 type DeliveryMethod = 'sms' | 'whatsapp' | 'email' | 'in_app';
@@ -79,21 +80,36 @@ export default function UploadPage() {
   const loadClients = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    // Show all clients (multi-admin: any admin can upload for any client)
     const { data } = await supabase
       .from('clients')
-      .select('id, name, phone, email')
-      .eq('owner_admin_id', user.id)
+      .select('id, name, phone, email, user_id')
       .order('name');
     setClients(data || []);
   };
 
   const normalizePhone = (v: string) => v.replace(/[^\d+]/g, '');
 
-  const checkClientByPhone = useCallback((phone: string) => {
+  const checkClientByPhone = useCallback(async (phone: string) => {
     const normalized = normalizePhone(phone);
     if (normalized.length < 10) { setClientData(null); setIsNewClient(false); return; }
     const found = clients.find(c => normalizePhone(c.phone || '') === normalized);
-    if (found) { setClientData(found); setIsNewClient(false); }
+    if (found) {
+      setClientData(found);
+      setIsNewClient(false);
+      // Auto-link user_id if missing
+      if (!found.user_id) {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('id')
+          .eq('phone', normalized)
+          .maybeSingle();
+        if (profile) {
+          await supabase.from('clients').update({ user_id: profile.id }).eq('id', found.id);
+          setClientData({ ...found, user_id: profile.id });
+        }
+      }
+    }
     else { setClientData(null); setIsNewClient(true); }
   }, [clients]);
 
@@ -136,11 +152,25 @@ export default function UploadPage() {
     finally { setCreatingClient(false); }
   };
 
-  const selectClient = (c: Client) => {
+  const selectClient = async (c: Client) => {
     setClientData(c);
     setPhoneSearch(c.phone || '');
     setIsNewClient(false);
     setShowClientList(false);
+
+    // If client has no user_id, try to link it to a user profile by phone
+    if (!c.user_id && c.phone) {
+      const normalizedPhone = normalizePhone(c.phone);
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('phone', normalizedPhone)
+        .maybeSingle();
+      if (profile) {
+        await supabase.from('clients').update({ user_id: profile.id }).eq('id', c.id);
+        setClientData({ ...c, user_id: profile.id });
+      }
+    }
   };
 
   const filteredClients = clientSearch.trim()
@@ -273,9 +303,16 @@ export default function UploadPage() {
     if (sendNotification && clientData?.id) {
       try {
         const { data: { user } } = await supabase.auth.getUser();
+        // Resolve user_id from client record (messages/notifications FK references user_profiles.id)
+        let userId: string | null = clientData.user_id || null;
+        if (!userId && clientData.phone) {
+          const { data: profile } = await supabase
+            .from('user_profiles').select('id').eq('phone', clientData.phone).maybeSingle();
+          userId = profile?.id || null;
+        }
         await supabase.from('notifications').insert({
+          user_id: userId,
           client_id: clientData.id,
-          admin_id: user!.id,
           gallery_id: gId,
           type: 'gallery_ready',
           title: `Your ${galleryName} gallery is ready!`,

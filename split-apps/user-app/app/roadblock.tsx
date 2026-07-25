@@ -91,11 +91,27 @@ export default function RoadblockScreen() {
     setLoading(true);
     setContentError(false);
     try {
+      // Get linked admin IDs
+      const { data: myClients } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user?.id ?? '');
+      const adminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
+
+      // No linked admins - show empty state
+      if (adminIds.length === 0) {
+        setBtsPosts([]);
+        setAnnouncements([]);
+        setLoading(false);
+        return;
+      }
+
       const [btsRes, annRes] = await Promise.all([
         supabase
           .from('bts_posts')
           .select('*')
           .eq('is_active', true)
+          .in('created_by', adminIds)
           .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
           .or(`scheduled_for.is.null,scheduled_for.lte.${new Date().toISOString()}`)
           .order('created_at', { ascending: false })
@@ -104,6 +120,7 @@ export default function RoadblockScreen() {
           .from('announcements')
           .select('*')
           .eq('is_active', true)
+          .in('owner_admin_id', adminIds)
           .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
           .or(`scheduled_for.is.null,scheduled_for.lte.${new Date().toISOString()}`)
           .order('created_at', { ascending: false })

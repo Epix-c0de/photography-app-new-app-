@@ -5,7 +5,7 @@ export default function AnnouncementsLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        presentation: 'modal',
+        contentStyle: { backgroundColor: 'transparent' },
       }}
     >
       <Stack.Screen 

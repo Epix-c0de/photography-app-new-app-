@@ -62,13 +62,23 @@ export default function InboxPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Get all clients for this admin — we need user_id for the messages FK
+      // Get all clients — we need user_id for the messages FK
       const { data: clientsData } = await supabase
         .from('clients')
-        .select('id, user_id, name, phone')
-        .eq('owner_admin_id', user.id);
+        .select('id, user_id, name, phone');
 
       if (!clientsData?.length) { setThreads([]); return; }
+
+      // Auto-link user_id for clients missing it
+      const unlinkedClients = clientsData.filter(c => !c.user_id && c.phone);
+      for (const c of unlinkedClients) {
+        const { data: profile } = await supabase
+          .from('user_profiles').select('id').eq('phone', c.phone).maybeSingle();
+        if (profile) {
+          await supabase.from('clients').update({ user_id: profile.id }).eq('id', c.id);
+          c.user_id = profile.id;
+        }
+      }
 
       // messages.client_id references user_profiles(id), so we use clients.user_id
       const userProfileIds = clientsData.filter(c => c.user_id).map(c => c.user_id);
@@ -127,7 +137,7 @@ export default function InboxPage() {
   const loadClients = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data } = await supabase.from('clients').select('id, user_id, name, phone').eq('owner_admin_id', user.id).order('name');
+    const { data } = await supabase.from('clients').select('id, user_id, name, phone').order('name');
     setClients(data || []);
   };
 
@@ -221,36 +231,8 @@ export default function InboxPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Verify the client row exists — we need the user_id for messages.client_id FK
-      let resolvedUserId = selectedThread.clientId; // clientId is now user_profiles.id
-      const { data: clientRow } = await supabase
-        .from('clients')
-        .select('id, user_id')
-        .eq('user_id', resolvedUserId)
-        .eq('owner_admin_id', user.id)
-        .maybeSingle();
-
-      if (!clientRow) {
-        // Try to find by phone
-        if (selectedThread.clientPhone) {
-          const { data: byPhone } = await supabase
-            .from('clients')
-            .select('id, user_id')
-            .eq('owner_admin_id', user.id)
-            .or(`phone.eq.${selectedThread.clientPhone},mobile_number.eq.${selectedThread.clientPhone}`)
-            .maybeSingle();
-
-          if (byPhone && byPhone.user_id) {
-            resolvedUserId = byPhone.user_id;
-          } else {
-            throw new Error('Client record not found. Please refresh the page.');
-          }
-        } else {
-          throw new Error('Client record not found. Please refresh the page.');
-        }
-      } else if (clientRow.user_id) {
-        resolvedUserId = clientRow.user_id;
-      }
+      // clientId is already user_profiles.id — messages.client_id references user_profiles(id)
+      const resolvedUserId = selectedThread.clientId;
 
       const { data: msg, error } = await supabase.from('messages').insert({
         client_id: resolvedUserId,

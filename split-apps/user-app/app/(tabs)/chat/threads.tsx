@@ -60,8 +60,13 @@ export default function ChatWrapper() {
   }
 
   // Single photographer or forced adminId — render existing ChatScreen unchanged
-  if (adminCount <= 1 || forcedAdminId || selectedThread) {
+  if (adminCount <= 1 || forcedAdminId) {
     return <ChatScreen />;
+  }
+
+  // Thread selected — render ChatScreen with that admin
+  if (selectedThread) {
+    return <ChatScreen routeAdminId={selectedThread.adminId} onBack={() => setSelectedThread(null)} />;
   }
 
   // Multiple photographers — show thread list

@@ -25,6 +25,7 @@ import { demoAnnouncements } from '@/lib/demo';
 import type { Database } from '@/types/supabase';
 import { Image } from 'expo-image';
 import FeedPostCard, { FeedPost } from '@/components/FeedPostCard';
+import BottomTabBar from '@/components/BottomTabBar';
 
 type AnnouncementRow = Database['public']['Tables']['announcements']['Row'];
 
@@ -96,10 +97,24 @@ export default function AnnouncementsFeedScreen() {
         return;
       }
 
+      // Get linked admin IDs
+      const { data: myClients } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user?.id ?? '');
+      const adminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
+
+      if (adminIds.length === 0) {
+        setAnnouncements([]);
+        setLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('announcements')
         .select('*')
         .eq('is_active', true)
+        .in('owner_admin_id', adminIds)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -149,7 +164,19 @@ export default function AnnouncementsFeedScreen() {
         })
       );
 
-      setAnnouncements(withSocial);
+      // Fetch admin profiles for author display
+      const allCreatorIds = [...new Set(withSocial.map((a: any) => a.created_by || a.owner_admin_id).filter(Boolean))];
+      const { data: profiles } = allCreatorIds.length > 0
+        ? await supabase.from('user_profiles').select('id, name, avatar_url').in('id', allCreatorIds)
+        : { data: [] };
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+
+      const enriched = withSocial.map((a: any) => ({
+        ...a,
+        _authorProfile: profileMap.get(a.created_by || a.owner_admin_id) || null,
+      }));
+
+      setAnnouncements(enriched);
     } catch (err) {
       console.error('[Announcements] Fetch error:', err);
       Alert.alert('Error', 'Failed to load announcements');
@@ -256,11 +283,11 @@ export default function AnnouncementsFeedScreen() {
 
   const handleShare = async (ann: AnnouncementWithSocial) => {
     try {
-      const { getAnnouncementShareUrl } = await import('@/lib/platform-config');
-      const link = await getAnnouncementShareUrl(ann.id, ann.admin_id);
+      const { getShareMessage } = await import('@/lib/platform-config');
+      const { message, url } = await getShareMessage(ann.title || 'Announcement', 'announcement', ann.id);
       await Share.share({
-        message: `${ann.title || 'Check this out!'}\n\n${ann.description || ''}\n\n${link}`,
-        url: link,
+        message,
+        url,
         title: ann.title || 'Announcement',
       });
     } catch {
@@ -359,6 +386,8 @@ export default function AnnouncementsFeedScreen() {
     created_at: ann.created_at,
     tag: ann.tag,
     is_admin_badge: true,
+    author_name: (ann as any)._authorProfile?.name || null,
+    author_avatar: (ann as any)._authorProfile?.avatar_url || null,
   });
 
   const renderItem = ({ item }: { item: AnnouncementWithSocial }) => (
@@ -481,6 +510,7 @@ export default function AnnouncementsFeedScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <BottomTabBar />
     </View>
   );
 }
@@ -523,7 +553,7 @@ const styles = StyleSheet.create({
   feedContainer: {
     paddingHorizontal: 12,
     paddingTop: 12,
-    paddingBottom: 32,
+    paddingBottom: 120,
   },
 
   // Comment sheet

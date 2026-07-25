@@ -1066,6 +1066,9 @@ export interface Database {
           target_audience: string[] | null
           is_active: boolean
           created_by: string | null
+          owner_admin_id: string | null
+          is_pinned: boolean
+          media_urls: string[] | null
           comments_count: number
         }
         Insert: {
@@ -1087,6 +1090,9 @@ export interface Database {
           target_audience?: string[] | null
           is_active?: boolean
           created_by?: string | null
+          owner_admin_id?: string | null
+          is_pinned?: boolean
+          media_urls?: string[] | null
           comments_count?: number
         }
         Update: {
@@ -1101,12 +1107,26 @@ export interface Database {
           category?: string | null
           cta?: string | null
           created_at?: string
-          expires_at?: string
+          expires_at?: string | null
+          scheduled_for?: string | null
+          views_count?: number
+          clicks_count?: number
+          target_audience?: string[] | null
           is_active?: boolean
           created_by?: string | null
+          owner_admin_id?: string | null
+          is_pinned?: boolean
+          media_urls?: string[] | null
           comments_count?: number
         }
-        Relationships: never[]
+        Relationships: [
+          {
+            foreignKeyName: "announcements_owner_admin_id_fkey"
+            columns: ["owner_admin_id"]
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       bts_comments: {
         Row: {

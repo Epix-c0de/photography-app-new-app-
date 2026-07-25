@@ -85,7 +85,6 @@ export default function ClientsPage() {
     const { data, error } = await supabase
       .from('clients')
       .select('id, user_id, name, phone, email, loyalty_level, total_paid, created_at')
-      .eq('owner_admin_id', user.id)
       .order('name');
 
     if (error) {
@@ -93,7 +92,6 @@ export default function ClientsPage() {
       const { data: fb } = await supabase
         .from('clients')
         .select('id, user_id, name, phone, email, created_at')
-        .eq('owner_admin_id', user.id)
         .order('name');
       rows = (fb || []).map((c: any) => ({ ...c, loyalty_level: 'Bronze', total_paid: 0 }));
     } else {
@@ -117,8 +115,16 @@ export default function ClientsPage() {
         avatar_url = prof?.avatar_url ?? null;
       } else if (c.phone) {
         // Use phone-based lookup for pre-created clients not yet linked
-        const { data: rpc } = await supabase.rpc('get_profile_by_phone' as any, { p_phone: c.phone }) as any;
-        avatar_url = rpc?.avatar_url ?? null;
+        const { data: profile } = await supabase
+          .from('user_profiles').select('id, avatar_url')
+          .eq('phone', c.phone)
+          .maybeSingle();
+        if (profile) {
+          avatar_url = profile.avatar_url ?? null;
+          // Auto-link user_id on the client record
+          await supabase.from('clients').update({ user_id: profile.id }).eq('id', c.id);
+          c.user_id = profile.id;
+        }
       }
       return { ...c, avatar_url, gallery_count: counts.get(c.id) || 0 };
     }));

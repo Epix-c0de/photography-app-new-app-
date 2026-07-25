@@ -12,7 +12,13 @@ import { demoBtsPosts } from '@/lib/demo';
 import { useAuth } from '@/contexts/AuthContext';
 import type { Database } from '@/types/supabase';
 
-type BTSPost = Database['public']['Tables']['bts_posts']['Row'];
+type BTSPost = Database['public']['Tables']['bts_posts']['Row'] & {
+  user_profiles?: {
+    id: string | null;
+    name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
 
 const FILTERS = ['All', 'Wedding', 'Portrait', 'Corporate', 'Event'] as const;
 type Filter = (typeof FILTERS)[number];
@@ -48,10 +54,28 @@ export default function BTSAllScreen() {
 
       const searchValue = (overrideSearch ?? search).trim();
       const nowIso = new Date().toISOString();
+
+      // Get linked admin IDs
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setPosts([]); setLoading(false); setRefreshing(false); return; }
+      const { data: myClients } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user.id);
+      const linkedAdminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
+
+      if (linkedAdminIds.length === 0) {
+        setPosts([]);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       let query = supabase
         .from('bts_posts')
         .select('*')
         .eq('is_active', true)
+        .in('created_by', linkedAdminIds)
         .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
         .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`);
 
@@ -69,7 +93,22 @@ export default function BTSAllScreen() {
         return;
       }
 
-      setPosts(data);
+      const adminIds = [...new Set(data.map(p => p.created_by).filter(Boolean))] as string[];
+      const profileMap = new Map<string, { id: string; name: string | null; avatar_url: string | null }>();
+      if (adminIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('user_profiles')
+          .select('id, name, avatar_url')
+          .in('id', adminIds);
+        (profiles || []).forEach((p: any) => profileMap.set(p.id, p));
+      }
+
+      const enriched = data.map(p => ({
+        ...p,
+        user_profiles: p.created_by ? profileMap.get(p.created_by) || null : null,
+      }));
+
+      setPosts(enriched);
       setLoading(false);
       setRefreshing(false);
     },
@@ -181,6 +220,11 @@ export default function BTSAllScreen() {
                 <Text style={styles.cardTitle} numberOfLines={1}>
                   {item.title ?? 'Behind the Scenes'}
                 </Text>
+                {item.user_profiles?.name && (
+                  <Text style={styles.cardStudio} numberOfLines={1}>
+                    {item.user_profiles.name}
+                  </Text>
+                )}
               </View>
               {item.media_type === 'video' && (
                 <View style={styles.videoBadge}>
@@ -363,6 +407,12 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+  },
+  cardStudio: {
+    fontSize: 11,
+    fontWeight: '500' as const,
+    color: Colors.gold,
+    marginTop: 2,
   },
   videoBadge: {
     position: 'absolute' as const,

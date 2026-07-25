@@ -41,8 +41,20 @@ export default function PackagesPage() {
   const [formPopular, setFormPopular] = useState(false);
   const [formCategory, setFormCategory] = useState('');
   const [formActive, setFormActive] = useState(true);
+  const [formCoverFile, setFormCoverFile] = useState<File | null>(null);
+  const [formCoverPreview, setFormCoverPreview] = useState('');
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+  const uploadCoverImage = async (file: File): Promise<string> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const ext = file.name.split('.').pop() || 'jpg';
+    const path = `packages/${user!.id}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from('media').upload(path, file, { contentType: file.type, upsert: true });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(path);
+    return publicUrl;
+  };
 
   const loadPackages = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -70,6 +82,8 @@ export default function PackagesPage() {
     setFormPopular(false);
     setFormCategory('');
     setFormActive(true);
+    setFormCoverFile(null);
+    setFormCoverPreview('');
     setShowModal(true);
   };
 
@@ -85,6 +99,8 @@ export default function PackagesPage() {
     setFormPopular(pkg.is_popular || false);
     setFormCategory(pkg.category || '');
     setFormActive(pkg.is_active);
+    setFormCoverFile(null);
+    setFormCoverPreview(pkg.cover_image_url || '');
     setShowModal(true);
   };
 
@@ -96,6 +112,12 @@ export default function PackagesPage() {
       if (!user) return;
 
       const features = formFeatures.split('\n').map(f => f.trim()).filter(Boolean);
+
+      let coverImageUrl = editingPkg?.cover_image_url || null;
+      if (formCoverFile) {
+        coverImageUrl = await uploadCoverImage(formCoverFile);
+      }
+
       const payload = {
         owner_admin_id: user.id,
         name: formName,
@@ -108,6 +130,7 @@ export default function PackagesPage() {
         detailed_description: formDetailed || null,
         is_popular: formPopular,
         category: formCategory || null,
+        cover_image_url: coverImageUrl,
       };
 
       if (editingPkg) {
@@ -209,6 +232,11 @@ export default function PackagesPage() {
               {pkg.is_popular && (
                 <div className="px-4 py-1.5 text-xs font-bold text-center" style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
                   ⭐ Most Popular
+                </div>
+              )}
+              {pkg.cover_image_url && (
+                <div className="h-36 overflow-hidden">
+                  <img src={pkg.cover_image_url} className="w-full h-full object-cover" alt={pkg.name} />
                 </div>
               )}
               <div className="p-5">
@@ -321,6 +349,31 @@ export default function PackagesPage() {
                 <input value={formDescription} onChange={(e) => setFormDescription(e.target.value)}
                   className="w-full rounded-xl px-4 py-3 text-sm text-white border border-white/10 focus:outline-none"
                   style={{ background: '#1A1A2E' }} placeholder="Short description for clients" />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Cover Image</label>
+                <div onClick={() => document.getElementById('pkg-cover-input')?.click()}
+                  className="border-2 border-dashed border-white/10 rounded-xl p-6 text-center cursor-pointer hover:border-[#D4AF37]/30 transition-colors">
+                  {formCoverPreview ? (
+                    <div className="relative">
+                      <img src={formCoverPreview} className="max-h-40 mx-auto rounded-lg object-cover" alt="cover" />
+                      <button onClick={(e) => { e.stopPropagation(); setFormCoverFile(null); setFormCoverPreview(''); }}
+                        className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs"
+                        style={{ background: 'rgba(255,59,48,0.9)', color: 'white' }}>✕</button>
+                    </div>
+                  ) : (
+                    <div className="text-gray-500">
+                      <div className="text-3xl mb-2">📸</div>
+                      <p className="text-sm">Click to upload cover image</p>
+                    </div>
+                  )}
+                </div>
+                <input id="pkg-cover-input" type="file" accept="image/*" className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) { setFormCoverFile(file); setFormCoverPreview(URL.createObjectURL(file)); }
+                  }} />
               </div>
 
               <div>

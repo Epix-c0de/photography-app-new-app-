@@ -20,6 +20,13 @@ type Gallery = {
   photoCount: number;
 };
 
+type GalleryPhoto = {
+  id: string;
+  photo_url: string;
+  gallery_id: string;
+  is_cover: boolean;
+};
+
 const S = {
   card: { background: 'linear-gradient(135deg, rgba(212,175,55,0.04) 0%, rgba(30,30,48,0.8) 100%)', border: '1px solid rgba(212,175,55,0.1)', borderRadius: 20, overflow: 'hidden' as const, transition: 'all 0.2s' },
   input: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '11px 16px', color: 'white', fontSize: 14, outline: 'none', width: '100%', boxSizing: 'border-box' as const },
@@ -37,6 +44,9 @@ export default function GalleriesPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [toast, setToast] = useState('');
+  const [selectedGallery, setSelectedGallery] = useState<Gallery | null>(null);
+  const [galleryPhotos, setGalleryPhotos] = useState<GalleryPhoto[]>([]);
+  const [loadingPhotos, setLoadingPhotos] = useState(false);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -47,7 +57,6 @@ export default function GalleriesPage() {
     const { data } = await supabase
       .from('galleries')
       .select('id, name, access_code, is_paid, is_locked, price, shoot_type, created_at, cover_photo_url, client_id')
-      .eq('owner_admin_id', user.id)
       .order('created_at', { ascending: false });
 
     const clientIds = [...new Set((data || []).map((g: any) => g.client_id).filter(Boolean))];
@@ -73,6 +82,29 @@ export default function GalleriesPage() {
   }, []);
 
   useEffect(() => { loadGalleries(); }, [loadGalleries]);
+
+  const openGalleryDetail = async (gallery: Gallery) => {
+    setSelectedGallery(gallery);
+    setLoadingPhotos(true);
+    const { data: photos } = await supabase
+      .from('gallery_photos')
+      .select('id, photo_url, gallery_id, is_cover')
+      .eq('gallery_id', gallery.id)
+      .order('is_cover', { ascending: false });
+    setGalleryPhotos(photos || []);
+    setLoadingPhotos(false);
+  };
+
+  const closeGalleryDetail = () => {
+    setSelectedGallery(null);
+    setGalleryPhotos([]);
+  };
+
+  const getPhotoUrl = (url: string) => {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/client-photos/${url}`;
+  };
 
   const toggleLock = async (id: string, current: boolean) => {
     setActionLoading(id);
@@ -111,7 +143,6 @@ export default function GalleriesPage() {
         is_active: true,
         created_by: user!.id,
         owner_admin_id: user!.id,
-        content: `Check out the photos from ${gallery.name}!`,
       });
       showToast('Promoted to announcement!');
     } catch { showToast('Failed to promote'); }
@@ -190,7 +221,8 @@ export default function GalleriesPage() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
           {filtered.map((g) => (
-            <div key={g.id} style={S.card}
+            <div key={g.id} style={{ ...S.card, cursor: 'pointer' }}
+              onClick={() => openGalleryDetail(g)}
               onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'rgba(212,175,55,0.25)')}
               onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(212,175,55,0.1)')}>
 
@@ -220,7 +252,7 @@ export default function GalleriesPage() {
                 {g.price > 0 && <p style={{ fontSize: 14, fontWeight: 800, color: '#D4AF37', marginBottom: 10 }}>KES {g.price.toLocaleString()}</p>}
 
                 {/* Access code row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.3)', borderRadius: 10, padding: '8px 12px', marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.3)', borderRadius: 10, padding: '8px 12px', marginBottom: 8 }} onClick={(e) => e.stopPropagation()}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#D4AF37', fontSize: 15, letterSpacing: 2, flex: 1 }}>{g.access_code}</span>
                   <button onClick={() => copyCode(g.id, g.access_code)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'rgba(255,255,255,0.5)' }} title="Copy code">
                     {copiedId === g.id ? '✅' : '📋'}
@@ -231,7 +263,7 @@ export default function GalleriesPage() {
                 </div>
 
                 {/* USSD Code */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '6px 12px', marginBottom: 12, border: '1px solid rgba(212,175,55,0.1)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.2)', borderRadius: 10, padding: '6px 12px', marginBottom: 12, border: '1px solid rgba(212,175,55,0.1)' }} onClick={(e) => e.stopPropagation()}>
                   <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>USSD:</span>
                   <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#D4AF37', fontSize: 13, letterSpacing: 1, flex: 1 }}>*123*{g.access_code?.replace('-', '')}#</span>
                   <button onClick={() => { navigator.clipboard.writeText(`*123*${g.access_code?.replace('-', '')}#`); showToast('USSD code copied!'); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'rgba(255,255,255,0.4)' }} title="Copy USSD">
@@ -240,7 +272,7 @@ export default function GalleriesPage() {
                 </div>
 
                 {/* Action buttons */}
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }} onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => toggleLock(g.id, g.is_locked)} disabled={actionLoading === g.id}
                     style={{ ...S.btn(g.is_locked ? '#0A84FF' : '#FF9F0A'), flex: 1 }}>
                     {g.is_locked ? '🔓 Unlock' : '🔒 Lock'}
@@ -287,6 +319,48 @@ export default function GalleriesPage() {
                 Delete
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Gallery detail modal */}
+      {selectedGallery && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', zIndex: 60 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div>
+              <h2 style={{ fontSize: 18, fontWeight: 800, color: 'white' }}>{selectedGallery.name}</h2>
+              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{selectedGallery.clientName} · {selectedGallery.shoot_type} · {galleryPhotos.length} photos</p>
+            </div>
+            <button onClick={closeGalleryDetail} style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '8px 16px', color: 'rgba(255,255,255,0.6)', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>
+              Close
+            </button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+            {loadingPhotos ? (
+              <div style={{ textAlign: 'center', padding: 60 }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>Loading photos...</p>
+              </div>
+            ) : galleryPhotos.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 60 }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>📷</div>
+                <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>No photos in this gallery yet</p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
+                {galleryPhotos.map((photo) => (
+                  <div key={photo.id} style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', aspectRatio: '1' }}>
+                    <img src={getPhotoUrl(photo.photo_url)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} alt="" />
+                    {photo.is_cover && (
+                      <div style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(212,175,55,0.9)', borderRadius: 8, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: '#000' }}>
+                        Cover
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

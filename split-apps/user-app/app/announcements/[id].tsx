@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getAnnouncementShareUrl } from '@/lib/platform-config';
 import { demoAnnouncementComments, demoAnnouncements } from '@/lib/demo';
 import type { Database } from '@/types/supabase';
+import BottomTabBar from '@/components/BottomTabBar';
 
 type Announcement = Database['public']['Tables']['announcements']['Row'] & {
   user_profiles?: {
@@ -113,7 +114,22 @@ export default function AnnouncementViewerScreen() {
         }
 
         if (data) {
-          setAnnouncement(data);
+          let adminProfile: { name: string | null; avatar_url: string | null } | null = null;
+          try {
+            const adminId = data.owner_admin_id || data.created_by;
+            if (adminId) {
+              const { data: profile } = await supabase
+                .from('user_profiles')
+                .select('name, avatar_url')
+                .eq('id', adminId)
+                .single();
+              adminProfile = profile;
+            }
+          } catch (e) {
+            console.warn('[Announcement] Admin profile fetch failed:', e);
+          }
+
+          setAnnouncement({ ...data, user_profiles: adminProfile } as any);
 
           try {
             const { data: reactions } = await supabase
@@ -128,6 +144,20 @@ export default function AnnouncementViewerScreen() {
             }
           } catch (e) {
             console.warn('[Announcement] Reactions fetch failed:', e);
+          }
+
+          try {
+            const { data: bookmarks } = await supabase
+              .from('announcement_bookmarks')
+              .select('user_id')
+              .eq('announcement_id', id)
+              .eq('user_id', userIdRef.current ?? '');
+
+            if (!cancelled && bookmarks && bookmarks.length > 0) {
+              setIsBookmarked(true);
+            }
+          } catch (e) {
+            console.warn('[Announcement] Bookmark check failed:', e);
           }
         }
       } catch (e) {
@@ -158,7 +188,7 @@ export default function AnnouncementViewerScreen() {
     try {
       const { data, error } = await supabase
         .from('announcement_comments')
-        .select('*, user_profiles(name, avatar_url)')
+        .select('*, user_profiles:client_id (name, avatar_url)')
         .eq('announcement_id', id)
         .order('created_at', { ascending: true });
       
@@ -275,11 +305,13 @@ export default function AnnouncementViewerScreen() {
   const handleShare = async () => {
     if (!announcement) return;
     try {
-      const link = await getAnnouncementShareUrl(announcement.id, announcement.admin_id);
+      const { getShareMessage } = await import('@/lib/platform-config');
+      const adminId = (announcement as any).owner_admin_id || announcement.created_by;
+      const { message, url } = await getShareMessage(announcement.title, 'announcement', announcement.id);
       await Share.share({
         title: announcement.title,
-        message: `Check out this announcement: ${announcement.title}\n${link}`,
-        url: link,
+        message,
+        url,
       });
     } catch (error) {
       console.error('Share error:', error);
@@ -290,6 +322,32 @@ export default function AnnouncementViewerScreen() {
   isLikedRef.current = isLiked;
   const reactionCountRef = useRef(reactionCount);
   reactionCountRef.current = reactionCount;
+
+  const handleBookmark = useCallback(async () => {
+    if (!id || !user) return;
+    const next = !isBookmarked;
+    setIsBookmarked(next);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      if (next) {
+        const { error } = await supabase.from('announcement_bookmarks').insert({
+          announcement_id: id,
+          user_id: user.id,
+        });
+        if (error && (error as any)?.code !== '23505') throw error;
+      } else {
+        const { error } = await supabase
+          .from('announcement_bookmarks')
+          .delete()
+          .eq('announcement_id', id)
+          .eq('user_id', user.id);
+        if (error) throw error;
+      }
+    } catch (e) {
+      console.error('[Announcement] Bookmark toggle failed:', e);
+      setIsBookmarked(!next);
+    }
+  }, [id, user, isBookmarked]);
 
   const handleLike = useCallback(async () => {
     if (!id || !user) return;
@@ -400,7 +458,7 @@ export default function AnnouncementViewerScreen() {
         <View style={{ flex: 1 }}>
         <ScrollView 
           ref={scrollViewRef} 
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 20) + 120 }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 20) + 200 }]}
           showsVerticalScrollIndicator={false}
         >
                 {/* Header */}
@@ -412,15 +470,23 @@ export default function AnnouncementViewerScreen() {
                     </Pressable>
                     <View style={styles.headerCenter}>
                         <View style={styles.headerAvatarRing}>
-                            <Image
-                                source={{ uri: announcement.user_profiles?.avatar_url || 'https://via.placeholder.com/50' }}
+                            {announcement.user_profiles?.avatar_url ? (
+                              <Image
+                                source={{ uri: announcement.user_profiles.avatar_url }}
                                 style={styles.headerAvatar}
                                 contentFit="cover"
-                            />
+                              />
+                            ) : (
+                              <View style={[styles.headerAvatar, { backgroundColor: Colors.gold, alignItems: 'center', justifyContent: 'center' }]}>
+                                <Text style={{ color: Colors.background, fontSize: 16, fontWeight: '800' }}>
+                                  {(announcement.user_profiles?.name || 'S')[0]?.toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
                             <View style={styles.headerAvatarDot} />
                         </View>
-                        <View>
-                            <Text style={styles.headerTitle}>Studio Announcement</Text>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.headerTitle} numberOfLines={1}>{announcement.user_profiles?.name || 'Studio'}</Text>
                             <View style={styles.headerMeta}>
                                 <Clock size={10} color={Colors.textMuted} />
                                 <Text style={styles.headerTime}>{relativeTime(announcement.created_at)}</Text>
@@ -561,6 +627,16 @@ export default function AnnouncementViewerScreen() {
                     <Pressable style={styles.actionBtn} onPress={handleShare}>
                         <Share2 size={20} color={Colors.textMuted} />
                         <Text style={styles.actionBtnText}>Share</Text>
+                    </Pressable>
+
+                    <View style={styles.actionDivider} />
+
+                    <Pressable
+                        style={[styles.actionBtn, isBookmarked && styles.actionBtnActive]}
+                        onPress={handleBookmark}
+                    >
+                        <Bookmark size={20} color={isBookmarked ? Colors.gold : Colors.textMuted} fill={isBookmarked ? Colors.gold : 'none'} />
+                        <Text style={[styles.actionBtnText, isBookmarked && { color: Colors.gold }]}>{isBookmarked ? 'Saved' : 'Save'}</Text>
                     </Pressable>
                 </View>
 
@@ -706,6 +782,7 @@ export default function AnnouncementViewerScreen() {
             </Pressable>
           </View>
         </Modal>
+        <BottomTabBar />
         </View>
     </View>
   );
@@ -797,7 +874,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: '#4CAF50',
     borderWidth: 2,
-    backgroundColor: '#4CAF50',
   },
   headerTitle: {
     fontSize: 15,
@@ -1117,7 +1193,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    backgroundColor: Colors.gold,
   },
   commentMeta: {
     flex: 1,
@@ -1177,7 +1252,7 @@ const styles = StyleSheet.create({
   // Input Bar
   inputBar: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 90,
     left: 0,
     right: 0,
     backgroundColor: Colors.background,

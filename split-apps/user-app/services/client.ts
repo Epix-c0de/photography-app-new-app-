@@ -310,7 +310,16 @@ export const ClientService = {
       }
       const nowIso = new Date().toISOString();
 
-      const { data, error } = await supabase
+      // Get linked admin IDs
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      const { data: myClients } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user.id);
+      const adminIds = (myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean);
+
+      let query = supabase
         .from('bts_posts')
         .select('*')
         .eq('is_active', true)
@@ -319,6 +328,15 @@ export const ClientService = {
         .order('created_at', { ascending: false })
         .limit(50);
 
+      // Filter by linked admins only
+      if (adminIds.length > 0) {
+        query = query.in('created_by', adminIds);
+      } else {
+        // No linked admins - return empty
+        return [];
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data;
     }
@@ -389,11 +407,21 @@ export const ClientService = {
           user_profiles: { id: 'demo-admin', name: 'Epix Visuals Team', avatar_url: null },
         }));
       }
-      const { data, error } = await supabase
+
+      // Get linked admin IDs
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      const { data: myClients } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user.id);
+      const adminIds = (myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean);
+
+      let query = supabase
         .from('announcements')
         .select(`
           *,
-          announcement_comments (id, user_id, content, created_at, user_profiles:user_id (id, name, avatar_url)),
+          announcement_comments (id, client_id, comment, created_at, user_profiles:client_id (id, name, avatar_url)),
           announcement_reactions (id, user_id, reaction_emoji),
           user_profiles:owner_admin_id (id, name, avatar_url)
         `)
@@ -402,6 +430,14 @@ export const ClientService = {
         .order('is_pinned', { ascending: false })
         .order('created_at', { ascending: false });
 
+      // Filter by linked admins only
+      if (adminIds.length > 0) {
+        query = query.in('owner_admin_id', adminIds);
+      } else {
+        return [];
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data || [];
     },
@@ -411,7 +447,7 @@ export const ClientService = {
         .from('announcements')
         .select(`
           *,
-          announcement_comments (id, user_id, content, created_at, user_profiles:user_id (id, name, avatar_url)),
+          announcement_comments (id, client_id, comment, created_at, user_profiles:client_id (id, name, avatar_url)),
           announcement_reactions (id, user_id, reaction_emoji)
         `)
         .eq('owner_admin_id', adminId)
@@ -432,7 +468,7 @@ export const ClientService = {
         .from('announcements')
         .select(`
           *,
-          announcement_comments (id, user_id, content, created_at, user_profiles:user_id (id, name, avatar_url)),
+          announcement_comments (id, client_id, comment, created_at, user_profiles:client_id (id, name, avatar_url)),
           announcement_reactions (id, user_id, reaction_emoji),
           user_profiles:owner_admin_id (id, name, avatar_url)
         `)
@@ -474,8 +510,8 @@ export const ClientService = {
         .from('announcement_comments')
         .insert({
           announcement_id: announcementId,
-          user_id: user.id,
-          content: content
+          client_id: user.id,
+          comment: content
         })
         .select()
         .single();
@@ -529,7 +565,7 @@ export const ClientService = {
         .from('announcement_comments')
         .delete()
         .eq('id', commentId)
-        .eq('user_id', user.id);
+        .eq('client_id', user.id);
 
       if (error) throw error;
       return true;
@@ -579,14 +615,13 @@ export const ClientService = {
         .eq('user_id', user.id);
       const adminIds = (myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean);
 
+      // No linked admins - return empty
+      if (adminIds.length === 0) return [];
+
       let query = supabase
         .from('portfolio_items')
-        .select('*');
-
-      // If user has linked admins, filter by them; otherwise show all
-      if (adminIds.length > 0) {
-        query = query.in('admin_id', adminIds);
-      }
+        .select('*')
+        .in('admin_id', adminIds);
 
       const { data, error } = await query.order('created_at', { ascending: false });
         
@@ -607,14 +642,14 @@ export const ClientService = {
         .eq('user_id', user.id);
       const adminIds = (myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean);
 
+      // No linked admins - return empty
+      if (adminIds.length === 0) return [];
+
       let query = supabase
         .from('portfolio_items')
         .select('*')
-        .eq('content_type', contentType);
-
-      if (adminIds.length > 0) {
-        query = query.in('admin_id', adminIds);
-      }
+        .eq('content_type', contentType)
+        .in('admin_id', adminIds);
 
       const { data, error } = await query.order('created_at', { ascending: false });
         
@@ -635,14 +670,14 @@ export const ClientService = {
         .eq('user_id', user.id);
       const adminIds = (myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean);
 
+      // No linked admins - return empty
+      if (adminIds.length === 0) return [];
+
       let query = supabase
         .from('portfolio_items')
         .select('*')
-        .eq('is_top_rated', true);
-
-      if (adminIds.length > 0) {
-        query = query.in('admin_id', adminIds);
-      }
+        .eq('is_top_rated', true)
+        .in('admin_id', adminIds);
 
       const { data, error } = await query.order('created_at', { ascending: false });
         

@@ -27,6 +27,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { demoGalleries } from '@/lib/demo';
 import { downloadAndCompress } from '@/lib/network-compression';
 import PaymentModal from '@/components/PaymentModal';
+import GalleryShareSheet from '@/components/GalleryShareSheet';
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import { galleryTabPressRef } from '../_layout';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -232,9 +233,24 @@ function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; 
     <RNAnimated.View style={[styles.photoCard, { opacity: cardFade, marginBottom: 12 }]}>
       <Pressable onPress={handlePress}>
         <Image source={{ uri: item.photo_url || item.image_url || item.media_url }} style={[styles.photoImage, { height: COL_WIDTH * 1.5 }]} contentFit="cover" />
-        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.galleryTileOverlay} />
+        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.9)']} style={styles.galleryTileOverlay} />
+        
+        {/* Top Rated badge */}
+        {item.is_top_rated && (
+          <View style={{ position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(212,175,55,0.9)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+            <Text style={{ fontSize: 9, color: '#000', fontWeight: '700' }}>TOP RATED</Text>
+          </View>
+        )}
+        
+        {/* Category badge */}
+        {item.category && (
+          <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+            <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.8)', fontWeight: '600' }}>{item.category}</Text>
+          </View>
+        )}
+        
         <View style={{ position: 'absolute', bottom: 10, left: 10, right: 10 }}>
-          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }} numberOfLines={2}>{item.title}</Text>
+          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 13 }} numberOfLines={2}>{item.title || 'Portfolio Item'}</Text>
           {/* Admin attribution */}
           {adminProfile && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
@@ -266,9 +282,9 @@ function PortfolioCard({ item, index, onLike, onPress }: { item: PortfolioItem; 
                 <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontWeight: '600' }}>{item.images.length} photos</Text>
               </View>
             )}
-            {item.category && (
+            {item.package_id && (
               <Pressable hitSlop={12} onPress={handleBookPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(212,175,55,0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
-                <Text style={{ color: Colors.gold, fontSize: 11, fontWeight: '600' }}>Book {item.category}</Text>
+                <Text style={{ color: Colors.gold, fontSize: 11, fontWeight: '600' }}>Book</Text>
               </Pressable>
             )}
           </View>
@@ -419,6 +435,7 @@ export default function GalleryScreen() {
   const [portfolioPackages, setPortfolioPackages] = useState<any[]>([]);
   const [selectedPhotoItem, setSelectedPhotoItem] = useState<PhotoRow | null>(null);
   const [shareSheet, setShareSheet] = useState<ShareSheetPayload | null>(null);
+  const [galleryShareSheet, setGalleryShareSheet] = useState<{ visible: boolean; gallery: GalleryRow | null }>({ visible: false, gallery: null });
   const [refreshing, setRefreshing] = useState(false);
 
   // Phase 3 additions:
@@ -1032,12 +1049,21 @@ export default function GalleryScreen() {
     }
   }, [paymentGallery, selectedGallery]);
 
-  const resolveGalleryLink = useCallback((gallery: GalleryRow) => {
-    const baseGalleryLink = galleryShareLink || shareAppLink;
-    const rawLink = gallery.access_code ? `${accessCodeLink}${gallery.access_code}` : baseGalleryLink;
-    const normalized = rawLink.includes('://') ? baseGalleryLink : rawLink;
-    if (!normalized) return '';
-    return normalized;
+  const resolveGalleryLink = useCallback(async (gallery: GalleryRow) => {
+    // Try brand_settings gallery_share_link first
+    if (galleryShareLink) return galleryShareLink;
+    
+    // Build dynamic URL from platform_settings
+    try {
+      const { getGalleryShareUrl } = await import('@/lib/platform-config');
+      return await getGalleryShareUrl(gallery.id, gallery.access_code || undefined, gallery.owner_admin_id || undefined);
+    } catch {}
+    
+    // Fallback to shareAppLink
+    if (shareAppLink) return shareAppLink;
+    
+    // Last resort - build from access code
+    return gallery.access_code ? `${accessCodeLink}${gallery.access_code}` : '';
   }, [accessCodeLink, galleryShareLink, shareAppLink]);
 
   const openAdvancedShare = useCallback((title: string, message: string, link: string) => {
@@ -1147,11 +1173,7 @@ export default function GalleryScreen() {
     isSharingRef.current = true;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      const link = resolveGalleryLink(gallery);
-      const message = link
-        ? `✨ Come relive our beautiful moments in "${gallery.name}" by ${brandName}.\nTap to view: ${link}`
-        : `✨ Come relive our beautiful moments in "${gallery.name}" by ${brandName}.`;
-      openAdvancedShare('Share Gallery', message, link);
+      setGalleryShareSheet({ visible: true, gallery });
     } catch (error: any) {
       if (!error?.message?.includes('share has not yet completed')) {
         console.error('Failed to share gallery:', error);
@@ -1159,7 +1181,7 @@ export default function GalleryScreen() {
     } finally {
       isSharingRef.current = false;
     }
-  }, [brandName, openAdvancedShare, resolveGalleryLink]);
+  }, []);
 
   const handleDownloadGallery = useCallback(async (gallery: GalleryRow) => {
     if (!FileSystem) {
@@ -1216,12 +1238,25 @@ export default function GalleryScreen() {
       if (savedCount > 0) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         Alert.alert('Downloaded', `${savedCount} file(s) saved to app storage.`);
+        // Record download in history
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase.from('download_history').insert({
+              user_id: user.id,
+              gallery_id: gallery.id,
+              gallery_name: gallery.name,
+              photo_count: savedCount,
+              format: 'JPG',
+            });
+          }
+        } catch {}
         return;
       }
     } catch {
     }
 
-    const link = resolveGalleryLink(gallery);
+    const link = await resolveGalleryLink(gallery);
     if (!link) {
       Alert.alert('Unavailable', 'Could not download files for this gallery.');
       return;
@@ -1373,6 +1408,19 @@ export default function GalleryScreen() {
       await downloadAndCompress(downloadUrl, destination);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Downloaded', 'Photo saved to app storage.');
+      // Record download in history
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user && selectedGallery?.id) {
+          await supabase.from('download_history').insert({
+            user_id: user.id,
+            gallery_id: selectedGallery.id,
+            gallery_name: selectedGallery.name || 'Photo',
+            photo_count: 1,
+            format: 'JPG',
+          });
+        }
+      } catch {}
     } catch (error) {
       console.error('Failed to download photo:', error);
       Alert.alert('Download Failed', 'Could not save this photo right now.');
@@ -1382,7 +1430,7 @@ export default function GalleryScreen() {
   const handleSharePhotoItem = useCallback(async () => {
     if (!selectedGallery) return;
     try {
-      const link = resolveGalleryLink(selectedGallery);
+      const link = await resolveGalleryLink(selectedGallery);
       const message = link
         ? `💛 I wanted to share this special moment from "${selectedGallery.name}" by ${brandName}.\nView it here: ${link}`
         : `💛 I wanted to share this special moment from "${selectedGallery.name}" by ${brandName}.`;
@@ -2196,63 +2244,25 @@ export default function GalleryScreen() {
         )}
       </Modal>
 
-      <Modal visible={!!shareSheet} transparent animationType="fade" onRequestClose={() => setShareSheet(null)}>
-        <Pressable style={styles.shareSheetBackdrop} onPress={() => setShareSheet(null)}>
-          <Pressable style={styles.shareSheetCard}>
-            <View style={styles.shareSheetHeader}>
-              <Text style={styles.shareSheetTitle}>{shareSheet?.title || 'Share'}</Text>
-              <Text style={styles.shareSheetSubtitle}>Choose where to post this content.</Text>
-            </View>
-            <View style={styles.shareSheetActions}>
-              <Pressable style={styles.shareSheetButton} onPress={() => handleShareChannel('system')}>
-                <View style={[styles.shareSheetIconWrap, { backgroundColor: 'rgba(212,175,55,0.2)' }]}>
-                  <MaterialCommunityIcons name="share-variant" size={18} color={Colors.gold} />
-                </View>
-                <Text style={styles.shareSheetButtonText}>Share Everywhere</Text>
-              </Pressable>
-              <Pressable style={styles.shareSheetButton} onPress={() => handleShareChannel('whatsapp')}>
-                <View style={[styles.shareSheetIconWrap, { backgroundColor: 'rgba(37,211,102,0.18)' }]}>
-                  <MaterialCommunityIcons name="whatsapp" size={18} color="#25D366" />
-                </View>
-                <Text style={styles.shareSheetButtonText}>WhatsApp</Text>
-              </Pressable>
-              <Pressable style={styles.shareSheetButton} onPress={() => handleShareChannel('instagram')}>
-                <View style={[styles.shareSheetIconWrap, { backgroundColor: 'rgba(225,48,108,0.18)' }]}>
-                  <MaterialCommunityIcons name="instagram" size={18} color="#E1306C" />
-                </View>
-                <Text style={styles.shareSheetButtonText}>Instagram</Text>
-              </Pressable>
-              <Pressable style={styles.shareSheetButton} onPress={() => handleShareChannel('tiktok')}>
-                <View style={[styles.shareSheetIconWrap, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
-                  <MaterialCommunityIcons name="music-note-eighth" size={18} color={Colors.white} />
-                </View>
-                <Text style={styles.shareSheetButtonText}>TikTok</Text>
-              </Pressable>
-              <Pressable style={styles.shareSheetButton} onPress={() => handleShareChannel('facebook')}>
-                <View style={[styles.shareSheetIconWrap, { backgroundColor: 'rgba(24,119,242,0.2)' }]}>
-                  <MaterialCommunityIcons name="facebook" size={18} color="#1877F2" />
-                </View>
-                <Text style={styles.shareSheetButtonText}>Facebook</Text>
-              </Pressable>
-              <Pressable style={styles.shareSheetButton} onPress={() => handleShareChannel('x')}>
-                <View style={[styles.shareSheetIconWrap, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
-                  <MaterialCommunityIcons name="alpha-x" size={18} color={Colors.white} />
-                </View>
-                <Text style={styles.shareSheetButtonText}>X</Text>
-              </Pressable>
-              <Pressable style={styles.shareSheetButton} onPress={() => handleShareChannel('copy')}>
-                <View style={[styles.shareSheetIconWrap, { backgroundColor: 'rgba(255,255,255,0.12)' }]}>
-                  <MaterialCommunityIcons name="content-copy" size={18} color={Colors.white} />
-                </View>
-                <Text style={styles.shareSheetButtonText}>Copy Link</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
       </Modal>
 
-      <Modal visible={!!selectedPortfolioItem} transparent animationType="fade">
-        <View style={styles.portfolioModalContainer}>
+      {/* New Gallery Share Sheet */}
+      <GalleryShareSheet
+        visible={galleryShareSheet.visible}
+        onClose={() => setGalleryShareSheet({ visible: false, gallery: null })}
+        galleryId={galleryShareSheet.gallery?.id || ''}
+        galleryName={galleryShareSheet.gallery?.name || 'Gallery'}
+        adminId={galleryShareSheet.gallery?.owner_admin_id || undefined}
+        accessCode={galleryShareSheet.gallery?.access_code || undefined}
+        coverUrl={galleryShareSheet.gallery?.cover_photo_url || undefined}
+        photoCount={galleryShareSheet.gallery?.photo_count || 0}
+        brandName={brandName}
+      />
+
+      <Modal visible={!!selectedPortfolioItem} transparent animationType="slide">
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <Pressable style={{ flex: 1 }} onPress={() => setSelectedPortfolioItem(null)} />
+          <View style={styles.portfolioModalContainer}>
           <View style={styles.portfolioModalContent}>
             {/* Multi-image viewer or single image */}
             {selectedPortfolioItem?.images && Array.isArray(selectedPortfolioItem.images) && selectedPortfolioItem.images.length > 1 ? (
@@ -2315,7 +2325,7 @@ export default function GalleryScreen() {
             {selectedPortfolioItem && (
               <LinearGradient colors={['transparent', 'rgba(0,0,0,0.9)']} style={styles.portfolioModalBottomGradient}>
                 <SafeAreaView edges={['bottom']}>
-                  <Text style={styles.portfolioModalTitle}>{selectedPortfolioItem.title}</Text>
+                  <Text style={styles.portfolioModalTitle}>{selectedPortfolioItem.title || 'Portfolio Item'}</Text>
                   {selectedPortfolioItem.category && (
                     <Text style={styles.portfolioModalCategory}>{selectedPortfolioItem.category}</Text>
                   )}
@@ -2396,6 +2406,7 @@ export default function GalleryScreen() {
               </LinearGradient>
             )}
           </View>
+        </View>
         </View>
       </Modal>
 
@@ -3144,16 +3155,18 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
   },
   portfolioModalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.95)',
+    backgroundColor: Colors.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+    overflow: 'hidden',
   },
   portfolioModalContent: {
     flex: 1,
   },
   portfolioModalImage: {
-    flex: 1,
     width: '100%',
-    height: '100%',
+    height: 300,
   },
   portfolioModalTopGradient: {
     position: 'absolute',

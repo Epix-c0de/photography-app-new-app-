@@ -116,7 +116,7 @@ export default function FeedPostCard({
 }: FeedPostCardProps) {
   const [expanded, setExpanded] = useState(false);
 
-  const authorName = post.author_name || 'Photography Studio';
+  const authorName = post.author_name || 'Studio';
   const authorAvatar = post.author_avatar || null;
   const bodyText = post.description || post.content_html || post.title || '';
   const tag = post.tag || post.shoot_type;

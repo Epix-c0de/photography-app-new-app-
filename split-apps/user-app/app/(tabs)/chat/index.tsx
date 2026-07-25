@@ -144,69 +144,12 @@ function MessageBubble({ message, onStructuredCtaPress }: { message: ChatMessage
   );
 }
 
-export default function ChatScreen() {
+export default function ChatScreen({ routeAdminId, onBack }: { routeAdminId?: string; onBack?: () => void } = {}) {
   const { initialMessage } = useLocalSearchParams<{ initialMessage: string }>();
-  const insets = useSafeAreaInsets();
-  const { brandName, logoUrl, activeAdminId } = useBranding();
+  const { brandName, activeAdminId } = useBranding();
   const { isDemoMode } = useAuth();
   const { isAssigned, loading: assignmentLoading } = useAssignmentStatus();
-
-  // ── Multi-photographer thread list ──────────────────────────────────────────
-  const [threadCheckDone, setThreadCheckDone] = useState(false);
-  const [multiAdmin, setMultiAdmin] = useState(false);
-  const [selectedThreadAdminId, setSelectedThreadAdminId] = useState<string | null>(null);
-  const [adminThreads, setAdminThreads] = useState<Array<{
-    adminId: string; adminName: string; adminAvatar: string | null;
-    lastMessage: string; lastMessageAt: string; unreadCount: number;
-  }>>([]);
-
-  useEffect(() => {
-    // Skip thread check entirely for unassigned users
-    if (!isDemoMode && !assignmentLoading && !isAssigned) {
-      setThreadCheckDone(true);
-      return;
-    }
-    // Wait for assignment to finish loading before doing thread check
-    if (assignmentLoading) return;
-    if (isDemoMode) { setThreadCheckDone(true); return; }
-    (async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { setThreadCheckDone(true); return; }
-
-        const { data: clientRows } = await supabase
-          .from('clients').select('id, owner_admin_id').eq('user_id', user.id);
-
-        const adminIds = [...new Set((clientRows || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
-        if (adminIds.length <= 1) { setThreadCheckDone(true); return; }
-
-        const { data: profiles } = await supabase
-          .from('user_profiles').select('id, name, avatar_url').in('id', adminIds);
-
-        const threads = await Promise.all((profiles || []).map(async (admin: any) => {
-          const { data: lm } = await supabase.from('messages').select('content, created_at')
-            .eq('client_id', user.id).eq('owner_admin_id', admin.id)
-            .order('created_at', { ascending: false }).limit(1).maybeSingle();
-          const { count: unread } = await supabase.from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('client_id', user.id).eq('owner_admin_id', admin.id)
-            .eq('sender_role', 'admin').eq('is_read', false);
-          return {
-            adminId: admin.id, adminName: admin.name || 'Photographer',
-            adminAvatar: admin.avatar_url,
-            lastMessage: lm?.content || 'No messages yet',
-            lastMessageAt: lm?.created_at || '',
-            unreadCount: unread || 0,
-          };
-        }));
-
-        threads.sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
-        setAdminThreads(threads);
-        setMultiAdmin(true);
-      } catch {}
-      setThreadCheckDone(true);
-    })();
-  }, [isDemoMode, isAssigned, assignmentLoading]);
+  const effectiveAdminId = routeAdminId ?? activeAdminId;
 
   // ── Show spinner while assignment status is still loading ──
   if (!isDemoMode && assignmentLoading) {
@@ -222,85 +165,25 @@ export default function ChatScreen() {
     return <UnassignedEmptyState featureName="chat with your photographer" />;
   }
 
-  // Loading thread check
-  if (!threadCheckDone) {
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color={Colors.gold} />
-      </View>
-    );
-  }
-
-  if (multiAdmin && !selectedThreadAdminId) {
-    const formatTime = (iso: string) => {
-      if (!iso) return '';
-      const d = new Date(iso);
-      const now = new Date();
-      const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
-      if (diff === 0) return d.toLocaleTimeString('en-KE', { hour: '2-digit', minute: '2-digit' });
-      if (diff === 1) return 'Yesterday';
-      return d.toLocaleDateString('en-KE', { day: 'numeric', month: 'short' });
-    };
-    return (
-      <View style={{ flex: 1, backgroundColor: Colors.background, paddingTop: insets.top }}>
-        <View style={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.border }}>
-          <Text style={{ fontSize: 24, fontWeight: '800', color: Colors.white }}>Messages</Text>
-          <Text style={{ fontSize: 13, color: Colors.textMuted, marginTop: 2 }}>{adminThreads.length} photographers</Text>
-        </View>
-        <ScrollView>
-          {adminThreads.map((t) => (
-            <Pressable
-              key={t.adminId}
-              style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)' }}
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSelectedThreadAdminId(t.adminId); }}
-            >
-              <View style={{ width: 52, height: 52, borderRadius: 16, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center', marginRight: 14, overflow: 'hidden' }}>
-                {t.adminAvatar
-                  ? <Image source={{ uri: t.adminAvatar }} style={{ width: 52, height: 52 }} contentFit="cover" />
-                  : <User size={22} color={Colors.textMuted} />}
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ fontSize: 15, fontWeight: t.unreadCount > 0 ? '800' : '600', color: Colors.white }}>{t.adminName}</Text>
-                  <Text style={{ fontSize: 12, color: Colors.textMuted }}>{formatTime(t.lastMessageAt)}</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ fontSize: 13, color: t.unreadCount > 0 ? Colors.textSecondary : Colors.textMuted, flex: 1 }} numberOfLines={1}>{t.lastMessage}</Text>
-                  {t.unreadCount > 0 && (
-                    <View style={{ backgroundColor: Colors.gold, minWidth: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5, marginLeft: 8 }}>
-                      <Text style={{ fontSize: 10, fontWeight: '800', color: Colors.background }}>{t.unreadCount}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-              <ChevronRight size={16} color={Colors.textMuted} style={{ marginLeft: 8 }} />
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
-    );
-  }
-  // ── End thread list ──────────────────────────────────────────────────────────
-
   // Render the actual chat — ChatBody has all its own hooks (no violation)
   return (
     <ChatBody
       initialMessage={initialMessage || ''}
       isDemoMode={isDemoMode}
-      activeAdminId={selectedThreadAdminId ?? activeAdminId}
+      activeAdminId={effectiveAdminId}
       brandName={brandName}
-      onBackToThreads={multiAdmin ? () => setSelectedThreadAdminId(null) : undefined}
+      onBack={onBack}
     />
   );
 }
 
 // ─── ChatBody: all chat hooks live here, rendered only when user is assigned ───
-function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBackToThreads }: {
+function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack }: {
   initialMessage: string;
   isDemoMode: boolean;
   activeAdminId: string | null;
   brandName: string;
-  onBackToThreads?: () => void;
+  onBack?: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState<string>(initialMessage || '');
@@ -933,10 +816,10 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerTopRow}>
-          {onBackToThreads && (
+          {onBack && (
             <Pressable
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onBackToThreads(); }}
-              style={styles.backButton}
+              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onBack(); }}
+              style={{ marginRight: 10, padding: 6 }}
             >
               <ArrowLeft size={20} color={Colors.white} />
             </Pressable>

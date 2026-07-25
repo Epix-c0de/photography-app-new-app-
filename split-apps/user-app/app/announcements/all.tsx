@@ -9,8 +9,10 @@ import { BlurView } from 'expo-blur';
 import { ChevronLeft, MessageCircle, Heart, Share2, ArrowRight, Play, Layers, Crown, Sparkles } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { supabase } from '@/lib/supabase';
 import { ClientService } from '@/services/client';
 import { useAuth } from '@/contexts/AuthContext';
+import BottomTabBar from '@/components/BottomTabBar';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 32;
@@ -192,11 +194,19 @@ function AnnouncementCard({ announcement, onPress, index }: { announcement: Anno
           <View style={styles.cardHeader}>
             <View style={styles.authorSection}>
               <View style={styles.avatarRing}>
-                <Image
-                  source={{ uri: announcement.user_profiles?.avatar_url || 'https://via.placeholder.com/40' }}
-                  style={styles.avatar}
-                  contentFit="cover"
-                />
+                {announcement.user_profiles?.avatar_url ? (
+                  <Image
+                    source={{ uri: announcement.user_profiles.avatar_url }}
+                    style={styles.avatar}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: Colors.gold, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Text style={{ color: Colors.background, fontSize: 14, fontWeight: '800' }}>
+                      {(announcement.user_profiles?.name || 'S')[0]?.toUpperCase()}
+                    </Text>
+                  </View>
+                )}
               </View>
               <View style={styles.authorInfo}>
                 <Text style={styles.authorName}>{announcement.user_profiles?.name || 'Studio Team'}</Text>
@@ -284,11 +294,57 @@ export default function AnnouncementsAllScreen() {
   const fetchAnnouncements = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await ClientService.announcements.list();
-      setAnnouncements(data as unknown as Announcement[]);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+
+      // Get all client rows to find linked admins
+      const { data: clientRows } = await supabase
+        .from('clients')
+        .select('owner_admin_id')
+        .eq('user_id', user.id);
+
+      const linkedAdminIds = [...new Set((clientRows || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
+
+      // Fetch announcements - all active ones (RLS allows public read)
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (error || !data) {
+        console.error('Failed to fetch announcements:', error);
+        setLoading(false);
+        return;
+      }
+
+      // Fetch admin profiles separately
+      const allCreatorIds = [...new Set(data.map((a: any) => a.created_by || a.owner_admin_id).filter(Boolean))];
+      const { data: profiles } = allCreatorIds.length > 0
+        ? await supabase.from('user_profiles').select('id, name, avatar_url').in('id', allCreatorIds)
+        : { data: [] };
+      
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+
+      // Fetch reactions and comments for each announcement
+      const enriched = await Promise.all(data.map(async (ann: any) => {
+        const [reactionsRes, commentsRes] = await Promise.all([
+          supabase.from('announcement_reactions').select('id, user_id, reaction_emoji').eq('announcement_id', ann.id),
+          supabase.from('announcement_comments').select('id, client_id, comment, created_at').eq('announcement_id', ann.id),
+        ]);
+
+        return {
+          ...ann,
+          user_profiles: profileMap.get(ann.created_by || ann.owner_admin_id) || null,
+          announcement_reactions: reactionsRes.data || [],
+          announcement_comments: commentsRes.data || [],
+        };
+      }));
+
+      setAnnouncements(enriched as unknown as Announcement[]);
     } catch (e) {
       console.error('Failed to fetch announcements:', e);
-      Alert.alert('Error', 'Failed to load announcements');
     } finally {
       setLoading(false);
     }
@@ -377,6 +433,7 @@ export default function AnnouncementsAllScreen() {
           </View>
         }
       />
+      <BottomTabBar />
     </View>
   );
 }

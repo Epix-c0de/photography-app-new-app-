@@ -81,18 +81,40 @@ export default function CalendarPage() {
 
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth() + 1;
+    const monthStr = String(month).padStart(2, '0');
 
-    const { data } = await supabase.rpc('get_calendar_events', {
-      p_photographer_id: user.id,
-      p_year: year,
-      p_month: month,
-    });
+    // Try RPC first, fall back to direct query
+    let loadedEvents: Event[] = [];
+    try {
+      const { data, error } = await supabase.rpc('get_calendar_events', {
+        p_photographer_id: user.id,
+        p_year: year,
+        p_month: month,
+      });
+      if (error) throw error;
+      loadedEvents = (data || []).map((e: any) => ({
+        ...e,
+        clientName: e.client_name || 'No Client',
+        is_busy: e.is_busy !== false,
+      }));
+    } catch {
+      // Fallback: direct query
+      const startDate = `${year}-${monthStr}-01`;
+      const endDate = `${year}-${monthStr}-31`;
+      const { data } = await supabase
+        .from('events')
+        .select('id, title, event_type, event_date, event_time, end_time, location, notes, status, is_busy, client_id')
+        .eq('photographer_id', user.id)
+        .gte('event_date', startDate)
+        .lte('event_date', endDate)
+        .order('event_date');
+      loadedEvents = (data || []).map((e: any) => ({
+        ...e,
+        clientName: 'Event',
+        is_busy: e.is_busy !== false,
+      }));
+    }
 
-    const loadedEvents = (data || []).map((e: any) => ({
-      ...e,
-      clientName: e.client_name || 'No Client',
-      is_busy: e.is_busy !== false,
-    }));
     setEvents(loadedEvents);
 
     // Build busy dates set
@@ -111,7 +133,6 @@ export default function CalendarPage() {
     const { data } = await supabase
       .from('clients')
       .select('id, user_id, name, phone')
-      .eq('owner_admin_id', user.id)
       .order('name');
 
     setClients(data || []);
