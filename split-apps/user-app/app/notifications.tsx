@@ -170,6 +170,16 @@ function NotificationItem({
             </View>
             <Text style={styles.notifTime}>{formatRelativeTime(item.createdAt)}</Text>
           </View>
+          {item.admin_name && (
+            <View style={styles.adminRow}>
+              {item.admin_avatar ? (
+                <View style={styles.adminAvatarSmall}>
+                  <Text style={styles.adminAvatarSmallText}>{item.admin_name.charAt(0).toUpperCase()}</Text>
+                </View>
+              ) : null}
+              <Text style={styles.adminNameText} numberOfLines={1}>{item.admin_name}</Text>
+            </View>
+          )}
           <View style={styles.notifHeader}>
             <Text style={[styles.notifTitle, !item.read && styles.notifTitleUnread]} numberOfLines={1}>{item.title}</Text>
             {!item.read && <View style={styles.unreadDot} />}
@@ -213,6 +223,10 @@ interface Notification {
   client_id?: string;
   bts_id?: string;
   announcement_id?: string;
+  // Admin info
+  owner_admin_id?: string | null;
+  admin_name?: string | null;
+  admin_avatar?: string | null;
 }
 
 export default function NotificationsScreen() {
@@ -426,6 +440,19 @@ export default function NotificationsScreen() {
         merged.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         const data = merged;
 
+        // Fetch admin profiles for owner_admin_id
+        const adminIds = Array.from(new Set((data || []).map((n: any) => n.owner_admin_id).filter(Boolean)));
+        let adminMap: Record<string, { name: string | null; avatar_url: string | null }> = {};
+        if (adminIds.length > 0) {
+          const { data: adminProfiles } = await supabase
+            .from('user_profiles')
+            .select('id, name, avatar_url')
+            .in('id', adminIds);
+          for (const ap of adminProfiles || []) {
+            adminMap[ap.id] = { name: ap.name, avatar_url: ap.avatar_url };
+          }
+        }
+
         const formattedNotifs: Notification[] = (data || []).map((n: any) => ({
           id: n.id,
           title: n.title || 'Notification',
@@ -440,6 +467,9 @@ export default function NotificationsScreen() {
           client_id: (n.data as any)?.clientId ?? n.client_id,
           bts_id: (n.data as any)?.btsId,
           announcement_id: (n.data as any)?.announcementId,
+          owner_admin_id: n.owner_admin_id,
+          admin_name: n.owner_admin_id ? adminMap[n.owner_admin_id]?.name || null : null,
+          admin_avatar: n.owner_admin_id ? adminMap[n.owner_admin_id]?.avatar_url || null : null,
         }));
 
         setNotifs(formattedNotifs);
@@ -480,7 +510,19 @@ export default function NotificationsScreen() {
           client_id: newNotif.data?.clientId ?? newNotif.client_id,
           bts_id: newNotif.data?.btsId,
           announcement_id: newNotif.data?.announcementId,
+          owner_admin_id: newNotif.owner_admin_id,
         };
+
+        // Fetch admin profile for this notification
+        if (newNotif.owner_admin_id) {
+          const { data: ap } = await supabase
+            .from('user_profiles')
+            .select('name, avatar_url')
+            .eq('id', newNotif.owner_admin_id)
+            .maybeSingle();
+          formattedNotif.admin_name = ap?.name || null;
+          formattedNotif.admin_avatar = ap?.avatar_url || null;
+        }
 
         setNotifs(prev => {
           if (prev.some(n => n.id === formattedNotif.id)) return prev;
@@ -501,7 +543,7 @@ export default function NotificationsScreen() {
           schema: 'public',
           table: 'notifications',
           filter: `client_id=eq.${clientRow.id}`
-        }, (payload) => {
+        }, async (payload) => {
           if (!payload.new) return;
           const newNotif = payload.new as any;
           if (newNotif.user_id && newNotif.user_id === user.id) return;
@@ -519,7 +561,19 @@ export default function NotificationsScreen() {
             client_id: newNotif.data?.clientId ?? newNotif.client_id,
             bts_id: newNotif.data?.btsId,
             announcement_id: newNotif.data?.announcementId,
+            owner_admin_id: newNotif.owner_admin_id,
           };
+
+          if (newNotif.owner_admin_id) {
+            const { data: ap } = await supabase
+              .from('user_profiles')
+              .select('name, avatar_url')
+              .eq('id', newNotif.owner_admin_id)
+              .maybeSingle();
+            formattedNotif.admin_name = ap?.name || null;
+            formattedNotif.admin_avatar = ap?.avatar_url || null;
+          }
+
           setNotifs(prev => {
             if (prev.some(n => n.id === formattedNotif.id)) return prev;
             return [formattedNotif, ...prev];
@@ -907,6 +961,30 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     lineHeight: 19,
     marginBottom: 8,
+  },
+  adminRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  adminAvatarSmall: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(212,175,55,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adminAvatarSmallText: {
+    fontSize: 9,
+    color: Colors.gold,
+    fontWeight: '700' as const,
+  },
+  adminNameText: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    fontWeight: '600' as const,
   },
   notifFooter: {
     flexDirection: 'row' as const,

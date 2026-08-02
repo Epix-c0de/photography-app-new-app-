@@ -41,6 +41,7 @@ const { width } = Dimensions.get('window');
 const CELL_SIZE = (width - 40 - 6 * 8) / 7;
 
 const statusConfig: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
+  pending: { color: '#F59E0B', icon: <Clock size={14} color="#F59E0B" />, label: 'Pending' },
   booked: { color: '#3498DB', icon: <Calendar size={14} color="#3498DB" />, label: 'Booked' },
   confirmed: { color: Colors.gold, icon: <Check size={14} color={Colors.gold} />, label: 'Confirmed' },
   completed: { color: Colors.success, icon: <Camera size={14} color={Colors.success} />, label: 'Completed' },
@@ -1132,6 +1133,49 @@ export default function BookingsScreen() {
                     </LinearGradient>
                   </Pressable>
                 </View>
+
+                <Pressable
+                  style={[styles.saveWithoutPayingButton, (!selectedPackage || !selectedDate) && styles.confirmBookingButtonDisabled]}
+                  onPress={async () => {
+                    if (!selectedPackage || !selectedDate) return;
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+                    try {
+                      const now = new Date();
+                      const bookingDate = `${selectedDate}${getOrdinalSuffix(selectedDate)} of ${now.toLocaleString('default', { month: 'long' })} ${now.getFullYear()}`;
+                      const pkg = packages.find(p => p.id === selectedPackage);
+                      const adminId = pkg?.owner_admin_id ?? selectedAdminId;
+
+                      const { error } = await supabase
+                        .from('bookings')
+                        .insert({
+                          user_id: user?.id,
+                          package_id: selectedPackage,
+                          status: 'pending',
+                          date: bookingDate,
+                          time: bookingTime || 'TBD',
+                          location: bookingLocation || 'TBD',
+                          owner_admin_id: adminId ?? null,
+                        });
+
+                      if (error) throw error;
+
+                      Alert.alert('Booking Saved', 'Your booking has been saved. The photographer will confirm it shortly.', [
+                        { text: 'OK', onPress: () => setActiveSection('bookings') },
+                      ]);
+                    } catch (e: any) {
+                      console.error('Save booking failed:', e);
+                      Alert.alert('Error', 'Failed to save booking. Please try again.');
+                    }
+                  }}
+                  disabled={!selectedPackage || !selectedDate}
+                >
+                  <Text style={styles.saveWithoutPayingText}>Save Without Paying</Text>
+                </Pressable>
+
+                <Text style={styles.saveWithoutPayingHint}>
+                  Save your booking details now and pay later when the photographer confirms.
+                </Text>
               </Animated.View>
             )}
           </View>
@@ -2081,6 +2125,30 @@ const styles = StyleSheet.create({
   },
   confirmBookingTextDisabled: {
     color: Colors.textMuted,
+  },
+  saveWithoutPayingButton: {
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 14,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  saveWithoutPayingText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  saveWithoutPayingHint: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginHorizontal: 20,
+    marginTop: 6,
+    lineHeight: 17,
   },
   stepperContainer: {
     flexDirection: 'row',

@@ -1238,6 +1238,7 @@ export interface Database {
           id: string
           user_id: string | null
           client_id: string | null
+          owner_admin_id: string | null
           type: string
           title: string
           body: string
@@ -1249,6 +1250,7 @@ export interface Database {
           id?: string
           user_id?: string | null
           client_id?: string | null
+          owner_admin_id?: string | null
           type: string
           title: string
           body: string
@@ -1260,6 +1262,7 @@ export interface Database {
           id?: string
           user_id?: string | null
           client_id?: string | null
+          owner_admin_id?: string | null
           type?: string
           title?: string
           body?: string
@@ -1271,6 +1274,12 @@ export interface Database {
           {
             foreignKeyName: "notifications_user_id_fkey"
             columns: ["user_id"]
+            referencedRelation: "user_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_owner_admin_id_fkey"
+            columns: ["owner_admin_id"]
             referencedRelation: "user_profiles"
             referencedColumns: ["id"]
           }

@@ -314,6 +314,7 @@ export default function UploadPage() {
           user_id: userId,
           client_id: clientData.id,
           gallery_id: gId,
+          owner_admin_id: user?.id,
           type: 'gallery_ready',
           title: `Your ${galleryName} gallery is ready!`,
           body: `Your photos are now available. Use code ${code} to unlock.`,

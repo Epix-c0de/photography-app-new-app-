@@ -141,11 +141,13 @@ export default function PackagesPage() {
         showToast('Package created!');
 
         // Notify clients about new package
+        const { data: { user } } = await supabase.auth.getUser();
         const { data: profiles } = await supabase
           .from('user_profiles').select('id').eq('role', 'client');
         if (profiles?.length) {
           const notifs = profiles.map(p => ({
             user_id: p.id,
+            owner_admin_id: user?.id,
             type: 'package',
             title: 'New Package Available!',
             body: `${formName} - KES ${formPrice.toLocaleString()}`,

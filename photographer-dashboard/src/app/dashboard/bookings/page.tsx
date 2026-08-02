@@ -102,10 +102,14 @@ export default function BookingsPage() {
   const updateStatus = async (id: string, status: string, clientId?: string) => {
     setActionLoading(id);
     await supabase.from('bookings').update({ status }).eq('id', id);
-    // Send notification to client
+    const { data: { user } } = await supabase.auth.getUser();
+    // Send notification to client (look up their user_id from client record)
     if (clientId) {
+      const { data: client } = await supabase.from('clients').select('user_id').eq('id', clientId).maybeSingle();
+      const clientUserId = client?.user_id;
       await supabase.from('notifications').insert({
-        user_id: (await supabase.auth.getUser()).data.user?.id,
+        user_id: clientUserId || null,
+        owner_admin_id: user?.id,
         type: 'booking_status_update',
         title: 'Booking Status Updated',
         body: `Your booking status is now ${status.toUpperCase()}.`,

@@ -54,6 +54,7 @@ export default function NotificationsPage() {
       // Insert notifications for each selected client
       const notifications = selectedClients.map((userId) => ({
         user_id: userId,
+        owner_admin_id: user!.id,
         type: 'admin_broadcast',
         title,
         body,

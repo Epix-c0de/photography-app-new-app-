@@ -245,9 +245,10 @@ export default function CalendarPage() {
   };
 
   const sendEventNotifications = async (eventId: string, eventDate: string, eventTitle: string, userIds: string[]) => {
-    // Send notifications to all selected clients
+    const { data: { user } } = await supabase.auth.getUser();
     const notifications = userIds.map(uid => ({
       user_id: uid,
+      owner_admin_id: user?.id,
       type: 'event',
       title: `New Booking: ${eventTitle}`,
       body: `You have a shoot scheduled for ${new Date(eventDate).toLocaleDateString('en-KE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
