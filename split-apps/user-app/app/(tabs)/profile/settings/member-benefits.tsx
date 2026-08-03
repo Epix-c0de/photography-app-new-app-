@@ -226,15 +226,7 @@ export default function MemberBenefits() {
             </View>
           </View>
 
-          <View style={styles.benefitItem}>
-            <View style={[styles.benefitIcon, { backgroundColor: '#f59e0b20' }]}>
-              <Text style={styles.benefitEmoji}>⭐</Text>
-            </View>
-            <View style={styles.benefitInfo}>
-              <Text style={styles.benefitTitle}>Referral Rewards</Text>
-              <Text style={styles.benefitDesc}>Earn KES 100-250 per referral</Text>
-            </View>
-          </View>
+
         </View>
       </View>
     </ScrollView>

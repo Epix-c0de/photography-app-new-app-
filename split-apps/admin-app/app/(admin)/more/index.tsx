@@ -79,13 +79,6 @@ const MENU_ITEMS: MenuItem[] = [
     bg: 'rgba(16,185,129,0.1)',
   },
   {
-    label: 'Referrals',
-    route: '/(admin)/referrals',
-    icon: Users,
-    color: '#F97316',
-    bg: 'rgba(249,115,22,0.1)',
-  },
-  {
     label: 'SMS History',
     route: '/(admin)/sms-history',
     icon: MessageCircle,

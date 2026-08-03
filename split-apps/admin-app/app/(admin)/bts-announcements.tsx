@@ -94,24 +94,6 @@ export default function AdminBtsAnnouncementsScreen() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState<string>('');
 
-  const handleReferral = useCallback(async () => {
-    if (!user) return;
-    const referralCode = user.id.substring(0, 8).toUpperCase();
-    // Fetch domain from platform_settings instead of hardcoding
-    let domain = 'https://epixvisuals.co.ke';
-    try {
-      const { data } = await supabase.from('platform_settings').select('value').eq('key', 'platform_domain').single();
-      if (data?.value) domain = data.value;
-    } catch {}
-    const url = `${domain}/signup?ref=${referralCode}`;
-    const message = `Check out our studio! View portfolio and book here: ${url}`;
-    try {
-      await Share.share({ message, url, title: 'Share Studio Link' });
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
-    }
-  }, [user]);
-
   // BTS Form State
   const [btsPicked, setBtsPicked] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [btsTitle, setBtsTitle] = useState('');

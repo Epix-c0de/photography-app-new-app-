@@ -43,7 +43,6 @@ interface BrandingState {
   btsShareLink: string;
   announcementShareLink: string;
   galleryShareLink: string;
-  referralLink: string;
   whatsappShareLink: string;
 }
 
@@ -63,7 +62,6 @@ export const DEFAULTS = {
   btsShareLink: '',
   announcementShareLink: '',
   galleryShareLink: '',
-  referralLink: '',
   whatsappShareLink: '',
 };
 
@@ -316,7 +314,6 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       btsShareLink: settings?.bts_share_link ?? settings?.share_app_link ?? DEFAULTS.btsShareLink,
       announcementShareLink: settings?.announcement_share_link ?? settings?.share_app_link ?? DEFAULTS.announcementShareLink,
       galleryShareLink: settings?.gallery_share_link ?? settings?.share_app_link ?? DEFAULTS.galleryShareLink,
-      referralLink: settings?.referral_link ?? settings?.share_app_link ?? DEFAULTS.referralLink,
       whatsappShareLink: settings?.whatsapp_share_link ?? settings?.share_app_link ?? DEFAULTS.whatsappShareLink,
     };
   }, [settings]);

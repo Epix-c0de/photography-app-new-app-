@@ -143,7 +143,6 @@ export default function BrandingScreen() {
   const [btsShareLink, setBtsShareLink] = useState('');
   const [announcementShareLink, setAnnouncementShareLink] = useState('');
   const [galleryShareLink, setGalleryShareLink] = useState('');
-  const [referralLink, setReferralLink] = useState('');
   const [whatsappShareLink, setWhatsappShareLink] = useState('');
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
@@ -166,7 +165,6 @@ export default function BrandingScreen() {
       setBtsShareLink(settings.bts_share_link ?? '');
       setAnnouncementShareLink(settings.announcement_share_link ?? '');
       setGalleryShareLink(settings.gallery_share_link ?? '');
-      setReferralLink(settings.referral_link ?? '');
       setWhatsappShareLink(settings.whatsapp_share_link ?? '');
       setLastSyncedAt(new Date());
       setHasUnsavedChanges(false);
@@ -229,7 +227,6 @@ export default function BrandingScreen() {
         bts_share_link: btsShareLink,
         announcement_share_link: announcementShareLink,
         gallery_share_link: galleryShareLink,
-        referral_link: referralLink,
         whatsapp_share_link: whatsappShareLink,
       });
       showSaveSuccess();
@@ -869,7 +866,6 @@ export default function BrandingScreen() {
           { key: 'btsShareLink' as const, label: 'BTS Share Link', placeholder: 'Behind-the-scenes link' },
           { key: 'announcementShareLink' as const, label: 'Announcement Link', placeholder: 'Announcement share link' },
           { key: 'galleryShareLink' as const, label: 'Gallery Share Link', placeholder: 'Gallery share link' },
-          { key: 'referralLink' as const, label: 'Referral Link', placeholder: 'Referral link' },
           { key: 'whatsappShareLink' as const, label: 'WhatsApp Share Link', placeholder: 'WhatsApp share link' },
         ].map(({ key, label, placeholder }) => {
           const setterMap: Record<string, (v: string) => void> = {
@@ -878,7 +874,6 @@ export default function BrandingScreen() {
             btsShareLink: setBtsShareLink,
             announcementShareLink: setAnnouncementShareLink,
             galleryShareLink: setGalleryShareLink,
-            referralLink: setReferralLink,
             whatsappShareLink: setWhatsappShareLink,
           };
           const valueMap: Record<string, string> = {
@@ -887,7 +882,6 @@ export default function BrandingScreen() {
             btsShareLink,
             announcementShareLink,
             galleryShareLink,
-            referralLink,
             whatsappShareLink,
           };
           return (

@@ -41,7 +41,7 @@ export const SMSCloudService = {
     cost?: number;
     error?: string;
   }> {
-    const { data, error } = await supabase.functions.invoke('send-sms', {
+    const { data, error } = await supabase.functions.invoke('send_sms', {
       body: params,
     });
 

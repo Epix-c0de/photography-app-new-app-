@@ -107,13 +107,6 @@ const settingsGroups: SettingsGroup[] = [
         color: '#14B8A6',
       },
       {
-        icon: Gift,
-        label: 'Referrals',
-        subtitle: 'Invite, earn credits',
-        route: '/(admin)/referrals',
-        color: '#EC4899',
-      },
-      {
         icon: Headphones,
         label: 'Support',
         subtitle: 'Chat with team',

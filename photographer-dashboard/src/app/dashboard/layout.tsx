@@ -37,7 +37,6 @@ const navItems = [
   { href: '/dashboard/portfolio', label: 'Portfolio', icon: FolderHeart, color: '#F43F5E' },
   { href: '/dashboard/bts', label: 'BTS & Posts', icon: Film, color: '#8B5CF6' },
   { href: '/dashboard/calendar', label: 'Calendar', icon: Calendar, color: '#F59E0B' },
-  { href: '/dashboard/referrals', label: 'Referrals', icon: Gift, color: '#10B981' },
   { href: '/dashboard/social', label: 'Social', icon: Globe, color: '#3B82F6' },
   { href: '/dashboard/notifications', label: 'Notifications', icon: Bell, color: '#F59E0B' },
   { href: '/dashboard/support', label: 'Support', icon: Headphones, color: '#8B5CF6' },

@@ -108,7 +108,6 @@ export default function AdminLayout() {
       <Tabs.Screen name="reviews" options={{ href: null }} />
       <Tabs.Screen name="support" options={{ href: null }} />
       <Tabs.Screen name="portfolio" options={{ href: null }} />
-      <Tabs.Screen name="referrals" options={{ href: null }} />
       <Tabs.Screen name="sms-history" options={{ href: null }} />
       <Tabs.Screen name="admin-management" options={{ href: null }} />
       <Tabs.Screen name="bts-announcements" options={{ href: null }} />

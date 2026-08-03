@@ -66,11 +66,10 @@ Deno.serve(async (req: Request) => {
       .insert({
         gallery_id: gallery.id,
         client_id: gallery.client_id,
-        client_phone: phone,
-        message_body: message,
-        sent_by_admin_id: user.id,
-        delivery_status: "queued",
-        fallback_whatsapp_triggered: false,
+        photographer_id: gallery.owner_admin_id,
+        phone_number: phone,
+        message: message,
+        status: "queued",
       })
       .select("id")
       .single();
@@ -79,15 +78,14 @@ Deno.serve(async (req: Request) => {
     }
 
     const { data: smsResponse, error: smsError } = await adminClient.functions.invoke("send_sms", {
-      body: { phoneNumber: phone, message },
+      body: { phone_number: phone, message, photographer_id: gallery.owner_admin_id, client_id: gallery.client_id, gallery_id: gallery.id },
     });
 
     const sent = !smsError && smsResponse?.success;
     await adminClient
       .from("sms_logs")
       .update({
-        delivery_status: sent ? "sent" : "failed",
-        fallback_whatsapp_triggered: sent ? false : true,
+        status: sent ? "sent" : "failed",
       })
       .eq("id", smsLog.id);
 

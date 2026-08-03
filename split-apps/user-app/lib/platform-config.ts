@@ -176,10 +176,3 @@ export async function getBtsShareUrl(btsId: string, adminId?: string): Promise<s
   return `${domain}/bts/${btsId}`;
 }
 
-/**
- * Generate a referral share URL using the admin's domain from DB.
- */
-export async function getReferralShareUrl(referralCode: string): Promise<string> {
-  const domain = await getPlatformDomain();
-  return `${domain}/signup?ref=${referralCode}`;
-}

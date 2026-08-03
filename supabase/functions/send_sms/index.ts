@@ -1,76 +1,132 @@
-// supabase/functions/send_sms/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
-serve(async (req: Request) => {
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
-    const { phoneNumber, message, logId } = await req.json()
-    
-    // 1. Validate inputs
-    if (!phoneNumber || !message) {
-      throw new Error("Missing phone or message")
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    const { phone_number, message, photographer_id, client_id, gallery_id } = await req.json();
+
+    if (!phone_number || !message) {
+      return new Response(
+        JSON.stringify({ error: "Missing phone_number or message" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    // Get Africa's Talking credentials from platform settings
+    const { data: settings } = await supabase
+      .from("platform_settings")
+      .select("key, value")
+      .in("key", [
+        "africastalking_api_key",
+        "africastalking_username",
+        "africastalking_sender_id",
+      ]);
 
-    // 2. Call SMS Provider (e.g., Africa's Talking, Twilio)
-    // const response = await fetch('https://api.africastalking.com/version1/messaging', { ... })
-    // Simulate API call failure randomly for testing dead letter queue
-    const isSimulatedFailure = Math.random() < 0.1;
-    
-    if (isSimulatedFailure) {
-       throw new Error("SMS Provider Timeout");
+    const config: Record<string, string> = {};
+    settings?.forEach((s: any) => {
+      config[s.key] = s.value || "";
+    });
+
+    const apiKey = config.africastalking_api_key;
+    const username = config.africastalking_username || "epixvisuals";
+    const senderId = config.africastalking_sender_id;
+
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ error: "Africa's Talking API key not configured" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    console.log(`Sending SMS to ${phoneNumber}: ${message}`)
+    // Format phone number (remove +, ensure 254 prefix for Kenya)
+    let formattedPhone = phone_number.replace(/[^\d]/g, "");
+    if (formattedPhone.startsWith("0") && formattedPhone.length === 10) {
+      formattedPhone = `254${formattedPhone.slice(1)}`;
+    } else if (formattedPhone.startsWith("7") && formattedPhone.length === 9) {
+      formattedPhone = `254${formattedPhone}`;
+    }
 
-    // Update log status if we have logId
-    if (logId) {
-      await supabase.from('sms_logs').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', logId);
+    // Africa's Talking SMS API
+    const apiUrl = "https://api.africastalking.com/version1/messaging";
+    const payload = {
+      username,
+      to: [`+${formattedPhone}`],
+      message,
+      ...(senderId ? { from_: senderId } : {}),
+    };
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apiKey,
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+
+    // Log the SMS
+    const recipient = result.SMSMessageData?.Recipients?.[0];
+    const smsData = {
+      photographer_id: photographer_id || null,
+      client_id: client_id || null,
+      gallery_id: gallery_id || null,
+      phone_number: formattedPhone,
+      message,
+      status: recipient?.status === "Success" ? "sent" : "failed",
+      provider_ref: recipient?.messageId || null,
+      cost: recipient?.cost || null,
+    };
+
+    await supabase.from("sms_logs").insert(smsData);
+
+    // Deduct SMS credits if successful
+    if (photographer_id && recipient?.status === "Success") {
+      const cost = parseFloat(recipient?.cost || "0");
+      if (cost > 0) {
+        await supabase.rpc("deduct_sms_credits", {
+          p_photographer_id: photographer_id,
+          p_amount: cost,
+        });
+      }
     }
 
     return new Response(
-      JSON.stringify({ success: true, message: "SMS Sent" }),
-      { headers: { "Content-Type": "application/json" } },
-    )
+      JSON.stringify({
+        success: recipient?.status === "Success",
+        message_id: recipient?.messageId,
+        status: recipient?.status,
+        cost: recipient?.cost,
+        errorMessage: recipient?.errorMessage || null,
+      }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   } catch (error) {
-    const errorMessage = (error as Error).message;
-    console.error(`SMS Failed: ${errorMessage}`);
-    
-    try {
-        const { logId } = await req.json().catch(() => ({}));
-        if (logId) {
-            const supabase = createClient(supabaseUrl, supabaseServiceKey);
-            
-            // Check retry count and update
-            const { data: logEntry } = await supabase.from('sms_logs').select('retry_count').eq('id', logId).single();
-            const currentRetries = logEntry?.retry_count || 0;
-            
-            if (currentRetries < 3) {
-               // Increment retry count, mark as queued for dead-letter retry worker
-               await supabase.from('sms_logs').update({ 
-                   status: 'queued', 
-                   retry_count: currentRetries + 1,
-                   error_message: errorMessage
-               }).eq('id', logId);
-            } else {
-               // Move to dead letter status
-               await supabase.from('sms_logs').update({ 
-                   status: 'failed_dlq', 
-                   error_message: errorMessage
-               }).eq('id', logId);
-            }
-        }
-    } catch(e) {
-        console.error("Failed to update log status", e);
-    }
-
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    })
+    console.error("SMS send error:", error);
+    return new Response(
+      JSON.stringify({ error: (error as Error).message || "SMS send failed" }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   }
-})
+});

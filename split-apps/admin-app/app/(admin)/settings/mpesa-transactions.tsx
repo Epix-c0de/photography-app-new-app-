@@ -194,7 +194,7 @@ export default function MpesaTransactionsScreen() {
       const clientName = tx.user_profiles?.full_name || 'Customer';
       const message = `Hello ${clientName}, your M-Pesa payment of KES ${Number(tx.amount).toLocaleString()} was received successfully. Receipt: ${tx.mpesa_receipt}. Thank you!`;
 
-      const { error } = await supabase.functions.invoke('send-sms', {
+      const { error } = await supabase.functions.invoke('send_sms', {
         body: {
           phone_number: tx.phone_number,
           message,

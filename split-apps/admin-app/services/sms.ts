@@ -104,7 +104,7 @@ export const SMSService = {
 
       // 1. Try server-side SMS via Supabase Edge Function (Africa's Talking)
       try {
-        const { data, error } = await supabase.functions.invoke('send-sms', {
+        const { data, error } = await supabase.functions.invoke('send_sms', {
           body: { phone_number: pn, message: msg, client_id: clientId ?? null },
         });
         if (!error && data?.success) {

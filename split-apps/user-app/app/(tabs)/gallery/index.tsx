@@ -2244,8 +2244,6 @@ export default function GalleryScreen() {
         )}
       </Modal>
 
-      </Modal>
-
       {/* New Gallery Share Sheet */}
       <GalleryShareSheet
         visible={galleryShareSheet.visible}

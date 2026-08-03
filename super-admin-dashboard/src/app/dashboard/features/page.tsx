@@ -20,7 +20,6 @@ const DEFAULT_FLAGS: Omit<FeatureFlag, 'id' | 'updated_at'>[] = [
   { key: 'ussd_enabled', label: 'USSD Access', description: 'Enable USSD short code gallery access (*384#)', enabled: true, category: 'Access' },
   { key: 'compression_enabled', label: 'Image Compression', description: 'Enable automatic image compression on upload', enabled: true, category: 'Storage' },
   { key: 'offline_mode_enabled', label: 'Offline Gallery Mode', description: 'Allow clients to cache galleries for offline viewing', enabled: false, category: 'Access' },
-  { key: 'referral_program_enabled', label: 'Referral Program', description: 'Enable photographer referral rewards', enabled: true, category: 'Growth' },
   { key: 'bts_sharing_enabled', label: 'BTS Social Sharing', description: 'Allow photographers to share BTS to Instagram/Facebook', enabled: true, category: 'Growth' },
   { key: 'calendar_enabled', label: 'Event Calendar', description: 'Enable event calendar and scheduling features', enabled: true, category: 'Features' },
   { key: 'reviews_enabled', label: 'Client Reviews', description: 'Enable client review collection after payment', enabled: true, category: 'Features' },

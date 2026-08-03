@@ -90,7 +90,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, profile, logout, isDemoMode } = useAuth();
-  const { referralLink } = useBranding();
+  // Branding is loaded via context if needed
   const [showInvoices, setShowInvoices] = useState<boolean>(false);
 
   const [payments, setPayments] = useState<PaymentRow[]>([]);
@@ -383,28 +383,6 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleReferral = async () => {
-    if (!user) return;
-    // Guard against concurrent share calls which cause 'earlier share not completed' error
-    if (isSharingRef.current) return;
-    isSharingRef.current = true;
-    const url = referralLink;
-    const message = `Check out our studio! View our portfolio and app here: ${url}`;
-    try {
-      await Share.share({
-        message,
-        url, // iOS only
-        title: 'Share Studio',
-      });
-    } catch (error: any) {
-      if (!error?.message?.includes('share has not yet completed')) {
-        Alert.alert('Error', error.message);
-      }
-    } finally {
-      isSharingRef.current = false;
-    }
-  };
-
   const handleLogout = useCallback(() => {
     Alert.alert(
       'Sign Out',
@@ -439,11 +417,6 @@ export default function ProfileScreen() {
       action: () => router.push('/(admin)/dashboard'),
     }] : []),
     {
-      icon: <Share2 size={20} color={Colors.gold} />,
-      label: 'Share Studio',
-      subtitle: 'Spread the word',
-      action: handleReferral,
-    },
     {
       icon: <CreditCard size={20} color={Colors.gold} />,
       label: 'Payment History',
@@ -529,26 +502,6 @@ export default function ProfileScreen() {
             </LinearGradient>
           </View>
         )}
-
-        <View style={styles.referralCard}>
-          <LinearGradient
-            colors={['rgba(59,130,246,0.15)', 'rgba(59,130,246,0.05)']}
-            style={styles.referralGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.referralIcon}>
-              <Share2 size={22} color="#3B82F6" />
-            </View>
-            <View style={styles.referralInfo}>
-              <Text style={styles.referralTitle}>Love our work?</Text>
-              <Text style={styles.referralDesc}>Share the experience with your friends</Text>
-            </View>
-            <Pressable style={styles.referralCta} onPress={handleReferral}>
-              <Text style={styles.referralCtaText}>Share</Text>
-            </Pressable>
-          </LinearGradient>
-        </View>
 
         {showInvoices && (
           <View style={styles.section}>
