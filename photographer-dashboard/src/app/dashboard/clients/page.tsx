@@ -82,7 +82,6 @@ export default function ClientsPage() {
 
     // Try full select first; fall back if loyalty_level / total_paid don't exist yet
     let rows: any[] = [];
-    const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from('clients')
       .select('id, user_id, name, phone, email, loyalty_level, total_paid, created_at')

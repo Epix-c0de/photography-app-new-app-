@@ -492,7 +492,7 @@ export default function NotificationsScreen() {
         schema: 'public',
         table: 'notifications',
         filter: `user_id=eq.${user.id}`
-      }, (payload) => {
+      }, async (payload) => {
         if (!payload.new) return;
         
         const newNotif = payload.new as any;
@@ -513,7 +513,6 @@ export default function NotificationsScreen() {
           owner_admin_id: newNotif.owner_admin_id,
         };
 
-        // Fetch admin profile for this notification
         if (newNotif.owner_admin_id) {
           const { data: ap } = await supabase
             .from('user_profiles')
