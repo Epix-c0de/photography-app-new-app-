@@ -82,9 +82,11 @@ export default function ClientsPage() {
 
     // Try full select first; fall back if loyalty_level / total_paid don't exist yet
     let rows: any[] = [];
+    const { data: { user } } = await supabase.auth.getUser();
     const { data, error } = await supabase
       .from('clients')
       .select('id, user_id, name, phone, email, loyalty_level, total_paid, created_at')
+      .eq('owner_admin_id', user?.id)
       .order('name');
 
     if (error) {
@@ -92,6 +94,7 @@ export default function ClientsPage() {
       const { data: fb } = await supabase
         .from('clients')
         .select('id, user_id, name, phone, email, created_at')
+        .eq('owner_admin_id', user?.id)
         .order('name');
       rows = (fb || []).map((c: any) => ({ ...c, loyalty_level: 'Bronze', total_paid: 0 }));
     } else {

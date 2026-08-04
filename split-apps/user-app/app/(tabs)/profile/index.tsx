@@ -417,7 +417,6 @@ export default function ProfileScreen() {
       action: () => router.push('/(admin)/dashboard'),
     }] : []),
     {
-    {
       icon: <CreditCard size={20} color={Colors.gold} />,
       label: 'Payment History',
       subtitle: `Total spent: KES ${totalSpent.toLocaleString()}`,

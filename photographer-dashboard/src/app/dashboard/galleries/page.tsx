@@ -57,6 +57,7 @@ export default function GalleriesPage() {
     const { data } = await supabase
       .from('galleries')
       .select('id, name, access_code, is_paid, is_locked, price, shoot_type, created_at, cover_photo_url, client_id')
+      .eq('owner_admin_id', user.id)
       .order('created_at', { ascending: false });
 
     const clientIds = [...new Set((data || []).map((g: any) => g.client_id).filter(Boolean))];

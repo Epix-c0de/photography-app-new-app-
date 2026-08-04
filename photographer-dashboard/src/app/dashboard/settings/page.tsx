@@ -45,7 +45,7 @@ export default function SettingsPage() {
       supabase.from('sms_credit_packages').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
       supabase.from('admin_storage_allocations').select('*').eq('admin_id', user.id).single(),
       supabase.from('admin_storage_usage').select('used_mb').eq('admin_id', user.id).single(),
-      supabase.from('galleries').select('id', { count: 'exact', head: true }).eq('admin_id', user.id),
+      supabase.from('galleries').select('id', { count: 'exact', head: true }).eq('owner_admin_id', user.id),
     ]) as any;
 
     if (prof) {
