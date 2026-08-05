@@ -5,6 +5,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { ClientService } from '@/services/client';
+import { logAdminAction } from '@/lib/adminDatabase';
 
 // Admin email from environment - NEVER hardcode emails in source
 const ADMIN_EMAIL = process.env.EXPO_PUBLIC_ADMIN_EMAIL || '';
