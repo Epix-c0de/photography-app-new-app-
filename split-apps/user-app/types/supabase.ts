@@ -874,31 +874,46 @@ export interface Database {
         Row: {
           id: string
           user_id: string
+          owner_admin_id: string | null
           package_id: string | null
-          status: 'booked' | 'confirmed' | 'completed' | 'editing' | 'ready'
+          status: 'pending' | 'booked' | 'confirmed' | 'completed' | 'editing' | 'ready' | 'cancelled'
           date: string
           time: string
           location: string
+          notes: string | null
+          shoot_type: string | null
+          payment_phone: string | null
+          deposit_amount: number | null
           created_at: string
         }
         Insert: {
           id?: string
           user_id: string
+          owner_admin_id?: string | null
           package_id?: string | null
-          status: 'booked' | 'confirmed' | 'completed' | 'editing' | 'ready'
+          status: 'pending' | 'booked' | 'confirmed' | 'completed' | 'editing' | 'ready' | 'cancelled'
           date: string
           time: string
           location: string
+          notes?: string | null
+          shoot_type?: string | null
+          payment_phone?: string | null
+          deposit_amount?: number | null
           created_at?: string
         }
         Update: {
           id?: string
           user_id?: string
+          owner_admin_id?: string | null
           package_id?: string | null
-          status?: 'booked' | 'confirmed' | 'completed' | 'editing' | 'ready'
+          status?: 'pending' | 'booked' | 'confirmed' | 'completed' | 'editing' | 'ready' | 'cancelled'
           date?: string
           time?: string
           location?: string
+          notes?: string | null
+          shoot_type?: string | null
+          payment_phone?: string | null
+          deposit_amount?: number | null
           created_at?: string
         }
         Relationships: [

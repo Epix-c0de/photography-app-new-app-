@@ -72,7 +72,6 @@ try {
 const TABS = [
   { key: 'compose', label: 'Compose', icon: MessageSquare },
   { key: 'credits', label: 'Credits', icon: Wallet },
-  { key: 'templates', label: 'Templates', icon: FileText },
   { key: 'history', label: 'History', icon: Clock },
 ]
 

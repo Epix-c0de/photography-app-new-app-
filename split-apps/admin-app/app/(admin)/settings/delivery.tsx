@@ -7,7 +7,7 @@ import {
   RefreshCw, Settings, Smartphone, HardDrive, Cloud, Database as DatabaseIcon, Globe,
   ArrowRight, Shield, Zap, Server, ChevronDown, ChevronUp, X, CheckCircle,
   Clock, Wifi, Upload, Download, BarChart3, ArrowLeftRight, FileImage,
-  Cog, RotateCw, CloudRain, CloudSnow, Sun, Eye, EyeOff
+  Cog, RotateCw, CloudRain, CloudSnow, Sun, Eye, EyeOff, Image as ImageIcon, Star
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { DeliveryService } from '@/services/delivery';
@@ -872,7 +872,7 @@ export default function DeliverySettingsScreen() {
 
           <View style={styles.configRow}>
             <View style={styles.configLeft}>
-              <Image size={18} color={Colors.gold} />
+              <ImageIcon size={18} color={Colors.gold} />
               <View>
                 <Text style={styles.configTitle}>Auto WebP Conversion</Text>
                 <Text style={styles.configSub}>Convert to modern formats automatically</Text>
@@ -1119,19 +1119,6 @@ export default function DeliverySettingsScreen() {
     </View>
   );
 }
-
-// Missing Image icon - using a placeholder
-const Image = ({ size, color }: { size: number; color: string }) => (
-  <View style={{ width: size, height: size, borderRadius: 4, borderWidth: 1.5, borderColor: color, alignItems: 'center', justifyContent: 'center' }}>
-    <View style={{ width: size * 0.4, height: size * 0.4, borderRadius: 2, backgroundColor: color }} />
-  </View>
-);
-
-const Star = ({ size, color }: { size: number; color: string }) => (
-  <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-    <Text style={{ color, fontSize: size, lineHeight: size }}>★</Text>
-  </View>
-);
 
 const styles = StyleSheet.create({
   container: {
