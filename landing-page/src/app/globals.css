@@ -1,0 +1,115 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0A0A0A;
+  --foreground: #FFFFFF;
+  --card: #111111;
+  --card-foreground: #FFFFFF;
+  --gold: #D4AF37;
+  --gold-dark: #B8942E;
+  --gold-muted: rgba(212, 175, 55, 0.15);
+  --border: rgba(255, 255, 255, 0.08);
+  --muted: rgba(255, 255, 255, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground: #FFFFFF;
+    --background: #0A0A0A;
+  }
+}
+
+.gold-gradient {
+  background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+}
+
+.gold-text-gradient {
+  background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.card-glass {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(20px);
+}
+
+.btn-primary {
+  @apply px-8 py-4 rounded-xl font-semibold text-black transition-all duration-300;
+  background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 40px rgba(212, 175, 55, 0.4);
+}
+
+.btn-secondary {
+  @apply px-8 py-4 rounded-xl font-semibold text-white transition-all duration-300;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.input-field {
+  @apply w-full px-4 py-3 rounded-xl text-white transition-all duration-300;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-muted);
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
