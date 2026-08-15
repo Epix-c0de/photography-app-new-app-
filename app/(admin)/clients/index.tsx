@@ -380,7 +380,6 @@ export default function AdminClientsScreen() {
   const [creatingClient, setCreatingClient] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
-  const [newClientEmail, setNewClientEmail] = useState('');
   const [newClientNotes, setNewClientNotes] = useState('');
 
   const [selectedClient, setSelectedClient] = useState<AdminClient | null>(null);
@@ -479,7 +478,6 @@ export default function AdminClientsScreen() {
   const resetCreateClientForm = useCallback(() => {
     setNewClientName('');
     setNewClientPhone('');
-    setNewClientEmail('');
     setNewClientNotes('');
   }, []);
 
@@ -497,7 +495,6 @@ export default function AdminClientsScreen() {
       await AdminService.clients.create({
         name: newClientName.trim(),
         phone: newClientPhone.trim(),
-        email: newClientEmail.trim() || undefined,
         notes: newClientNotes.trim() || undefined
       } as any);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -509,7 +506,7 @@ export default function AdminClientsScreen() {
     } finally {
       setCreatingClient(false);
     }
-  }, [newClientName, newClientPhone, newClientEmail, newClientNotes, loadData, resetCreateClientForm]);
+  }, [newClientName, newClientPhone, newClientNotes, loadData, resetCreateClientForm]);
 
   useEffect(() => {
     let unsubClients: (() => void) | undefined;
@@ -707,17 +704,6 @@ export default function AdminClientsScreen() {
                   keyboardType="phone-pad"
                   value={newClientPhone}
                   onChangeText={setNewClientPhone}
-                />
-              </View>
-              <View style={styles.createModalInputRow}>
-                <Send size={18} color={Colors.textMuted} />
-                <TextInput
-                  style={styles.createModalInput}
-                  placeholder="Email (optional)"
-                  placeholderTextColor={Colors.textMuted}
-                  keyboardType="email-address"
-                  value={newClientEmail}
-                  onChangeText={setNewClientEmail}
                 />
               </View>
               <View style={styles.createModalInputRow}>

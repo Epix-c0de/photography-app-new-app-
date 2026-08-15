@@ -422,7 +422,7 @@ export default function ProfileScreen() {
       subtitle: `Total spent: KES ${totalSpent.toLocaleString()}`,
       action: () => setShowInvoices(!showInvoices),
     },
-    { icon: <Download size={20} color={Colors.gold} />, label: 'Downloads', subtitle: 'Re-download past galleries', badge: String(unlockedGalleries.length), action: () => router.push('/profile/settings/downloads') },
+    { icon: <Download size={20} color={Colors.gold} />, label: 'Downloads', subtitle: `${unlockedGalleries.length} unlocked ${unlockedGalleries.length === 1 ? 'gallery' : 'galleries'}`, badge: String(unlockedGalleries.length), action: () => router.push('/profile/settings/downloads') },
   ];
 
   const settingsItems: MenuItem[] = [

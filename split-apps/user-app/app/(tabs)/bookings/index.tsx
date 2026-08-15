@@ -888,6 +888,7 @@ export default function BookingsScreen() {
 
         {activeSection === 'book' && (
           <View style={styles.bookSection}>
+            {packages.length > 0 && (
             <View style={styles.stepperContainer}>
               {[1, 2, 3, 4].map(step => (
                 <View key={step} style={styles.stepperStep}>
@@ -905,6 +906,7 @@ export default function BookingsScreen() {
                 </View>
               ))}
             </View>
+            )}
 
             {bookingStep === 1 && (
               <Animated.View style={[styles.stepContent, {

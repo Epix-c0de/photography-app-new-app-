@@ -80,18 +80,29 @@ export default function ChatScreen() {
         // ── Step 1: Find or pick the admin to chat with ──
         let adminId: string | null = activeAdminId ?? null;
 
-        // Fetch all available admins first
-        const { data: allAdmins, error: adminError } = await supabase
-          .from('user_profiles')
-          .select('id, name, avatar_url, updated_at')
-          .in('role', ['admin', 'super_admin'])
-          .order('created_at', { ascending: true });
+        // First check which admins this user is actually linked to
+        const { data: existingClients } = await supabase
+          .from('clients')
+          .select('id, owner_admin_id')
+          .eq('user_id', authUser.id);
 
-        if (adminError) {
-          console.error('[Chat] Error fetching admins:', adminError);
+        const linkedAdminIds = Array.from(
+          new Set((existingClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))
+        ) as string[];
+
+        // Only fetch profiles for admins the user is linked to
+        let admins: any[] = [];
+        if (linkedAdminIds.length > 0) {
+          const { data: linkedAdmins, error: adminError } = await supabase
+            .from('user_profiles')
+            .select('id, name, avatar_url, updated_at')
+            .in('id', linkedAdminIds);
+
+          if (adminError) {
+            console.error('[Chat] Error fetching linked admins:', adminError);
+          }
+          admins = linkedAdmins || [];
         }
-
-        const admins = allAdmins || [];
 
         const chooseBestAdmin = (candidates: any[]) => {
           if (!candidates || candidates.length === 0) return null;
@@ -113,100 +124,34 @@ export default function ChatScreen() {
           return scored[0] ?? null;
         };
 
-        // If we have an adminId but that admin looks like a fresh/unconfigured account
-        // (email as name + no avatar), prefer the best-looking admin from the list.
-        if (adminId && admins.length > 0) {
-          const selected = admins.find((a) => a.id === adminId);
-          const selectedName = String(selected?.name ?? '');
-          const selectedLooksLikeEmail = selectedName.includes('@');
-          const selectedHasAvatar = !!selected?.avatar_url;
-
-          if (selectedLooksLikeEmail && !selectedHasAvatar) {
-            const best = chooseBestAdmin(admins);
-            if (best?.id) {
-              adminId = best.id;
-            }
-          }
-        }
-
-        if (!adminId) {
-          // Check if user already has a linked client record with ANY admin
-          const { data: existingClients } = await supabase
-            .from('clients')
-            .select('id, owner_admin_id')
-            .eq('user_id', authUser.id);
-
-          // If we have existing client records, choose the BEST admin among the linked ones
-          if (existingClients && existingClients.length > 0) {
-            const linkedAdminIds = Array.from(
-              new Set((existingClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))
-            ) as string[];
-            const linkedAdmins = admins.filter((a) => linkedAdminIds.includes(a.id));
-            const bestLinked = chooseBestAdmin(linkedAdmins);
-            if (bestLinked?.id) {
-              adminId = bestLinked.id;
-            }
-          }
+        // If we have an adminId, verify it's a linked admin
+        if (adminId && !linkedAdminIds.includes(adminId)) {
+          adminId = null;
         }
 
         if (!adminId && admins.length > 0) {
-          // Fallback: pick the best available admin
-          adminId = chooseBestAdmin(admins)?.id ?? admins[0].id;
-        }
-
-        if (!adminId) {
-          if (!cancelled) setInitError('No admin found. Please contact support.');
-          return;
-        }
-
-        // ── Step 2: Ensure a client row exists for this user + admin ──
-        let clientId: string | null = null;
-
-        const { data: existingRow } = await supabase
-          .from('clients')
-          .select('id')
-          .eq('user_id', authUser.id)
-          .eq('owner_admin_id', adminId)
-          .maybeSingle();
-
-        if (existingRow?.id) {
-          clientId = existingRow.id;
-        } else {
-          // Create the client row
-          const { data: profile } = await supabase
-            .from('user_profiles')
-            .select('name, phone, email')
-            .eq('id', authUser.id)
-            .maybeSingle();
-
-          const { data: newRow, error: insertError } = await supabase
-            .from('clients')
-            .insert({
-              owner_admin_id: adminId,
-              user_id: authUser.id,
-              name: profile?.name ?? authUser.email ?? 'Client',
-              phone: profile?.phone ?? null,
-              email: profile?.email ?? authUser.email ?? null,
-            })
-            .select('id')
-            .single();
-
-          if (insertError) {
-            // Could already exist due to a race condition — try fetching again
-            const { data: retryRow } = await supabase
-              .from('clients')
-              .select('id')
-              .eq('user_id', authUser.id)
-              .eq('owner_admin_id', adminId)
-              .maybeSingle();
-            clientId = retryRow?.id ?? null;
-          } else {
-            clientId = newRow?.id ?? null;
+          const bestLinked = chooseBestAdmin(admins);
+          if (bestLinked?.id) {
+            adminId = bestLinked.id;
           }
         }
 
+        if (!adminId) {
+          if (!cancelled) setInitError('No admin linked to your account. Please wait for your photographer to set up your profile.');
+          return;
+        }
+
+        // ── Step 2: Get the client row for this user + admin ──
+        let clientId: string | null = null;
+
+        // Find the client record from the existing linked clients
+        const matchedClient = (existingClients || []).find(
+          (c: any) => c.owner_admin_id === adminId
+        );
+        clientId = matchedClient?.id ?? null;
+
         if (!clientId) {
-          if (!cancelled) setInitError('Could not set up your chat profile. Please try again.');
+          if (!cancelled) setInitError('No client profile found. Please wait for your photographer to set up your account.');
           return;
         }
 

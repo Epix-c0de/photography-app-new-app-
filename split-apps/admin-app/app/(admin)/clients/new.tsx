@@ -12,7 +12,6 @@ export default function NewClientScreen() {
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
 
   const handleCreate = async () => {
@@ -26,7 +25,6 @@ export default function NewClientScreen() {
       await AdminService.client.create({
         name: name.trim(),
         phone: phone.trim(),
-        email: email.trim(),
         notes: notes.trim() || null,
         total_paid: 0,
         package_name: null,
@@ -98,19 +96,6 @@ export default function NewClientScreen() {
               value={phone}
               onChangeText={setPhone}
               keyboardType="phone-pad"
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. jane@example.com"
-              placeholderTextColor={Colors.textMuted}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
             />
           </View>
 

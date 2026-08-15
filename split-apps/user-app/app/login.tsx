@@ -19,7 +19,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, enableDemoMode } = useAuth();
+  const { login } = useAuth();
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState<boolean>(false);
@@ -30,6 +30,8 @@ export default function LoginScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [hasBiometrics, setHasBiometrics] = useState<boolean>(false);
   const [savedEmail, setSavedEmail] = useState<string | null>(null);
+  const [bgImage, setBgImage] = useState('https://images.unsplash.com/photo-1511285560929-80b456fea0bc?q=80&w=1000&auto=format&fit=crop');
+  const [loginTagline, setLoginTagline] = useState('Every moment deserves to be captured beautifully.');
 
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
@@ -46,6 +48,21 @@ export default function LoginScreen() {
         setSavedEmail(email);
         setEmail(email);
       }
+    })();
+
+    // Load dynamic screen settings
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('screen_settings')
+          .select('login_background_image, login_tagline')
+          .eq('id', 'default')
+          .maybeSingle();
+        if (data) {
+          if (data.login_background_image) setBgImage(data.login_background_image);
+          if (data.login_tagline) setLoginTagline(data.login_tagline);
+        }
+      } catch {}
     })();
   }, []);
 
@@ -238,19 +255,6 @@ export default function LoginScreen() {
     }
   }, [router]);
 
-  const handleDemoLogin = useCallback(async () => {
-    try {
-      setIsSubmitting(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await enableDemoMode();
-      router.replace('/(tabs)/home');
-    } catch (error: any) {
-      Alert.alert('Demo Mode Error', error?.message || 'Failed to enable demo mode.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [enableDemoMode, router]);
-
 
   const handleLogoTap = useCallback(() => {
     const newCount = tapCount + 1;
@@ -275,7 +279,7 @@ export default function LoginScreen() {
 
   return (
     <ImageBackground
-      source={{ uri: 'https://images.unsplash.com/photo-1511285560929-80b456fea0bc?q=80&w=1000&auto=format&fit=crop' }}
+      source={{ uri: bgImage }}
       style={styles.container}
       blurRadius={Platform.OS === 'ios' ? 8 : 4}
     >
@@ -304,7 +308,7 @@ export default function LoginScreen() {
             </Pressable>
 
             <Text style={styles.welcomeText}>Welcome back</Text>
-            <Text style={styles.welcomeSubtext}>Sign in to access your galleries</Text>
+            <Text style={styles.welcomeSubtext}>{loginTagline || 'Sign in to access your galleries'}</Text>
 
             <View style={styles.form}>
               <View style={styles.inputContainer}>
@@ -359,14 +363,6 @@ export default function LoginScreen() {
                     {!isSubmitting && <ArrowRight size={18} color={Colors.background} />}
                   </LinearGradient>
                 </Animated.View>
-              </Pressable>
-
-              <Pressable
-                onPress={handleDemoLogin}
-                style={styles.demoButton}
-                disabled={isSubmitting}
-              >
-                <Text style={styles.demoButtonText}>Continue in Demo Mode</Text>
               </Pressable>
 
               {hasBiometrics && savedEmail && (
@@ -525,22 +521,6 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: -10,
     marginBottom: 20,
-  },
-  demoButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 50,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.28)',
-    backgroundColor: 'rgba(212,175,55,0.08)',
-    marginTop: -8,
-    marginBottom: 20,
-  },
-  demoButtonText: {
-    color: Colors.gold,
-    fontSize: 15,
-    fontWeight: '700' as const,
   },
   biometricText: {
     color: Colors.gold,

@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Switch, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronRight, Lock, Mail, Shield, KeyRound, Fingerprint, Trash2, Smartphone, Eye, EyeOff, CheckCircle } from 'lucide-react-native';
+import { ChevronRight, Lock, Mail, Shield, KeyRound, Fingerprint, Trash2, Smartphone, Eye, EyeOff, CheckCircle, Download, FileText } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
 import Colors from '@/constants/colors';
@@ -108,6 +108,10 @@ export default function PrivacySecurity() {
   const [changePhoneOpen, setChangePhoneOpen] = useState<boolean>(false);
   const [newPhone, setNewPhone] = useState<string>('');
   const [phoneSubmitting, setPhoneSubmitting] = useState(false);
+
+  const [exportSubmitting, setExportSubmitting] = useState(false);
+  const [exportData, setExportData] = useState<any>(null);
+  const [showExportSummary, setShowExportSummary] = useState(false);
 
   const userEmail = user?.email || 'Not connected';
   const userPhone = profile?.phone || 'Not set';
@@ -262,22 +266,76 @@ export default function PrivacySecurity() {
     }
   };
 
-  const handleDownloadData = useCallback(() => {
+  const handleDownloadData = useCallback(async () => {
     Alert.alert(
       'Data Download Request',
-      `We will compile all your personal data and send it to ${userEmail} within 24 hours. This includes your profile, galleries, payments and activity.`,
+      `We will compile all your personal data and send it to ${userEmail}. This includes your profile, galleries, payments and activity.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Request Download',
-          onPress: () => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            Alert.alert('✓ Request Submitted', 'You will receive your data export via email within 24 hours.');
+          onPress: async () => {
+            setExportSubmitting(true);
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (!session?.access_token) throw new Error('Not authenticated');
+
+              const response = await supabase.functions.invoke('request-data-export', {
+                body: {},
+                headers: {
+                  Authorization: `Bearer ${session.access_token}`,
+                },
+              });
+
+              if (response.error) throw response.error;
+
+              const result = response.data;
+              if (result.success) {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                setExportData(result.data);
+                setShowExportSummary(true);
+                Alert.alert(
+                  '✓ Data Compiled',
+                  'Your data has been compiled successfully. You can now view and download it below.'
+                );
+              } else {
+                Alert.alert('Pending Request', result.message || 'You already have a pending request.');
+              }
+            } catch (error: any) {
+              console.error('Export error:', error);
+              Alert.alert('Export Failed', error.message || 'Could not compile your data. Please try again.');
+            } finally {
+              setExportSubmitting(false);
+            }
           }
         }
       ]
     );
   }, [userEmail]);
+
+  const handleDownloadJSON = useCallback(async () => {
+    if (!exportData) return;
+    try {
+      const jsonString = JSON.stringify(exportData, null, 2);
+      const filename = `my-data-export-${new Date().toISOString().split('T')[0]}.json`;
+      
+      // On mobile, use Share to save
+      const Share = require('expo-share').default;
+      const FileSystem = require('expo-file-system');
+      
+      const filePath = `${FileSystem.cacheDirectory}${filename}`;
+      await FileSystem.writeAsStringAsync(filePath, jsonString);
+      
+      await Share.share({
+        url: filePath,
+        title: 'My Data Export',
+        message: `Here is my data export from Epix Visuals (${new Date().toLocaleDateString()})`,
+      });
+    } catch (error) {
+      console.error('Download error:', error);
+      Alert.alert('Download Failed', 'Could not save the file. Please try again.');
+    }
+  }, [exportData]);
 
   const handleDeleteAccount = useCallback(() => {
     Alert.alert(
@@ -560,12 +618,49 @@ export default function PrivacySecurity() {
         {/* DATA & PRIVACY */}
         <SettingsSection title="DATA & PRIVACY">
           <SettingsRow
-            icon={<Smartphone size={18} color={Colors.textSecondary} />}
+            icon={<Download size={18} color={Colors.gold} />}
             label="Download My Data"
-            description="Request a personal copy of all your data"
+            description={exportSubmitting ? 'Compiling your data...' : 'Request a personal copy of all your data'}
             onPress={handleDownloadData}
             showArrow
+            value={exportSubmitting ? undefined : undefined}
           />
+          {exportSubmitting && (
+            <View style={styles.exportLoadingRow}>
+              <ActivityIndicator size="small" color={Colors.gold} />
+              <Text style={styles.exportLoadingText}>Compiling your data...</Text>
+            </View>
+          )}
+          {showExportSummary && exportData && (
+            <View style={styles.exportSummary}>
+              <View style={styles.exportSummaryHeader}>
+                <FileText size={18} color={Colors.gold} />
+                <Text style={styles.exportSummaryTitle}>Your Data Export</Text>
+              </View>
+              <View style={styles.exportStats}>
+                <View style={styles.exportStatItem}>
+                  <Text style={styles.exportStatNumber}>{exportData.summary?.total_galleries || 0}</Text>
+                  <Text style={styles.exportStatLabel}>Galleries</Text>
+                </View>
+                <View style={styles.exportStatItem}>
+                  <Text style={styles.exportStatNumber}>{exportData.summary?.total_photos || 0}</Text>
+                  <Text style={styles.exportStatLabel}>Photos</Text>
+                </View>
+                <View style={styles.exportStatItem}>
+                  <Text style={styles.exportStatNumber}>{exportData.summary?.total_downloads || 0}</Text>
+                  <Text style={styles.exportStatLabel}>Downloads</Text>
+                </View>
+                <View style={styles.exportStatItem}>
+                  <Text style={styles.exportStatNumber}>{exportData.summary?.total_bookings || 0}</Text>
+                  <Text style={styles.exportStatLabel}>Bookings</Text>
+                </View>
+              </View>
+              <Pressable style={styles.downloadJsonBtn} onPress={handleDownloadJSON}>
+                <Download size={16} color="#000" />
+                <Text style={styles.downloadJsonBtnText}>Download JSON File</Text>
+              </Pressable>
+            </View>
+          )}
           <SettingsRow
             icon={<Trash2 size={18} color={Colors.error} />}
             label="Delete My Account"
@@ -746,5 +841,68 @@ const styles = StyleSheet.create({
   successText: {
     fontSize: 13,
     color: Colors.success,
+  },
+  exportLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 16,
+    backgroundColor: 'rgba(212,175,55,0.08)',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  exportLoadingText: {
+    fontSize: 13,
+    color: Colors.gold,
+    fontWeight: '500',
+  },
+  exportSummary: {
+    padding: 16,
+    backgroundColor: 'rgba(212,175,55,0.06)',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  exportSummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  exportSummaryTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.gold,
+  },
+  exportStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+  },
+  exportStatItem: {
+    alignItems: 'center',
+  },
+  exportStatNumber: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  exportStatLabel: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  downloadJsonBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.gold,
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  downloadJsonBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000',
   },
 });

@@ -71,13 +71,25 @@ export default function BTSAllScreen() {
         return;
       }
 
-      let query = supabase
-        .from('bts_posts')
-        .select('*')
-        .eq('is_active', true)
-        .in('created_by', linkedAdminIds)
-        .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
-        .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`);
+      // Build query: posts from linked admins OR global visibility
+      let query;
+      if (linkedAdminIds.length > 0) {
+        query = supabase
+          .from('bts_posts')
+          .select('*')
+          .eq('is_active', true)
+          .or(`created_by.in.(${linkedAdminIds.join(',')}),visibility.eq.global`)
+          .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+          .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`);
+      } else {
+        query = supabase
+          .from('bts_posts')
+          .select('*')
+          .eq('is_active', true)
+          .eq('visibility', 'global')
+          .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+          .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`);
+      }
 
       if (filter !== 'All') query = query.eq('category', filter);
       if (searchValue.length > 0) query = query.ilike('title', `%${searchValue}%`);

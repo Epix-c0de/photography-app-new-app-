@@ -138,20 +138,22 @@ export default function PortfolioScreen() {
         uploadedUrls.push({ url: publicUrl, caption: null });
       }
 
-      const coverUrl = uploadedUrls[0].url;
-      const { error: insertError } = await supabase.from('portfolio_items').insert({
-        owner_admin_id: user.id,
-        created_by: user.id,
-        title: uploadTitle.trim(),
-        description: uploadDesc.trim() || null,
-        photo_url: coverUrl,
-        media_url: coverUrl,
-        images: uploadedUrls.length > 1 ? uploadedUrls : null,
-        category: uploadCategory,
-        is_featured: uploadFeatured,
-        package_id: uploadPackageId || null,
-      } as any);
-      if (insertError) throw insertError;
+      // Insert one row per image so all appear in the grid
+      for (let i = 0; i < uploadedUrls.length; i++) {
+        const { error: insertError } = await supabase.from('portfolio_items').insert({
+          admin_id: user.id,
+          owner_admin_id: user.id,
+          created_by: user.id,
+          title: uploadedUrls.length === 1 ? uploadTitle.trim() : `${uploadTitle.trim()} ${i + 1}`,
+          description: uploadDesc.trim() || null,
+          photo_url: uploadedUrls[i].url,
+          media_url: uploadedUrls[i].url,
+          category: uploadCategory,
+          is_featured: uploadFeatured,
+          package_id: uploadPackageId || null,
+        } as any);
+        if (insertError) throw insertError;
+      }
       setShowUploadModal(false);
       resetUploadForm();
       loadPortfolio();

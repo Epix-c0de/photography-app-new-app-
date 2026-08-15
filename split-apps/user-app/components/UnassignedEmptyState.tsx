@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Share, Linking } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Camera, Share2, ArrowRight } from 'lucide-react-native';
+import { Camera, Share2, ArrowRight, UserPlus, Sparkles } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -29,16 +29,17 @@ export default function UnassignedEmptyState({
 
   const loadInviteLink = async () => {
     try {
-      // First, try to load from platform settings
       const { data: settings } = await supabase
         .from('platform_settings')
-        .select('value')
-        .eq('key', 'platform_invite_url')
-        .maybeSingle();
+        .select('key, value')
+        .in('key', ['platform_admin_app_android_link', 'platform_admin_app_ios_link', 'platform_invite_url'])
+        .order('key');
 
-      if (settings?.value) {
-        setInviteLink(settings.value);
-        return;
+      if (settings && settings.length > 0) {
+        const kvMap: Record<string, string> = {};
+        settings.forEach((r: any) => { kvMap[r.key] = r.value ?? ''; });
+        const link = kvMap['platform_invite_url'] || kvMap['platform_admin_app_android_link'] || kvMap['platform_admin_app_ios_link'];
+        if (link) { setInviteLink(link); return; }
       }
 
       const { data: { user } } = await supabase.auth.getUser();
@@ -49,7 +50,6 @@ export default function UnassignedEmptyState({
         return;
       }
 
-      // Find the admin this client is assigned to via the clients table
       const { data: clientRecord } = await supabase
         .from('clients')
         .select('owner_admin_id')
@@ -95,9 +95,7 @@ export default function UnassignedEmptyState({
 
     try {
       await Share.share({ message, url: inviteLink, title: 'Join Epix Visuals' });
-    } catch {
-      // User cancelled — that's fine
-    } finally {
+    } catch {} finally {
       setSharing(false);
     }
   };
@@ -109,32 +107,52 @@ export default function UnassignedEmptyState({
 
   return (
     <View style={styles.container}>
-      {/* Main icon */}
+      {/* Animated icon */}
       <View style={styles.iconWrapper}>
         <LinearGradient
-          colors={['rgba(212,175,55,0.15)', 'rgba(212,175,55,0.05)']}
+          colors={['rgba(212,175,55,0.2)', 'rgba(212,175,55,0.05)']}
           style={styles.iconGradient}
         >
-          {icon ?? <Camera size={40} color={Colors.gold} strokeWidth={1.5} />}
+          {icon ?? <Camera size={36} color={Colors.gold} strokeWidth={1.5} />}
         </LinearGradient>
+        <View style={styles.badgeWrap}>
+          <LinearGradient colors={[Colors.gold, Colors.goldDark]} style={styles.badge}>
+            <Sparkles size={10} color="#000" />
+          </LinearGradient>
+        </View>
       </View>
 
       <Text style={styles.title}>No photographer yet</Text>
       <Text style={styles.subtitle}>
-        To access {featureName}, you need to be connected to a photographer.
+        To access {featureName}, connect with a photographer first.
       </Text>
 
-      {/* ── Referral card ── */}
+      {/* Referral card */}
       <View style={styles.referralCard}>
         <View style={styles.referralHeader}>
           <View style={styles.referralIconBg}>
-            <Share2 size={18} color={Colors.gold} />
+            <UserPlus size={18} color={Colors.gold} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.referralCardTitle}>Notify your photographer</Text>
+            <Text style={styles.referralCardTitle}>Get connected</Text>
             <Text style={styles.referralCardSubtitle}>
-              Share the app with your photographer so they can create your gallery
+              Share the app with your photographer so they can add you to their client list.
             </Text>
+          </View>
+        </View>
+
+        <View style={styles.stepsContainer}>
+          <View style={styles.step}>
+            <View style={styles.stepNum}><Text style={styles.stepNumText}>1</Text></View>
+            <Text style={styles.stepText}>Share this link with your photographer</Text>
+          </View>
+          <View style={styles.step}>
+            <View style={styles.stepNum}><Text style={styles.stepNumText}>2</Text></View>
+            <Text style={styles.stepText}>They register you in the system</Text>
+          </View>
+          <View style={styles.step}>
+            <View style={styles.stepNum}><Text style={styles.stepNumText}>3</Text></View>
+            <Text style={styles.stepText}>Your account is linked automatically</Text>
           </View>
         </View>
 
@@ -149,7 +167,7 @@ export default function UnassignedEmptyState({
             end={{ x: 1, y: 1 }}
             style={styles.shareButtonGradient}
           >
-            <Share2 size={16} color={Colors.background} />
+            <Share2 size={16} color="#000" />
             <Text style={styles.shareButtonText}>
               {sharing ? 'Opening share...' : 'Share Signup Link'}
             </Text>
@@ -162,7 +180,6 @@ export default function UnassignedEmptyState({
         </Pressable>
       </View>
 
-      {/* Go to home */}
       <Pressable style={styles.homeButton} onPress={handleGoHome}>
         <Text style={styles.homeButtonText}>Go to Home</Text>
       </Pressable>
@@ -179,47 +196,62 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   iconWrapper: {
-    marginBottom: 20,
+    marginBottom: 24,
+    position: 'relative',
   },
   iconGradient: {
-    width: 96,
-    height: 96,
-    borderRadius: 28,
+    width: 88,
+    height: 88,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(212,175,55,0.2)',
   },
+  badgeWrap: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+  },
+  badge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.background,
+  },
   title: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     color: Colors.white,
     textAlign: 'center',
     marginBottom: 8,
+    letterSpacing: -0.3,
   },
   subtitle: {
     fontSize: 14,
     color: Colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 21,
+    lineHeight: 20,
     marginBottom: 28,
     paddingHorizontal: 8,
   },
-  // ── Referral card ──
   referralCard: {
     width: '100%',
     backgroundColor: Colors.card,
     borderRadius: 20,
     padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(212,175,55,0.15)',
+    borderColor: 'rgba(212,175,55,0.12)',
     marginBottom: 16,
     gap: 16,
   },
   referralHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 14,
+    gap: 12,
   },
   referralIconBg: {
     width: 40,
@@ -234,12 +266,41 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: Colors.white,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   referralCardSubtitle: {
     fontSize: 13,
     color: Colors.textSecondary,
     lineHeight: 18,
+  },
+  stepsContainer: {
+    gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    padding: 14,
+  },
+  step: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stepNum: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(212,175,55,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  stepText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    flex: 1,
   },
   shareButton: {
     borderRadius: 14,
@@ -255,7 +316,7 @@ const styles = StyleSheet.create({
   shareButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: Colors.background,
+    color: '#000',
   },
   linkRow: {
     flexDirection: 'row',
@@ -269,7 +330,6 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textDecorationLine: 'underline',
   },
-  // ── Home button ──
   homeButton: {
     width: '100%',
     height: 48,

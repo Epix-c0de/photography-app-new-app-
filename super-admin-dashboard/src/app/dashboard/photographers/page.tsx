@@ -11,6 +11,7 @@ type Photographer = {
   gallery_count: number; client_count: number; total_revenue: number;
   storage_gb?: number; total_photos?: number; avg_photo_size_bytes?: number;
   is_suspended?: boolean; allow_original_download?: boolean;
+  is_master_admin?: boolean;
 };
 
 type StorageMetrics = {
@@ -44,7 +45,7 @@ export default function PhotographersPage() {
     setLoading(true);
     try {
       const [{ data: admins }, { data: galleries }, { data: clients }, { data: subs }] = await Promise.all([
-        supabase.from('user_profiles').select('id, name, email, phone, subscription_status, subscription_expires_at, is_lifetime, is_suspended, allow_original_download, created_at').in('role', ['admin', 'super_admin']).order('created_at', { ascending: false }) as any,
+        supabase.from('user_profiles').select('id, name, email, phone, subscription_status, subscription_expires_at, is_lifetime, is_suspended, allow_original_download, is_master_admin, created_at').in('role', ['admin', 'super_admin']).order('created_at', { ascending: false }) as any,
         supabase.from('galleries').select('owner_admin_id') as any,
         supabase.from('clients').select('owner_admin_id') as any,
         supabase.from('admin_subscriptions').select('admin_id, amount, status').eq('status', 'success') as any,
@@ -113,6 +114,17 @@ export default function PhotographersPage() {
     setActionLoading(adminId);
     try {
       await supabase.from('user_profiles').update({ is_lifetime: true, subscription_status: 'active', subscription_expires_at: '2099-12-31T23:59:59Z' }).eq('id', adminId);
+      await loadData();
+    } catch (e) { console.error(e); }
+    setActionLoading(null);
+  };
+
+  const handleToggleMasterAdmin = async (adminId: string, currentValue: boolean) => {
+    const action = currentValue ? 'remove master admin access from' : 'grant master admin access to';
+    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} this photographer?`)) return;
+    setActionLoading(adminId);
+    try {
+      await supabase.from('user_profiles').update({ is_master_admin: !currentValue }).eq('id', adminId);
       await loadData();
     } catch (e) { console.error(e); }
     setActionLoading(null);
@@ -196,7 +208,12 @@ export default function PhotographersPage() {
                     </Link>
                   </td>
                   <td style={{ padding: '14px 20px' }}>
-                    <StatusBadge status={p.subscription_status} expiresAt={p.subscription_expires_at} isLifetime={p.is_lifetime} isSuspended={p.is_suspended} />
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={p.subscription_status} expiresAt={p.subscription_expires_at} isLifetime={p.is_lifetime} isSuspended={p.is_suspended} />
+                      {p.is_master_admin && (
+                        <span className="px-2 py-1 rounded-lg text-xs font-bold" style={{ background: 'rgba(255,200,0,0.15)', color: '#FFC800' }}>👑 Master</span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ padding: '14px 20px', fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>{p.client_count}</td>
                   <td style={{ padding: '14px 20px', fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>{p.gallery_count}</td>
@@ -216,27 +233,36 @@ export default function PhotographersPage() {
                     {new Date(p.created_at).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: '2-digit' })}
                   </td>
                   <td style={{ padding: '14px 20px' }}>
-                    {!p.is_lifetime ? (
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => handleExtend(p.id, 30)} disabled={actionLoading === p.id}
-                          className="text-xs px-3 py-1.5 rounded-lg font-semibold"
-                          style={{ background: 'rgba(52,199,89,0.1)', border: '1px solid rgba(52,199,89,0.2)', color: '#34C759' }}>
-                          +30d
-                        </button>
-                        <button onClick={() => handleMakeLifetime(p.id)} disabled={actionLoading === p.id}
-                          className="text-xs px-3 py-1.5 rounded-lg font-semibold"
-                          style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.2)', color: '#D4AF37' }}>
-                          Lifetime
-                        </button>
-                        <button onClick={() => handleDeactivate(p.id)} disabled={actionLoading === p.id}
-                          className="text-xs px-3 py-1.5 rounded-lg font-semibold"
-                          style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.2)', color: '#FF3B30' }}>
-                          Deactivate
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-600">Lifetime</span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handleToggleMasterAdmin(p.id, !!p.is_master_admin)} disabled={actionLoading === p.id}
+                        className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                        style={p.is_master_admin
+                          ? { background: 'rgba(255,200,0,0.2)', border: '1px solid rgba(255,200,0,0.4)', color: '#FFC800' }
+                          : { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.4)' }}>
+                        {p.is_master_admin ? '👑 Master' : 'Make Master'}
+                      </button>
+                      {!p.is_lifetime ? (
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => handleExtend(p.id, 30)} disabled={actionLoading === p.id}
+                            className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                            style={{ background: 'rgba(52,199,89,0.1)', border: '1px solid rgba(52,199,89,0.2)', color: '#34C759' }}>
+                            +30d
+                          </button>
+                          <button onClick={() => handleMakeLifetime(p.id)} disabled={actionLoading === p.id}
+                            className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                            style={{ background: 'rgba(212,175,55,0.1)', border: '1px solid rgba(212,175,55,0.2)', color: '#D4AF37' }}>
+                            Lifetime
+                          </button>
+                          <button onClick={() => handleDeactivate(p.id)} disabled={actionLoading === p.id}
+                            className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                            style={{ background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.2)', color: '#FF3B30' }}>
+                            Deactivate
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-600">Lifetime</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

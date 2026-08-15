@@ -379,7 +379,7 @@ export default function AdminBtsAnnouncementsScreen() {
         media_url: publicUrl,
         image_url: publicUrl,
         media_type: annMediaType,
-        visibility: annVisibility === 'global' ? 'all' : 'selected',
+        visibility: annVisibility,
         is_active: true,
         expires_at: annExpiryDays ? daysToExpiryIso(Number(annExpiryDays)) : null,
         scheduled_for: annScheduledFor && !isNaN(new Date(annScheduledFor).getTime()) ? new Date(annScheduledFor).toISOString() : null,
@@ -430,20 +430,22 @@ export default function AdminBtsAnnouncementsScreen() {
         uploadedUrls.push({ url: publicUrl, caption: null });
       }
 
-      const coverUrl = uploadedUrls[0].url;
-      const { error: dbErr } = await supabase.from('portfolio_items').insert({
-        owner_admin_id: user.id,
-        created_by: user.id,
-        title: portfolioTitle || 'Untitled',
-        description: portfolioDescription,
-        photo_url: coverUrl,
-        media_url: coverUrl,
-        images: uploadedUrls.length > 1 ? uploadedUrls : null,
-        category: portfolioCategory,
-        is_featured: portfolioFeatured,
-        is_top_rated: portfolioTopRated,
-      } as any);
-      if (dbErr) throw dbErr;
+      // Insert one row per image so all appear in the grid
+      for (let i = 0; i < uploadedUrls.length; i++) {
+        const { error: dbErr } = await supabase.from('portfolio_items').insert({
+          admin_id: user.id,
+          owner_admin_id: user.id,
+          created_by: user.id,
+          title: uploadedUrls.length === 1 ? (portfolioTitle || 'Untitled') : `${portfolioTitle || 'Untitled'} ${i + 1}`,
+          description: portfolioDescription,
+          photo_url: uploadedUrls[i].url,
+          media_url: uploadedUrls[i].url,
+          category: portfolioCategory,
+          is_featured: portfolioFeatured,
+          is_top_rated: portfolioTopRated,
+        } as any);
+        if (dbErr) throw dbErr;
+      }
 
       Alert.alert('Success', `${uploadedUrls.length} photo${uploadedUrls.length > 1 ? 's' : ''} uploaded to portfolio!`);
       setPortfolioPicked([]);
@@ -635,30 +637,51 @@ export default function AdminBtsAnnouncementsScreen() {
   const renderListHeader = () => (
     <>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.title}>BTS & Announcements</Text>
-        <Text style={styles.subtitle}>Create engaging content for your audience</Text>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerLeft}>
+            <View style={styles.headerIconContainer}>
+              <Layers size={20} color={Colors.gold} />
+            </View>
+            <View>
+              <Text style={styles.title}>Content Studio</Text>
+              <Text style={styles.subtitle}>Create & manage your content</Text>
+            </View>
+          </View>
+          <View style={styles.headerBadge}>
+            <Text style={styles.headerBadgeText}>3</Text>
+          </View>
+        </View>
       </View>
 
-      {/* Content Type Tabs */}
-      <View style={styles.tabBar}>
-        {([
-          { key: 'bts' as ContentType, label: 'BTS Posts', icon: <Layers size={16} /> },
-          { key: 'announcement' as ContentType, label: 'Announcements', icon: <Megaphone size={16} /> },
-          { key: 'portfolio' as ContentType, label: 'Portfolio', icon: <ImageIcon size={16} /> },
-        ]).map(tab => (
-          <Pressable
-            key={tab.key}
-            style={[styles.tab, contentType === tab.key && styles.tabActive]}
-            onPress={() => setContentType(tab.key)}
-          >
-            <View style={[styles.tabIconWrap, contentType === tab.key && styles.tabIconWrapActive]}>
-              {tab.icon}
-            </View>
-            <Text style={[styles.tabLabel, contentType === tab.key && styles.tabLabelActive]}>{tab.label}</Text>
-            {contentType === tab.key && <View style={styles.tabIndicator} />}
-          </Pressable>
-        ))}
+      {/* Content Type Tabs - Segmented Control Style */}
+      <View style={styles.segmentContainer}>
+        <View style={styles.segmentControl}>
+          {([
+            { key: 'bts' as ContentType, label: 'BTS Posts', Icon: Layers },
+            { key: 'announcement' as ContentType, label: 'Announcements', Icon: Megaphone },
+            { key: 'portfolio' as ContentType, label: 'Portfolio', Icon: ImageIcon },
+          ]).map(tab => {
+            const isActive = contentType === tab.key;
+            return (
+              <Pressable
+                key={tab.key}
+                style={[styles.segment, isActive && styles.segmentActive]}
+                onPress={() => setContentType(tab.key)}
+              >
+                {isActive && (
+                  <View style={styles.segmentIndicator} />
+                )}
+                <View style={styles.segmentIconWrap}>
+                  <tab.Icon size={14} color={isActive ? Colors.gold : Colors.textMuted} />
+                </View>
+                <Text style={[styles.segmentLabel, isActive && styles.segmentLabelActive]}>
+                  {tab.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
 
       {/* ── BTS Form ── */}
@@ -677,9 +700,9 @@ export default function AdminBtsAnnouncementsScreen() {
 
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>Caption</Text>
-            <View style={styles.captionRow}>
+            <View style={{ position: 'relative' }}>
               <TextInput
-                style={[styles.fieldInput, styles.captionInput]}
+                style={styles.fieldInput}
                 placeholder="Add an engaging caption..."
                 placeholderTextColor={Colors.textMuted}
                 value={btsTitle}
@@ -687,9 +710,9 @@ export default function AdminBtsAnnouncementsScreen() {
                 multiline
                 maxLength={220}
               />
-              <Pressable onPress={generateCaption} style={styles.aiBtn}>
-                <Sparkles size={12} color={Colors.gold} />
-                <Text style={styles.aiBtnText}>AI</Text>
+              <Pressable onPress={generateCaption} style={styles.aiBtnInline}>
+                <Sparkles size={11} color={Colors.gold} />
+                <Text style={styles.aiBtnInlineText}>AI</Text>
               </Pressable>
             </View>
           </View>
@@ -713,15 +736,16 @@ export default function AdminBtsAnnouncementsScreen() {
             <Text style={styles.fieldLabel}>Visibility</Text>
             <View style={styles.visibilityRow}>
               {([
-                { key: 'global' as const, label: '🌍 Global', icon: Globe },
-                { key: 'assigned_only' as const, label: '🔒 My Clients', icon: Lock },
-                { key: 'private' as const, label: '🔐 Private', icon: Shield },
+                { key: 'global' as const, label: 'Global', icon: <Globe size={12} /> },
+                { key: 'assigned_only' as const, label: 'My Clients', icon: <Lock size={12} /> },
+                { key: 'private' as const, label: 'Private', icon: <Shield size={12} /> },
               ]).map(opt => (
                 <Pressable
                   key={opt.key}
                   style={[styles.visBtn, btsVisibility === opt.key && styles.visBtnActive]}
                   onPress={() => setBtsVisibility(opt.key)}
                 >
+                  <View style={styles.visBtnIconWrap}>{opt.icon}</View>
                   <Text style={[styles.visBtnText, btsVisibility === opt.key && styles.visBtnTextActive]}>{opt.label}</Text>
                 </Pressable>
               ))}
@@ -760,7 +784,7 @@ export default function AdminBtsAnnouncementsScreen() {
 
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>Background Music (optional)</Text>
-            <View style={styles.captionRow}>
+            <View style={{ position: 'relative' }}>
               <TextInput
                 style={[styles.fieldInput, { flex: 1 }]}
                 placeholder="Select music file..."
@@ -768,9 +792,9 @@ export default function AdminBtsAnnouncementsScreen() {
                 value={btsMusicFile?.name || ''}
                 editable={false}
               />
-              <Pressable onPress={pickMusic} style={styles.aiBtn}>
-                <Music size={12} color={Colors.gold} />
-                <Text style={styles.aiBtnText}>Pick</Text>
+              <Pressable onPress={pickMusic} style={styles.aiBtnInline}>
+                <Music size={11} color={Colors.gold} />
+                <Text style={styles.aiBtnInlineText}>Pick</Text>
               </Pressable>
             </View>
             {btsMusicFile && (
@@ -800,37 +824,49 @@ export default function AdminBtsAnnouncementsScreen() {
       {/* ── Announcement Form ── */}
       {contentType === 'announcement' && (
         <View style={styles.formCard}>
-          <Text style={styles.formCardTitle}>Create Announcement</Text>
+          {/* Form Header */}
+          <View style={styles.formHeader}>
+            <View style={styles.formHeaderIcon}>
+              <Megaphone size={18} color={Colors.gold} />
+            </View>
+            <View>
+              <Text style={styles.formCardTitle}>New Announcement</Text>
+              <Text style={styles.formCardSubtitle}>Share updates with your audience</Text>
+            </View>
+          </View>
 
-          {renderMediaPicker(
-            annPicked,
-            () => pickMedia('announcement'),
-            () => setAnnPicked(null),
-            'all',
-            <Megaphone size={28} color={Colors.gold} />,
-            'Select Photo/Video'
-          )}
+          {/* Media Section */}
+          <View style={styles.formSection}>
+            <Text style={styles.formSectionLabel}>Media</Text>
+            {renderMediaPicker(
+              annPicked,
+              () => pickMedia('announcement'),
+              () => setAnnPicked(null),
+              'all',
+              <Megaphone size={24} color={Colors.gold} />,
+              'Select Photo/Video'
+            )}
+          </View>
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Title</Text>
-            <View style={styles.captionRow}>
+          {/* Content Section */}
+          <View style={styles.formSection}>
+            <Text style={styles.formSectionLabel}>Content</Text>
+            <View style={styles.fieldGroup}>
               <TextInput
-                style={[styles.fieldInput, styles.captionInput]}
-                placeholder="Announcement title..."
+                style={styles.fieldInput}
+                placeholder="Announcement title"
                 placeholderTextColor={Colors.textMuted}
                 value={annTitle}
                 onChangeText={setAnnTitle}
                 maxLength={100}
               />
-              <Pressable onPress={generateAnnouncementCaption} style={styles.aiBtn}>
-                <Sparkles size={12} color={Colors.gold} />
-                <Text style={styles.aiBtnText}>AI</Text>
-              </Pressable>
+              <View style={styles.aiInline}>
+                <Pressable onPress={generateAnnouncementCaption} style={styles.aiBtnInline}>
+                  <Sparkles size={11} color={Colors.gold} />
+                  <Text style={styles.aiBtnInlineText}>AI</Text>
+                </Pressable>
+              </View>
             </View>
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Description</Text>
             <TextInput
               style={[styles.fieldInput, styles.textArea]}
               placeholder="Add more details..."
@@ -842,50 +878,56 @@ export default function AdminBtsAnnouncementsScreen() {
             />
           </View>
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Visibility</Text>
+          {/* Settings Section */}
+          <View style={styles.formSection}>
+            <Text style={styles.formSectionLabel}>Settings</Text>
             <View style={styles.visibilityRow}>
               {([
-                { key: 'global' as const, label: '🌍 Global' },
-                { key: 'assigned_only' as const, label: '🔒 My Clients' },
-                { key: 'private' as const, label: '🔐 Private' },
+                { key: 'global' as const, label: 'Global', icon: <Globe size={12} /> },
+                { key: 'assigned_only' as const, label: 'My Clients', icon: <Lock size={12} /> },
+                { key: 'private' as const, label: 'Private', icon: <Shield size={12} /> },
               ]).map(opt => (
                 <Pressable
                   key={opt.key}
                   style={[styles.visBtn, annVisibility === opt.key && styles.visBtnActive]}
                   onPress={() => setAnnVisibility(opt.key)}
                 >
+                  <View style={styles.visBtnIconWrap}>{opt.icon}</View>
                   <Text style={[styles.visBtnText, annVisibility === opt.key && styles.visBtnTextActive]}>{opt.label}</Text>
                 </Pressable>
               ))}
             </View>
           </View>
 
-          <View style={styles.fieldRow}>
-            <View style={[styles.fieldGroup, { flex: 1 }]}>
-              <Text style={styles.fieldLabel}>Expires After (days)</Text>
-              <TextInput
-                style={styles.fieldInput}
-                placeholder="30"
-                placeholderTextColor={Colors.textMuted}
-                value={annExpiryDays}
-                onChangeText={t => setAnnExpiryDays(t.replace(/[^0-9]/g, ''))}
-                keyboardType="numeric"
-                maxLength={3}
-              />
-            </View>
-            <View style={[styles.fieldGroup, { flex: 1.5 }]}>
-              <Text style={styles.fieldLabel}>Schedule (optional)</Text>
-              <TextInput
-                style={styles.fieldInput}
-                placeholder="YYYY-MM-DD HH:MM"
-                placeholderTextColor={Colors.textMuted}
-                value={annScheduledFor}
-                onChangeText={setAnnScheduledFor}
-              />
+          {/* Schedule Row */}
+          <View style={styles.formSection}>
+            <View style={styles.fieldRow}>
+              <View style={[styles.fieldGroup, { flex: 1, marginBottom: 0 }]}>
+                <Text style={styles.fieldLabel}>Expires (days)</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  placeholder="30"
+                  placeholderTextColor={Colors.textMuted}
+                  value={annExpiryDays}
+                  onChangeText={t => setAnnExpiryDays(t.replace(/[^0-9]/g, ''))}
+                  keyboardType="numeric"
+                  maxLength={3}
+                />
+              </View>
+              <View style={[styles.fieldGroup, { flex: 1.5, marginBottom: 0 }]}>
+                <Text style={styles.fieldLabel}>Schedule (optional)</Text>
+                <TextInput
+                  style={styles.fieldInput}
+                  placeholder="YYYY-MM-DD HH:MM"
+                  placeholderTextColor={Colors.textMuted}
+                  value={annScheduledFor}
+                  onChangeText={setAnnScheduledFor}
+                />
+              </View>
             </View>
           </View>
 
+          {/* Submit */}
           <Pressable
             style={[styles.submitBtn, posting && styles.submitBtnDisabled]}
             onPress={uploadAnnouncement}
@@ -897,7 +939,7 @@ export default function AdminBtsAnnouncementsScreen() {
                 <Text style={styles.submitBtnText}>{uploadStatus || 'Uploading...'}</Text>
               </View>
             ) : (
-              <Text style={styles.submitBtnText}>Upload Announcement</Text>
+              <Text style={styles.submitBtnText}>Publish Announcement</Text>
             )}
           </Pressable>
         </View>
@@ -906,64 +948,72 @@ export default function AdminBtsAnnouncementsScreen() {
       {/* ── Portfolio Form ── */}
       {contentType === 'portfolio' && (
         <View style={styles.formCard}>
-          <Text style={styles.formCardTitle}>Add Portfolio Collection</Text>
+          {/* Form Header */}
+          <View style={styles.formHeader}>
+            <View style={styles.formHeaderIcon}>
+              <ImageIcon size={18} color={Colors.gold} />
+            </View>
+            <View>
+              <Text style={styles.formCardTitle}>Add Portfolio Work</Text>
+              <Text style={styles.formCardSubtitle}>Showcase your best photography</Text>
+            </View>
+          </View>
 
-          {/* Multi-image picker */}
-          <Pressable style={styles.mediaPicker} onPress={() => pickMedia('portfolio')}>
-            {portfolioPicked.length > 0 ? (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 8 }}>
-                {portfolioPicked.map((asset, i) => (
-                  <View key={i} style={{ position: 'relative', width: 80, height: 80 }}>
-                    <Image source={{ uri: asset.uri }} style={{ width: 80, height: 80, borderRadius: 8 }} />
-                    {i === 0 && (
-                      <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: Colors.gold, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 }}>
-                        <Text style={{ fontSize: 8, fontWeight: '800', color: '#000' }}>Cover</Text>
-                      </View>
-                    )}
-                    <Pressable
-                      style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}
-                      onPress={() => setPortfolioPicked(prev => prev.filter((_, j) => j !== i))}
-                    >
-                      <X size={10} color="#fff" />
-                    </Pressable>
+          {/* Media Section */}
+          <View style={styles.formSection}>
+            <Text style={styles.formSectionLabel}>Photos</Text>
+            <Pressable style={styles.mediaPicker} onPress={() => pickMedia('portfolio')}>
+              {portfolioPicked.length > 0 ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 8 }}>
+                  {portfolioPicked.map((asset, i) => (
+                    <View key={i} style={{ position: 'relative', width: 72, height: 72 }}>
+                      <Image source={{ uri: asset.uri }} style={{ width: 72, height: 72, borderRadius: 8 }} />
+                      {i === 0 && (
+                        <View style={{ position: 'absolute', top: 4, left: 4, backgroundColor: Colors.gold, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 }}>
+                          <Text style={{ fontSize: 8, fontWeight: '800', color: '#000' }}>Cover</Text>
+                        </View>
+                      )}
+                      <Pressable
+                        style={{ position: 'absolute', top: 4, right: 4, width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }}
+                        onPress={() => setPortfolioPicked(prev => prev.filter((_, j) => j !== i))}
+                      >
+                        <X size={9} color="#fff" />
+                      </Pressable>
+                    </View>
+                  ))}
+                  <View style={{ width: 72, height: 72, borderRadius: 8, borderWidth: 2, borderColor: Colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' }}>
+                    <ImageIcon size={18} color={Colors.gold} />
+                    <Text style={{ fontSize: 9, color: Colors.gold, fontWeight: '600' }}>Add</Text>
                   </View>
-                ))}
-                <View style={{ width: 80, height: 80, borderRadius: 8, borderWidth: 2, borderColor: Colors.border, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' }}>
-                  <ImageIcon size={20} color={Colors.gold} />
-                  <Text style={{ fontSize: 9, color: Colors.gold, fontWeight: '600' }}>Add</Text>
                 </View>
-              </View>
-            ) : (
-              <View style={styles.mediaPlaceholder}>
-                <View style={styles.mediaPlaceholderIcon}>
-                  <ImageIcon size={28} color={Colors.gold} />
+              ) : (
+                <View style={styles.mediaPlaceholder}>
+                  <View style={styles.mediaPlaceholderIcon}>
+                    <ImageIcon size={24} color={Colors.gold} />
+                  </View>
+                  <Text style={styles.mediaPlaceholderLabel}>Select Photos</Text>
+                  <Text style={styles.mediaPlaceholderHint}>Tap to select multiple images</Text>
                 </View>
-                <Text style={styles.mediaPlaceholderLabel}>Select Photos</Text>
-                <Text style={styles.mediaPlaceholderHint}>Tap to select multiple images</Text>
-              </View>
+              )}
+            </Pressable>
+            {portfolioPicked.length > 0 && (
+              <Text style={{ fontSize: 11, color: Colors.textMuted, textAlign: 'center' }}>
+                {portfolioPicked.length} photo{portfolioPicked.length > 1 ? 's' : ''} selected — first is cover
+              </Text>
             )}
-          </Pressable>
+          </View>
 
-          {portfolioPicked.length > 0 && (
-            <Text style={{ fontSize: 11, color: Colors.textMuted, marginBottom: 12, textAlign: 'center' }}>
-              {portfolioPicked.length} photo{portfolioPicked.length > 1 ? 's' : ''} selected — first is cover
-            </Text>
-          )}
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Title</Text>
+          {/* Content Section */}
+          <View style={styles.formSection}>
+            <Text style={styles.formSectionLabel}>Details</Text>
             <TextInput
               style={styles.fieldInput}
-              placeholder="Portfolio title..."
+              placeholder="Portfolio title"
               placeholderTextColor={Colors.textMuted}
               value={portfolioTitle}
               onChangeText={setPortfolioTitle}
               maxLength={100}
             />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Description</Text>
             <TextInput
               style={[styles.fieldInput, styles.textArea]}
               placeholder="Describe this work..."
@@ -973,34 +1023,34 @@ export default function AdminBtsAnnouncementsScreen() {
               multiline
               maxLength={500}
             />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Category</Text>
             <TextInput
               style={styles.fieldInput}
-              placeholder="e.g. Wedding, Portrait..."
+              placeholder="Category (e.g. Wedding, Portrait)"
               placeholderTextColor={Colors.textMuted}
               value={portfolioCategory}
               onChangeText={setPortfolioCategory}
             />
           </View>
 
-          <View style={styles.toggleRow}>
-            <Pressable
-              style={[styles.toggleBtn, portfolioFeatured && styles.toggleBtnActive]}
-              onPress={() => setPortfolioFeatured(!portfolioFeatured)}
-            >
-              <Crown size={14} color={portfolioFeatured ? '#000' : Colors.textMuted} />
-              <Text style={[styles.toggleBtnText, portfolioFeatured && styles.toggleBtnTextActive]}>Featured</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.toggleBtn, portfolioTopRated && styles.toggleBtnActive]}
-              onPress={() => setPortfolioTopRated(!portfolioTopRated)}
-            >
-              <Sparkles size={14} color={portfolioTopRated ? '#000' : Colors.textMuted} />
-              <Text style={[styles.toggleBtnText, portfolioTopRated && styles.toggleBtnTextActive]}>Top Rated</Text>
-            </Pressable>
+          {/* Settings */}
+          <View style={styles.formSection}>
+            <Text style={styles.formSectionLabel}>Flags</Text>
+            <View style={styles.toggleRow}>
+              <Pressable
+                style={[styles.toggleBtn, portfolioFeatured && styles.toggleBtnActive]}
+                onPress={() => setPortfolioFeatured(!portfolioFeatured)}
+              >
+                <Crown size={14} color={portfolioFeatured ? '#000' : Colors.textMuted} />
+                <Text style={[styles.toggleBtnText, portfolioFeatured && styles.toggleBtnTextActive]}>Featured</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.toggleBtn, portfolioTopRated && styles.toggleBtnActive]}
+                onPress={() => setPortfolioTopRated(!portfolioTopRated)}
+              >
+                <Sparkles size={14} color={portfolioTopRated ? '#000' : Colors.textMuted} />
+                <Text style={[styles.toggleBtnText, portfolioTopRated && styles.toggleBtnTextActive]}>Top Rated</Text>
+              </Pressable>
+            </View>
           </View>
 
           <Pressable
@@ -1052,54 +1102,87 @@ export default function AdminBtsAnnouncementsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   center: { justifyContent: 'center', alignItems: 'center' },
-  header: { padding: 20, paddingBottom: 12 },
-  title: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -0.5 },
-  subtitle: { fontSize: 14, color: Colors.textMuted, marginTop: 4 },
-
-  // Tabs
-  tabBar: {
+  header: { paddingHorizontal: 16, paddingBottom: 12 },
+  headerRow: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingBottom: 12,
-    gap: 6,
-  },
-  tab: {
-    flex: 1,
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerIconContainer: {
+    width: 44,
+    height: 44,
     borderRadius: 14,
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    position: 'relative',
-  },
-  tabActive: {
-    backgroundColor: 'rgba(212,175,55,0.08)',
-    borderColor: Colors.gold,
-  },
-  tabIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: Colors.background,
+    backgroundColor: 'rgba(212,175,55,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
   },
-  tabIconWrapActive: {
+  headerBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  tabLabel: { fontSize: 11, fontWeight: '600', color: Colors.textMuted },
-  tabLabelActive: { color: Colors.gold },
-  tabIndicator: {
+  headerBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.background,
+  },
+  title: { fontSize: 20, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3 },
+  subtitle: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+
+  // Segmented Control Tabs
+  segmentContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  segmentControl: {
+    flexDirection: 'row',
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  segment: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 12,
+    position: 'relative',
+    gap: 6,
+  },
+  segmentActive: {
+    backgroundColor: 'rgba(212,175,55,0.12)',
+  },
+  segmentIndicator: {
     position: 'absolute',
-    bottom: -1,
-    left: '30%',
-    right: '30%',
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: Colors.gold,
+    inset: 0,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.gold,
   },
+  segmentIconWrap: {
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  segmentIconWrapActive: {
+    // No change needed, icon color handles it
+  },
+  segmentLabel: { fontSize: 12, fontWeight: '600', color: Colors.textMuted },
+  segmentLabelActive: { color: Colors.gold },
 
   // Form Card
   formCard: {
@@ -1107,47 +1190,76 @@ const styles = StyleSheet.create({
     marginTop: 4,
     backgroundColor: Colors.card,
     borderRadius: 20,
-    padding: 20,
+    padding: 18,
     borderWidth: 1,
     borderColor: Colors.border,
+    gap: 16,
+  },
+  formHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 4,
+  },
+  formHeaderIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   formCardTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: Colors.textPrimary,
-    marginBottom: 16,
     letterSpacing: -0.3,
+  },
+  formCardSubtitle: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginTop: 1,
+  },
+  formSection: {
+    gap: 10,
+  },
+  formSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 
   // Media Picker
-  mediaPicker: { marginBottom: 16 },
-  mediaPreview: { position: 'relative', borderRadius: 16, overflow: 'hidden' },
-  mediaPreviewImage: { width: '100%', height: 220, borderRadius: 16, backgroundColor: Colors.cardDark },
+  mediaPicker: { marginBottom: 0 },
+  mediaPreview: { position: 'relative', borderRadius: 14, overflow: 'hidden' },
+  mediaPreviewImage: { width: '100%', height: 200, borderRadius: 14, backgroundColor: Colors.cardDark },
   mediaOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 12,
-    paddingBottom: 10,
-    paddingTop: 24,
+    paddingHorizontal: 10,
+    paddingBottom: 8,
+    paddingTop: 20,
   },
-  mediaOverlayText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  mediaOverlayText: { color: '#fff', fontSize: 11, fontWeight: '600' },
   removeMediaBtn: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    top: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   mediaPlaceholder: {
     width: '100%',
-    height: 180,
-    borderRadius: 16,
+    height: 140,
+    borderRadius: 14,
     backgroundColor: Colors.background,
     borderWidth: 2,
     borderColor: Colors.border,
@@ -1157,45 +1269,46 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   mediaPlaceholderIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     backgroundColor: 'rgba(212,175,55,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  mediaPlaceholderLabel: { color: Colors.textSecondary, fontSize: 14, fontWeight: '600' },
+  mediaPlaceholderLabel: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600' },
   mediaPlaceholderHint: { color: Colors.textMuted, fontSize: 11 },
 
   // Fields
-  fieldGroup: { marginBottom: 14 },
-  fieldLabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary, marginBottom: 6 },
+  fieldGroup: { marginBottom: 0 },
+  fieldLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, marginBottom: 6 },
   fieldHint: { fontSize: 11, color: Colors.textMuted, marginTop: 4 },
   fieldInput: {
     backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 10,
+    padding: 10,
     color: Colors.textPrimary,
     fontSize: 14,
   },
-  captionRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-  captionInput: { flex: 1, minHeight: 60 },
-  textArea: { minHeight: 72, textAlignVertical: 'top' },
+  textArea: { minHeight: 64, textAlignVertical: 'top' },
   fieldRow: { flexDirection: 'row', gap: 10 },
-  aiBtn: {
+  aiInline: {
+    position: 'absolute',
+    right: 8,
+    top: 8,
+  },
+  aiBtnInline: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     backgroundColor: 'rgba(212,175,55,0.1)',
-    borderRadius: 10,
-    alignSelf: 'flex-start',
-    marginTop: 2,
+    borderRadius: 8,
   },
-  aiBtnText: { fontSize: 11, color: Colors.gold, fontWeight: '700' },
+  aiBtnInlineText: { fontSize: 11, color: Colors.gold, fontWeight: '700' },
 
   // Chips
   chipRow: { gap: 8 },
@@ -1219,8 +1332,8 @@ const styles = StyleSheet.create({
   visBtn: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
     backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -1229,7 +1342,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212,175,55,0.1)',
     borderColor: Colors.gold,
   },
-  visBtnText: { fontSize: 12, fontWeight: '600', color: Colors.textMuted },
+  visBtnIconWrap: { marginBottom: 3 },
+  visBtnText: { fontSize: 11, fontWeight: '600', color: Colors.textMuted },
   visBtnTextActive: { color: Colors.gold },
 
   // Toggle
@@ -1299,31 +1413,31 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   contentThumb: {
-    width: 52,
-    height: 52,
+    width: 48,
+    height: 48,
     borderRadius: 10,
     backgroundColor: Colors.cardDark,
   },
   contentInfo: { flex: 1 },
-  contentTitle: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary, marginBottom: 2 },
+  contentTitle: { fontSize: 13, fontWeight: '600', color: Colors.textPrimary, marginBottom: 2 },
   contentMeta: { fontSize: 11, color: Colors.textMuted },
-  contentStats: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  contentStats: { flexDirection: 'row', gap: 8, marginTop: 3 },
   contentStat: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  contentStatText: { fontSize: 11, color: Colors.textMuted },
+  contentStatText: { fontSize: 10, color: Colors.textMuted },
   contentDeleteBtn: { padding: 8 },
   badgePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
     backgroundColor: 'rgba(212,175,55,0.1)',
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     paddingVertical: 2,
     borderRadius: 6,
-    marginTop: 4,
+    marginTop: 3,
     alignSelf: 'flex-start',
   },
-  badgePillText: { fontSize: 10, color: Colors.gold, fontWeight: '700' },
+  badgePillText: { fontSize: 9, color: Colors.gold, fontWeight: '700' },
 });

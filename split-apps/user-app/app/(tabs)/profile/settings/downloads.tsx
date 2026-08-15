@@ -1,28 +1,34 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator, Dimensions } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
-import { Download, Calendar, Image, RefreshCw } from 'lucide-react-native';
+import { Image } from 'expo-image';
+import { Download, Calendar, Image as ImageIcon, RefreshCw, Lock, Eye, ArrowRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';
 import { supabase } from '@/lib/supabase';
 
-interface DownloadItem {
+const { width } = Dimensions.get('window');
+
+interface GalleryItem {
   id: string;
-  gallery_id: string;
-  gallery_name: string;
+  name: string;
+  cover_photo_url: string | null;
   photo_count: number;
-  downloaded_at: string;
-  format: string;
+  access_code: string;
+  is_locked: boolean;
+  unlocked_at?: string;
+  downloaded_at?: string;
 }
 
 export default function Downloads() {
   const router = useRouter();
-  const [downloads, setDownloads] = useState<DownloadItem[]>([]);
+  const [galleries, setGalleries] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadDownloads = useCallback(async () => {
+  const loadData = useCallback(async () => {
     try {
       let user: any = null;
       try {
@@ -33,14 +39,102 @@ export default function Downloads() {
       }
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from('download_history')
-        .select('*')
+      // Fetch unlocked galleries with cover photos and photo counts
+      const { data: unlocked, error: unlockError } = await supabase
+        .from('unlocked_galleries')
+        .select('id, gallery_id, unlocked_at')
         .eq('user_id', user.id)
+        .order('unlocked_at', { ascending: false });
+
+      if (unlockError) {
+        console.error('Error loading unlocked galleries:', unlockError);
+      }
+
+      const galleryIds = (unlocked || []).map((u: any) => u.gallery_id).filter(Boolean);
+      if (galleryIds.length === 0) {
+        setGalleries([]);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      // Fetch gallery details
+      const { data: galleryData, error: galleryError } = await supabase
+        .from('galleries')
+        .select('id, name, cover_photo_url, access_code, is_locked')
+        .in('id', galleryIds);
+
+      if (galleryError) {
+        console.error('Error loading galleries:', galleryError);
+      }
+
+      // Fetch photo counts
+      const { data: photoCounts } = await supabase
+        .from('gallery_photos')
+        .select('gallery_id')
+        .in('gallery_id', galleryIds);
+
+      const countMap = new Map<string, number>();
+      (photoCounts || []).forEach((p: any) => {
+        countMap.set(p.gallery_id, (countMap.get(p.gallery_id) || 0) + 1);
+      });
+
+      // Fetch download history for these galleries
+      const { data: downloads } = await supabase
+        .from('download_history')
+        .select('gallery_id, downloaded_at')
+        .eq('user_id', user.id)
+        .in('gallery_id', galleryIds)
         .order('downloaded_at', { ascending: false });
 
-      if (error) throw error;
-      setDownloads(data || []);
+      const downloadMap = new Map<string, string>();
+      (downloads || []).forEach((d: any) => {
+        if (!downloadMap.has(d.gallery_id)) {
+          downloadMap.set(d.gallery_id, d.downloaded_at);
+        }
+      });
+
+      // Build signed cover URLs
+      const coverPaths: { id: string; path: string }[] = [];
+      (galleryData || []).forEach((g: any) => {
+        if (g.cover_photo_url && !g.cover_photo_url.startsWith('http')) {
+          coverPaths.push({ id: g.id, path: g.cover_photo_url });
+        }
+      });
+
+      const signedCoverMap = new Map<string, string>();
+      if (coverPaths.length > 0) {
+        const paths = coverPaths.map(c => c.path);
+        const { data: signedUrls } = await supabase.storage
+          .from('client-photos')
+          .createSignedUrls(paths, 3600);
+        if (signedUrls) {
+          signedUrls.forEach((s: any) => {
+            if (s.path && s.signedUrl) signedCoverMap.set(s.path, s.signedUrl);
+          });
+        }
+      }
+
+      // Combine everything
+      const unlockMap = new Map((unlocked || []).map((u: any) => [u.gallery_id, u.unlocked_at]));
+      const result: GalleryItem[] = (galleryData || []).map((g: any) => {
+        let coverUrl = g.cover_photo_url || '';
+        if (coverUrl && !coverUrl.startsWith('http')) {
+          coverUrl = signedCoverMap.get(coverUrl) || coverUrl;
+        }
+        return {
+          id: g.id,
+          name: g.name || 'Untitled Gallery',
+          cover_photo_url: coverUrl,
+          photo_count: countMap.get(g.id) || 0,
+          access_code: g.access_code || '',
+          is_locked: g.is_locked,
+          unlocked_at: unlockMap.get(g.id),
+          downloaded_at: downloadMap.get(g.id),
+        };
+      });
+
+      setGalleries(result);
     } catch (error) {
       console.error('Failed to load downloads:', error);
     } finally {
@@ -50,51 +144,79 @@ export default function Downloads() {
   }, []);
 
   useEffect(() => {
-    loadDownloads();
-  }, [loadDownloads]);
+    loadData();
+  }, [loadData]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadDownloads();
-  }, [loadDownloads]);
+    loadData();
+  }, [loadData]);
 
-  const reDownload = async (item: DownloadItem) => {
-    try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      router.push(`/(tabs)/gallery?galleryId=${item.gallery_id}`);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to open gallery');
-    }
+  const openGallery = (item: GalleryItem) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(`/(tabs)/gallery?galleryId=${item.id}`);
   };
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '';
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-KE', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
+    return date.toLocaleDateString('en-KE', { month: 'short', day: 'numeric' });
   };
 
-  const renderItem = ({ item }: { item: DownloadItem }) => (
-    <Pressable style={styles.item} onPress={() => reDownload(item)}>
-      <View style={styles.iconContainer}>
-        <Download size={24} color={Colors.gold} />
-      </View>
-      <View style={styles.itemInfo}>
-        <Text style={styles.galleryName} numberOfLines={1}>
-          {item.gallery_name || 'Gallery'}
-        </Text>
-        <View style={styles.meta}>
-          <Calendar size={12} color={Colors.textMuted} />
-          <Text style={styles.date}>{formatDate(item.downloaded_at)}</Text>
-          <Text style={styles.separator}>•</Text>
-          <Image size={12} color={Colors.textMuted} />
-          <Text style={styles.photoCount}>{item.photo_count} photos</Text>
+  const renderItem = ({ item }: { item: GalleryItem }) => (
+    <Pressable style={styles.card} onPress={() => openGallery(item)}>
+      <View style={styles.cardImageWrapper}>
+        {item.cover_photo_url ? (
+          <Image
+            source={{ uri: item.cover_photo_url }}
+            style={styles.cardImage}
+            contentFit="cover"
+            transition={200}
+            cachePolicy="memory-disk"
+          />
+        ) : (
+          <View style={[styles.cardImage, styles.cardImageFallback]}>
+            <Text style={styles.cardImageFallbackText}>{item.name[0]}</Text>
+          </View>
+        )}
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.85)']}
+          style={styles.cardGradient}
+        />
+        <View style={styles.cardOverlay}>
+          <Text style={styles.cardTitle} numberOfLines={1}>{item.name}</Text>
+          <View style={styles.cardMeta}>
+            <View style={styles.cardMetaItem}>
+              <ImageIcon size={12} color="rgba(255,255,255,0.8)" />
+              <Text style={styles.cardMetaText}>{item.photo_count} photos</Text>
+            </View>
+            {item.downloaded_at && (
+              <View style={styles.cardMetaItem}>
+                <Download size={12} color={Colors.gold} />
+                <Text style={[styles.cardMetaText, { color: Colors.gold }]}>Downloaded</Text>
+              </View>
+            )}
+            {!item.downloaded_at && (
+              <View style={styles.cardMetaItem}>
+                <Eye size={12} color="rgba(255,255,255,0.6)" />
+                <Text style={styles.cardMetaText}>View only</Text>
+              </View>
+            )}
+          </View>
         </View>
       </View>
-      <View style={styles.formatBadge}>
-        <Text style={styles.formatText}>{item.format?.toUpperCase() || 'JPG'}</Text>
+      <View style={styles.cardFooter}>
+        <View style={styles.cardFooterLeft}>
+          {item.unlocked_at && (
+            <Text style={styles.cardDate}>Unlocked {formatDate(item.unlocked_at)}</Text>
+          )}
+          {item.access_code && (
+            <View style={styles.accessCodeBadge}>
+              <Text style={styles.accessCodeText}>{item.access_code}</Text>
+            </View>
+          )}
+        </View>
+        <ArrowRight size={16} color={Colors.gold} />
       </View>
     </Pressable>
   );
@@ -115,34 +237,55 @@ export default function Downloads() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
       <SettingsHeader title="Downloads" />
-      
-      {downloads.length > 0 && (
-        <View style={styles.header}>
-          <Text style={styles.count}>{downloads.length} downloads</Text>
-          <Pressable onPress={onRefresh}>
-            <RefreshCw size={20} color={Colors.gold} />
-          </Pressable>
-        </View>
-      )}
-      
-      {downloads.length === 0 ? (
+
+      {galleries.length === 0 ? (
         <View style={styles.emptyState}>
-          <Download size={48} color={Colors.textMuted} />
+          <View style={styles.emptyIconContainer}>
+            <Download size={40} color={Colors.gold} />
+          </View>
           <Text style={styles.emptyTitle}>No downloads yet</Text>
           <Text style={styles.emptyDesc}>
-            Your downloaded galleries will appear here for easy re-access
+            Download photos from your unlocked galleries to access them here
           </Text>
+          <Pressable
+            style={styles.browseButton}
+            onPress={() => router.push('/(tabs)/gallery')}
+          >
+            <Text style={styles.browseButtonText}>Browse Galleries</Text>
+          </Pressable>
         </View>
       ) : (
-        <FlatList
-          data={downloads}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-        />
+        <>
+          <View style={styles.statsBar}>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{galleries.length}</Text>
+              <Text style={styles.statLabel}>Galleries</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>
+                {galleries.reduce((sum, g) => sum + g.photo_count, 0)}
+              </Text>
+              <Text style={styles.statLabel}>Photos</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>
+                {galleries.filter(g => g.downloaded_at).length}
+              </Text>
+              <Text style={styles.statLabel}>Downloaded</Text>
+            </View>
+          </View>
+          <FlatList
+            data={galleries}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+          />
+        </>
       )}
     </View>
   );
@@ -158,92 +301,163 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  header: {
+  statsBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  count: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.gold,
+  },
+  statLabel: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  statDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: Colors.border,
   },
   list: {
     padding: 16,
+    paddingTop: 12,
   },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  card: {
     backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: Colors.background,
+  cardImageWrapper: {
+    height: 200,
+    width: '100%',
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
+  },
+  cardImageFallback: {
+    backgroundColor: 'rgba(212,175,55,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
-  itemInfo: {
-    flex: 1,
+  cardImageFallbackText: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: Colors.gold,
   },
-  galleryName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
+  cardGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  cardOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
     marginBottom: 6,
   },
-  meta: {
+  cardMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 12,
   },
-  date: {
+  cardMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  cardMetaText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+  },
+  cardFooterLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  cardDate: {
     fontSize: 12,
     color: Colors.textMuted,
   },
-  separator: {
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  photoCount: {
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  formatBadge: {
-    backgroundColor: Colors.background,
+  accessCodeBadge: {
+    backgroundColor: 'rgba(212,175,55,0.12)',
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 6,
   },
-  formatText: {
-    fontSize: 10,
+  accessCodeText: {
+    fontSize: 11,
     fontWeight: '600',
-    color: Colors.textMuted,
+    color: Colors.gold,
+    letterSpacing: 1,
   },
   emptyState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
-    gap: 16,
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
   },
   emptyTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Colors.textPrimary,
+    marginBottom: 8,
   },
   emptyDesc: {
-    fontSize: 16,
+    fontSize: 15,
     color: Colors.textMuted,
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  browseButton: {
+    backgroundColor: Colors.gold,
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  browseButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#080810',
   },
 });

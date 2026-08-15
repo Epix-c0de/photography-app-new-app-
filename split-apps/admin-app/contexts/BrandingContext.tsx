@@ -11,6 +11,13 @@ export type BrandSettingsUpdate = Database['public']['Tables']['brand_settings']
 type WatermarkSize = BrandSettings['watermark_size'];
 type WatermarkPosition = BrandSettings['watermark_position'];
 
+interface PlatformDeepLinks {
+  appDownloadLink: string;
+  accessCodeLink: string;
+  adminAppLink: string;
+  deepLinkScheme: string;
+}
+
 interface BrandingState {
   activeAdminId: string | null;
   settings: BrandSettings | null;
@@ -36,6 +43,8 @@ interface BrandingState {
   blockScreenshots: boolean;
   shareAppLink: string;
   accessCodeLink: string;
+
+  platformDeepLinks: PlatformDeepLinks;
 }
 
 export const DEFAULTS = {
@@ -116,6 +125,12 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
   const [settings, setSettings] = useState<BrandSettings | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [platformDeepLinks, setPlatformDeepLinks] = useState<PlatformDeepLinks>({
+    appDownloadLink: '',
+    accessCodeLink: '',
+    adminAppLink: '',
+    deepLinkScheme: 'epixvisuals',
+  });
   const authRole = (profile?.role ??
     (user?.app_metadata as any)?.role ??
     (user?.user_metadata as any)?.role ??
@@ -142,21 +157,34 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
       if (selectError) throw selectError;
 
       if (row) {
-        // If shareAppLink is not set in brand_settings, fetch from platform_settings
-        if (!row.share_app_link) {
-          const { data: platformData } = await supabase
-            .from('platform_settings')
-            .select('key, value')
-            .in('key', ['platform_app_android_link', 'platform_app_ios_link']);
-          if (platformData && platformData.length > 0) {
-            const pMap: Record<string, string> = {};
-            platformData.forEach((r: any) => { pMap[r.key] = r.value ?? ''; });
-            row.share_app_link = pMap['platform_app_android_link'] || pMap['platform_app_ios_link'] || '';
-          }
-        }
         setSettings(row);
-        return;
       }
+
+      // Always fetch platform deep links (read-only for admins)
+      const { data: platformData } = await supabase
+        .from('platform_settings')
+        .select('key, value')
+        .in('key', [
+          'platform_app_android_link',
+          'platform_app_ios_link',
+          'platform_admin_app_android_link',
+          'platform_deep_link_scheme',
+        ]);
+
+      if (platformData && platformData.length > 0) {
+        const pMap: Record<string, string> = {};
+        platformData.forEach((r: any) => { pMap[r.key] = r.value ?? ''; });
+        setPlatformDeepLinks({
+          appDownloadLink: pMap['platform_app_android_link'] || pMap['platform_app_ios_link'] || '',
+          accessCodeLink: pMap['platform_deep_link_scheme']
+            ? `${pMap['platform_deep_link_scheme']}://gallery?autoUnlock=true&accessCode=`
+            : '',
+          adminAppLink: pMap['platform_admin_app_android_link'] || pMap['platform_admin_app_ios_link'] || '',
+          deepLinkScheme: pMap['platform_deep_link_scheme'] || 'epixvisuals',
+        });
+      }
+
+      if (row) return;
 
       const canCreate = user?.id === resolvedAdminId && isAdminRole;
       if (!canCreate) {
@@ -303,5 +331,6 @@ export const [BrandingProvider, useBranding] = createContextHook<BrandingState>(
     refresh,
     update,
     ...derived,
+    platformDeepLinks,
   };
 });

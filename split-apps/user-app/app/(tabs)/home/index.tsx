@@ -523,7 +523,7 @@ export default function HomeScreen() {
 
         setBtsPosts(enriched || []);
       } else {
-        // Direct query — show BTS posts from linked admins only
+        // Direct query — show BTS posts from linked admins OR global visibility
         const nowIso = new Date().toISOString();
 
         // Get linked admin IDs
@@ -535,21 +535,23 @@ export default function HomeScreen() {
           .eq('user_id', user.id);
         const adminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
 
-        if (adminIds.length === 0) {
-          setBtsPosts([]);
-          setBtsLoading(false);
-          return;
-        }
-
-        const { data, error } = await supabase
+        // Build query: posts from linked admins OR global posts
+        let btsQuery = supabase
           .from('bts_posts')
           .select('*')
           .eq('is_active', true)
-          .in('created_by', adminIds)
           .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
           .or(`scheduled_for.is.null,scheduled_for.lte.${nowIso}`)
           .order('created_at', { ascending: false })
           .limit(20);
+
+        if (adminIds.length > 0) {
+          btsQuery = btsQuery.or(`created_by.in.(${adminIds.join(',')}),visibility.eq.global`);
+        } else {
+          btsQuery = btsQuery.eq('visibility', 'global');
+        }
+
+        const { data, error } = await btsQuery;
 
         if (error) {
           console.error('[BTS Feed] ✗ Failed to load BTS posts:', error);
@@ -888,7 +890,7 @@ export default function HomeScreen() {
         setAnnouncements(enriched);
         setAnnouncementsLoading(false);
       } else {
-        // Direct query — show announcements from linked admins only
+        // Direct query — show announcements from linked admins OR global visibility
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { setAnnouncements([]); setAnnouncementsLoading(false); return; }
 
@@ -899,19 +901,21 @@ export default function HomeScreen() {
           .eq('user_id', user.id);
         const adminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
 
-        if (adminIds.length === 0) {
-          setAnnouncements([]);
-          setAnnouncementsLoading(false);
-          return;
-        }
-
-        const { data, error } = await supabase
+        // Build query: announcements from linked admins OR global
+        let annQuery = supabase
           .from('announcements')
           .select('*')
           .eq('is_active', true)
-          .in('owner_admin_id', adminIds)
           .order('created_at', { ascending: false })
           .limit(20);
+
+        if (adminIds.length > 0) {
+          annQuery = annQuery.or(`owner_admin_id.in.(${adminIds.join(',')}),visibility.eq.global`);
+        } else {
+          annQuery = annQuery.eq('visibility', 'global');
+        }
+
+        const { data, error } = await annQuery;
 
         if (error || !data) {
           console.error('[Announcements] ✗ Failed to load announcements:', error);

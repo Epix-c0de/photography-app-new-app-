@@ -15,7 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X, UserPlus, Phone, Mail, FileText } from 'lucide-react-native';
+import { X, UserPlus, Phone, FileText } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';
 
@@ -40,14 +40,12 @@ export default function CreateClientForm({ onClose, onSuccess }: CreateClientFor
 
   const [name, setName] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
-  const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
   
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<{
     name?: string;
     mobileNumber?: string;
-    email?: string;
   }>({});
 
   const validateName = (value: string): string | undefined => {
@@ -74,20 +72,6 @@ export default function CreateClientForm({ onClose, onSuccess }: CreateClientFor
     return undefined;
   };
 
-  const validateEmail = (value: string): string | undefined => {
-    if (!value.trim()) {
-      return undefined; // Email is optional
-    }
-
-    // RFC 5322 simplified email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(value.trim())) {
-      return 'Please enter a valid email address';
-    }
-
-    return undefined;
-  };
-
   const handleNameChange = (value: string) => {
     setName(value);
     if (errors.name) {
@@ -102,25 +86,16 @@ export default function CreateClientForm({ onClose, onSuccess }: CreateClientFor
     }
   };
 
-  const handleEmailChange = (value: string) => {
-    setEmail(value);
-    if (errors.email) {
-      setErrors((prev) => ({ ...prev, email: undefined }));
-    }
-  };
-
   const validateForm = (): boolean => {
     const nameError = validateName(name);
     const mobileError = validateMobileNumber(mobileNumber);
-    const emailError = validateEmail(email);
 
     setErrors({
       name: nameError,
       mobileNumber: mobileError,
-      email: emailError,
     });
 
-    return !nameError && !mobileError && !emailError;
+    return !nameError && !mobileError;
   };
 
   const checkDuplicateMobileNumber = async (mobile: string): Promise<boolean> => {
@@ -184,7 +159,6 @@ export default function CreateClientForm({ onClose, onSuccess }: CreateClientFor
         .insert([{
           name: name.trim(),
           phone: mobileNumber.trim(),       // primary column in DB schema
-          email: email.trim() || null,
           notes: notes.trim() || null,
           owner_admin_id: user.id,
         }])
@@ -320,25 +294,6 @@ export default function CreateClientForm({ onClose, onSuccess }: CreateClientFor
             {errors.mobileNumber && (
               <Text style={styles.errorText}>{errors.mobileNumber}</Text>
             )}
-          </View>
-
-          {/* Email Field (Optional) */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Email (Optional)</Text>
-            <View style={[styles.inputContainer, errors.email && styles.inputContainerError]}>
-              <Mail size={20} color={Colors.textMuted} strokeWidth={2} />
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={handleEmailChange}
-                placeholder="john@example.com"
-                placeholderTextColor={Colors.textMuted}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                editable={!submitting}
-              />
-            </View>
-            {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
           </View>
 
           {/* Notes Field (Optional) */}

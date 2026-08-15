@@ -176,3 +176,33 @@ export async function getBtsShareUrl(btsId: string, adminId?: string): Promise<s
   return `${domain}/bts/${btsId}`;
 }
 
+/**
+ * Generate a shareable portfolio URL using the admin's domain from DB.
+ */
+export async function getPortfolioShareUrl(portfolioId: string, adminId?: string): Promise<string> {
+  const domain = await getPlatformDomain();
+
+  if (adminId) {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('brand_name, business_name, photographer_code')
+      .eq('id', adminId)
+      .single();
+
+    const slug = profile?.brand_name || profile?.business_name || 'studio';
+    return `${domain}/${slug.toLowerCase().replace(/\s+/g, '-')}/portfolio/${portfolioId}`;
+  }
+
+  return `${domain}/portfolio/${portfolioId}`;
+}
+
+/**
+ * Get a heartwarming share message for portfolio items with admin deep link.
+ */
+export async function getPortfolioShareMessage(portfolioTitle: string, portfolioId: string, adminId?: string): Promise<{ message: string; url: string }> {
+  const url = await getPortfolioShareUrl(portfolioId, adminId);
+  const appUrl = await getAppShareUrl();
+  const message = `"${portfolioTitle}" — Every great story deserves to be seen. ✨\n\nView portfolio: ${url}\n\nBook your session: ${appUrl}`;
+  return { message, url: appUrl };
+}
+

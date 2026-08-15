@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, Dimensions, Pressable, Animated, StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -6,6 +6,7 @@ import { Image } from 'expo-image';
 import { Star, Lock, CreditCard, Share2, ArrowRight } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
+import { supabase } from '@/lib/supabase';
 
 const { width, height } = Dimensions.get('window');
 
@@ -19,7 +20,7 @@ interface Slide {
   stat?: string;
 }
 
-const slides: Slide[] = [
+const defaultSlides: Slide[] = [
   {
     id: '1',
     title: 'Welcome to Epix Visuals Studios.co',
@@ -55,13 +56,71 @@ const slides: Slide[] = [
   },
 ];
 
+const icons = [
+  <Star size={24} color={Colors.gold} fill={Colors.gold} />,
+  <Lock size={24} color={Colors.gold} />,
+  <CreditCard size={24} color={Colors.gold} />,
+  <Share2 size={24} color={Colors.gold} />,
+];
+
 export default function OnboardingScreen() {
   const router = useRouter();
   const { completeOnboarding } = useAuth();
   const [currentIndex, setCurrentIndex] = useState<number>(0);
+  const [slides, setSlides] = useState<Slide[]>(defaultSlides);
   const flatListRef = useRef<FlatList>(null);
   const scrollX = useRef(new Animated.Value(0)).current;
   const buttonScale = useRef(new Animated.Value(1)).current;
+
+  // Load dynamic screen settings
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('screen_settings')
+          .select('*')
+          .eq('id', 'default')
+          .maybeSingle();
+        if (data) {
+          setSlides([
+            {
+              id: '1',
+              title: data.onboarding_slide_1_title || defaultSlides[0].title,
+              subtitle: 'Premium Photography',
+              description: data.onboarding_slide_1_subtitle || defaultSlides[0].description,
+              image: data.onboarding_slide_1_image || defaultSlides[0].image,
+              icon: icons[0],
+              stat: '500+ Happy Clients',
+            },
+            {
+              id: '2',
+              title: data.onboarding_slide_2_title || defaultSlides[1].title,
+              subtitle: 'Secure & Personal',
+              description: data.onboarding_slide_2_subtitle || defaultSlides[1].description,
+              image: data.onboarding_slide_2_image || defaultSlides[1].image,
+              icon: icons[1],
+            },
+            {
+              id: '3',
+              title: data.onboarding_slide_3_title || defaultSlides[2].title,
+              subtitle: 'View → Pay → Download',
+              description: data.onboarding_slide_3_subtitle || defaultSlides[2].description,
+              image: data.onboarding_slide_3_image || defaultSlides[2].image,
+              icon: icons[2],
+            },
+            {
+              id: '4',
+              title: data.onboarding_slide_4_title || defaultSlides[3].title,
+              subtitle: 'Effortless Sharing',
+              description: data.onboarding_slide_4_subtitle || defaultSlides[3].description,
+              image: data.onboarding_slide_4_image || defaultSlides[3].image,
+              icon: icons[3],
+            },
+          ]);
+        }
+      } catch {}
+    })();
+  }, []);
 
   const handleComplete = useCallback(async () => {
     console.log('[Onboarding] Completing...');

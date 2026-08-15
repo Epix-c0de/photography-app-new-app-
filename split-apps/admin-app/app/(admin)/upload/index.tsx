@@ -110,13 +110,7 @@ export default function GalleriesScreen() {
           clients (
             id,
             name,
-            email,
-            user_profiles (
-              id,
-              name,
-              email,
-              avatar_url
-            )
+            email
           )
         `)
         .eq('owner_admin_id', user.id)
@@ -198,9 +192,9 @@ export default function GalleriesScreen() {
           title: g.name || 'Untitled',
           cover_url: signedCover,
           photo_count: photoCountMap.get(g.id) || 0,
-          client_name: g.clients?.name || g.clients?.user_profiles?.name || 'Unknown',
-          client_email: g.clients?.email || g.clients?.user_profiles?.email || '',
-          client_avatar: g.clients?.user_profiles?.avatar_url || '',
+          client_name: g.clients?.name || 'Unknown',
+          client_email: g.clients?.email || '',
+          client_avatar: '',
           client_id: g.client_id,
           is_locked: g.is_locked,
           access_code: g.access_code,
@@ -629,7 +623,7 @@ export default function GalleriesScreen() {
       {/* Sort Modal */}
       <Modal visible={showSortModal} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowSortModal(false)}>
-          <View style={styles.sortModal}>
+          <Pressable style={styles.sortModal} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.sortModalTitle}>Sort By</Text>
             {SORT_OPTIONS.map(opt => (
               <Pressable
@@ -643,14 +637,14 @@ export default function GalleriesScreen() {
                 {sortBy === opt.key && <Check size={16} color={Colors.gold} />}
               </Pressable>
             ))}
-          </View>
+          </Pressable>
         </Pressable>
       </Modal>
 
       {/* Actions Modal */}
       <Modal visible={showActionsModal} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowActionsModal(false)}>
-          <View style={styles.actionsModal}>
+          <Pressable style={styles.actionsModal} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.actionsModalTitle}>{activeGallery?.title}</Text>
             <Pressable
               style={styles.actionItem}
@@ -692,7 +686,7 @@ export default function GalleriesScreen() {
               <Trash2 size={20} color="#E74C3C" />
               <Text style={[styles.actionItemText, styles.actionItemDangerText]}>Delete Gallery</Text>
             </Pressable>
-          </View>
+          </Pressable>
         </Pressable>
       </Modal>
     </View>

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Search, Settings } from 'lucide-react-native';
+import { Search, Settings, MessageCircle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -49,8 +49,6 @@ export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) 
       const built: AdminThread[] = await Promise.all(
         (adminProfiles || []).map(async (admin: any) => {
           const clientRow = clientRows.find((c: any) => c.owner_admin_id === admin.id);
-
-          // messages.client_id FK references user_profiles(id), NOT clients(id)
           const messageClientId = user.id;
 
           const { data: lastMsg } = await supabase
@@ -134,6 +132,7 @@ export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) 
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + 8 }]}>
+      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Messages</Text>
@@ -144,18 +143,20 @@ export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) 
         </Pressable>
       </View>
 
+      {/* Search */}
       <View style={styles.searchWrap}>
-        <Search size={14} color={Colors.textMuted} style={{ marginRight: 8 }} />
+        <Search size={15} color="rgba(255,255,255,0.3)" />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search..."
-          placeholderTextColor={Colors.textMuted}
+          placeholder="Search conversations..."
+          placeholderTextColor="rgba(255,255,255,0.25)"
           value={search}
           onChangeText={setSearch}
         />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+        {/* Quick access avatars */}
         {quickAccessThreads.length > 0 && (
           <View style={styles.quickSection}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.quickRow}>
@@ -191,12 +192,14 @@ export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) 
           </View>
         )}
 
+        {/* Thread list */}
         <View style={styles.threadList}>
           {filteredThreads.map((thread) => (
             <Pressable
               key={thread.adminId}
               style={({ pressed }) => [
                 styles.threadRow,
+                thread.unreadCount > 0 && styles.threadRowUnread,
                 pressed && { backgroundColor: 'rgba(255,255,255,0.04)' },
               ]}
               onPress={() => {
@@ -204,6 +207,7 @@ export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) 
                 onSelectThread(thread);
               }}
             >
+              {/* Avatar */}
               <View style={styles.threadAvatarWrap}>
                 {thread.adminAvatar ? (
                   <Image source={{ uri: thread.adminAvatar }} style={styles.threadAvatar} contentFit="cover" />
@@ -212,12 +216,14 @@ export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) 
                     <Text style={styles.threadAvatarText}>{getInitials(thread.adminName)}</Text>
                   </View>
                 )}
+                {thread.unreadCount > 0 && <View style={styles.onlineDot} />}
               </View>
 
+              {/* Content */}
               <View style={styles.threadContent}>
                 <View style={styles.threadTopRow}>
                   <Text
-                    style={[styles.threadName, thread.unreadCount > 0 && { fontWeight: '700', color: Colors.white }]}
+                    style={[styles.threadName, thread.unreadCount > 0 && styles.threadNameUnread]}
                     numberOfLines={1}
                   >
                     {thread.adminName}
@@ -229,7 +235,7 @@ export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) 
 
                 <View style={styles.threadBottomRow}>
                   <Text
-                    style={[styles.threadPreview, thread.unreadCount > 0 && { color: Colors.textSecondary, fontWeight: '500' }]}
+                    style={[styles.threadPreview, thread.unreadCount > 0 && styles.threadPreviewUnread]}
                     numberOfLines={1}
                   >
                     {thread.lastMessage}
@@ -247,7 +253,7 @@ export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) 
 
         {search.trim() && filteredThreads.length === 0 && (
           <View style={styles.emptySearch}>
-            <Search size={28} color={Colors.textMuted} />
+            <MessageCircle size={28} color="rgba(255,255,255,0.15)" />
             <Text style={styles.emptySearchText}>No matching conversations</Text>
           </View>
         )}
@@ -272,154 +278,184 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingTop: 4,
-    paddingBottom: 10,
+    paddingBottom: 12,
   },
   headerTitle: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: '900',
     color: Colors.white,
-    letterSpacing: -0.6,
+    letterSpacing: -0.7,
   },
   headerSub: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    marginTop: 1,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.35)',
+    marginTop: 2,
+    fontWeight: '500',
   },
   headerBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 11,
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
 
   searchWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
     backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 36,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 40,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
   searchInput: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.white,
     paddingVertical: 0,
   },
 
   quickSection: {
-    marginBottom: 14,
+    marginBottom: 16,
   },
   quickRow: {
-    paddingHorizontal: 16,
-    gap: 14,
+    paddingHorizontal: 20,
+    gap: 16,
   },
   quickItem: {
     alignItems: 'center',
-    width: 56,
+    width: 58,
   },
   quickAvatarWrap: {
     position: 'relative',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   quickAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 50,
+    height: 50,
+    borderRadius: 18,
   },
   quickAvatarFallback: {
-    backgroundColor: '#1E1E2E',
+    backgroundColor: 'rgba(212,175,55,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: Colors.goldMuted,
+    borderColor: 'rgba(212,175,55,0.25)',
   },
   quickAvatarText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: Colors.gold,
   },
   quickBadge: {
     position: 'absolute',
-    top: -2,
-    right: -2,
+    top: -3,
+    right: -3,
     backgroundColor: Colors.gold,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 5,
     borderWidth: 2,
     borderColor: Colors.background,
   },
   quickBadgeText: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: '800',
     color: Colors.background,
   },
   quickName: {
-    fontSize: 10,
-    color: Colors.textSecondary,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
     textAlign: 'center',
+    fontWeight: '500',
   },
 
   threadList: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
   threadRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 4,
-    borderRadius: 12,
+    borderRadius: 14,
+    marginBottom: 2,
+  },
+  threadRowUnread: {
+    backgroundColor: 'rgba(212,175,55,0.04)',
   },
   threadAvatarWrap: {
-    marginRight: 12,
+    marginRight: 14,
+    position: 'relative',
   },
   threadAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
   },
   threadAvatarFallback: {
-    backgroundColor: '#1E1E2E',
+    backgroundColor: 'rgba(212,175,55,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212,175,55,0.2)',
   },
   threadAvatarText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: Colors.gold,
+  },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#4ADE80',
+    borderWidth: 2,
+    borderColor: Colors.background,
   },
   threadContent: {
     flex: 1,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-    paddingBottom: 10,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+    paddingBottom: 12,
   },
   threadTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 3,
+    marginBottom: 4,
   },
   threadName: {
     fontSize: 15,
     fontWeight: '500',
-    color: Colors.textSecondary,
+    color: 'rgba(255,255,255,0.6)',
     flex: 1,
     marginRight: 8,
   },
+  threadNameUnread: {
+    fontWeight: '700',
+    color: Colors.white,
+  },
   threadTime: {
-    fontSize: 11,
-    color: Colors.textMuted,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.25)',
+    fontWeight: '500',
   },
   threadBottomRow: {
     flexDirection: 'row',
@@ -428,32 +464,38 @@ const styles = StyleSheet.create({
   },
   threadPreview: {
     fontSize: 13,
-    color: Colors.textMuted,
+    color: 'rgba(255,255,255,0.3)',
     flex: 1,
     marginRight: 8,
+    lineHeight: 18,
+  },
+  threadPreviewUnread: {
+    color: 'rgba(255,255,255,0.55)',
+    fontWeight: '500',
   },
   unreadBadge: {
     backgroundColor: Colors.gold,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
   },
   unreadBadgeText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
     color: Colors.background,
   },
 
   emptySearch: {
     alignItems: 'center',
-    paddingTop: 40,
+    paddingTop: 48,
+    gap: 10,
   },
   emptySearchText: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    marginTop: 10,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.3)',
+    fontWeight: '500',
   },
 });

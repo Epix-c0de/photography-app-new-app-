@@ -51,7 +51,7 @@ type ProviderSettings = {
 };
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'payment' | 'pricing' | 'webhooks' | 'links' | 'providers' | 'social'>('payment');
+  const [activeTab, setActiveTab] = useState<'payment' | 'pricing' | 'webhooks' | 'links' | 'providers' | 'social' | 'onboarding'>('payment');
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({
     id: '',
     mpesa_consumer_key: null,
@@ -102,6 +102,25 @@ export default function SettingsPage() {
     tiktok_client_key: '',
     tiktok_client_secret: '',
   });
+  const [screenSettings, setScreenSettings] = useState({
+    onboarding_slide_1_image: '',
+    onboarding_slide_1_title: '',
+    onboarding_slide_1_subtitle: '',
+    onboarding_slide_2_image: '',
+    onboarding_slide_2_title: '',
+    onboarding_slide_2_subtitle: '',
+    onboarding_slide_3_image: '',
+    onboarding_slide_3_title: '',
+    onboarding_slide_3_subtitle: '',
+    onboarding_slide_4_image: '',
+    onboarding_slide_4_title: '',
+    onboarding_slide_4_subtitle: '',
+    login_background_image: '',
+    login_tagline: '',
+  });
+  const [slideOrder, setSlideOrder] = useState([1, 2, 3, 4]);
+  const [draggedSlide, setDraggedSlide] = useState<number | null>(null);
+  const [dragOverSlide, setDragOverSlide] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
@@ -160,6 +179,31 @@ export default function SettingsPage() {
           facebook_app_secret: kvMap['facebook_app_secret'] || '',
           tiktok_client_key: kvMap['tiktok_client_key'] || '',
           tiktok_client_secret: kvMap['tiktok_client_secret'] || '',
+        });
+      }
+
+      // Load screen settings (onboarding/login images)
+      const { data: screenData } = await supabase
+        .from('screen_settings')
+        .select('*')
+        .eq('id', 'default')
+        .maybeSingle();
+      if (screenData) {
+        setScreenSettings({
+          onboarding_slide_1_image: screenData.onboarding_slide_1_image || '',
+          onboarding_slide_1_title: screenData.onboarding_slide_1_title || '',
+          onboarding_slide_1_subtitle: screenData.onboarding_slide_1_subtitle || '',
+          onboarding_slide_2_image: screenData.onboarding_slide_2_image || '',
+          onboarding_slide_2_title: screenData.onboarding_slide_2_title || '',
+          onboarding_slide_2_subtitle: screenData.onboarding_slide_2_subtitle || '',
+          onboarding_slide_3_image: screenData.onboarding_slide_3_image || '',
+          onboarding_slide_3_title: screenData.onboarding_slide_3_title || '',
+          onboarding_slide_3_subtitle: screenData.onboarding_slide_3_subtitle || '',
+          onboarding_slide_4_image: screenData.onboarding_slide_4_image || '',
+          onboarding_slide_4_title: screenData.onboarding_slide_4_title || '',
+          onboarding_slide_4_subtitle: screenData.onboarding_slide_4_subtitle || '',
+          login_background_image: screenData.login_background_image || '',
+          login_tagline: screenData.login_tagline || '',
         });
       }
     } catch (e) {
@@ -329,6 +373,83 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveScreenSettings() {
+    setSaving(true);
+    try {
+      const reordered: Record<string, string> = {};
+      slideOrder.forEach((originalNum, newIndex) => {
+        const newNum = newIndex + 1;
+        reordered[`onboarding_slide_${newNum}_image`] = screenSettings[`onboarding_slide_${originalNum}_image` as keyof typeof screenSettings] || '';
+        reordered[`onboarding_slide_${newNum}_title`] = screenSettings[`onboarding_slide_${originalNum}_title` as keyof typeof screenSettings] || '';
+        reordered[`onboarding_slide_${newNum}_subtitle`] = screenSettings[`onboarding_slide_${originalNum}_subtitle` as keyof typeof screenSettings] || '';
+      });
+      const { error } = await supabase
+        .from('screen_settings')
+        .upsert({ id: 'default', ...reordered, login_background_image: screenSettings.login_background_image, login_tagline: screenSettings.login_tagline }, { onConflict: 'id' });
+      if (error) throw error;
+      alert('Onboarding & Login screens updated successfully!');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to save screen settings');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleDragStart(e: React.DragEvent, slideNum: number) {
+    setDraggedSlide(slideNum);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(slideNum));
+  }
+
+  function handleDragOver(e: React.DragEvent, slideNum: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverSlide(slideNum);
+  }
+
+  function handleDragLeave() {
+    setDragOverSlide(null);
+  }
+
+  function handleDrop(e: React.DragEvent, targetNum: number) {
+    e.preventDefault();
+    const sourceNum = draggedSlide;
+    if (sourceNum === null || sourceNum === targetNum) {
+      setDraggedSlide(null);
+      setDragOverSlide(null);
+      return;
+    }
+    const newOrder = [...slideOrder];
+    const srcIdx = newOrder.indexOf(sourceNum);
+    const tgtIdx = newOrder.indexOf(targetNum);
+    newOrder.splice(srcIdx, 1);
+    newOrder.splice(tgtIdx, 0, sourceNum);
+    setSlideOrder(newOrder);
+    setDraggedSlide(null);
+    setDragOverSlide(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedSlide(null);
+    setDragOverSlide(null);
+  }
+
+  function getSlideData(originalNum: number) {
+    return {
+      image: screenSettings[`onboarding_slide_${originalNum}_image` as keyof typeof screenSettings] || '',
+      title: screenSettings[`onboarding_slide_${originalNum}_title` as keyof typeof screenSettings] || '',
+      subtitle: screenSettings[`onboarding_slide_${originalNum}_subtitle` as keyof typeof screenSettings] || '',
+    };
+  }
+
+  function updateSlideField(originalNum: number, field: 'image' | 'title' | 'subtitle', value: string) {
+    setScreenSettings({
+      ...screenSettings,
+      [`onboarding_slide_${originalNum}_${field}`]: value,
+    });
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -354,6 +475,7 @@ export default function SettingsPage() {
           { id: 'links' as const, label: 'App Links', icon: '🌐' },
           { id: 'providers' as const, label: 'Providers', icon: '📡' },
           { id: 'social' as const, label: 'Social OAuth', icon: '🔗' },
+          { id: 'onboarding' as const, label: 'Onboarding & Login', icon: '🎨' },
         ].map(tab => (
           <button
             key={tab.id}
@@ -1018,6 +1140,160 @@ export default function SettingsPage() {
               className="px-6 py-3 rounded-xl font-bold transition-all"
               style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
               {saving ? 'Saving...' : 'Save Social OAuth Settings'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Onboarding & Login Tab */}
+      {activeTab === 'onboarding' && (
+        <div className="space-y-6">
+          {/* Onboarding Slides */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6 space-y-6">
+            <div>
+              <h2 className="font-bold text-xl mb-2">Onboarding Screens</h2>
+              <p className="text-sm text-gray-400">Drag and drop slides to reorder. The order shown here is the order users will see.</p>
+            </div>
+
+            {slideOrder.map((originalNum, displayIndex) => {
+              const data = getSlideData(originalNum);
+              const isDragging = draggedSlide === originalNum;
+              const isDragOver = dragOverSlide === originalNum && draggedSlide !== originalNum;
+
+              return (
+                <div
+                  key={originalNum}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, originalNum)}
+                  onDragOver={(e) => handleDragOver(e, originalNum)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, originalNum)}
+                  onDragEnd={handleDragEnd}
+                  className="p-4 rounded-xl border space-y-4 transition-all duration-200"
+                  style={{
+                    background: isDragOver ? 'rgba(212,175,55,0.08)' : isDragging ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
+                    borderColor: isDragOver ? 'rgba(212,175,55,0.4)' : isDragging ? 'rgba(212,175,55,0.2)' : 'rgba(255,255,255,0.05)',
+                    opacity: isDragging ? 0.5 : 1,
+                  }}
+                >
+                  <div className="flex items-center gap-3 mb-2">
+                    <div
+                      className="cursor-grab active:cursor-grabbing p-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                      title="Drag to reorder"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <circle cx="5" cy="4" r="1.5" fill="rgba(255,255,255,0.3)"/>
+                        <circle cx="11" cy="4" r="1.5" fill="rgba(255,255,255,0.3)"/>
+                        <circle cx="5" cy="8" r="1.5" fill="rgba(255,255,255,0.3)"/>
+                        <circle cx="11" cy="8" r="1.5" fill="rgba(255,255,255,0.3)"/>
+                        <circle cx="5" cy="12" r="1.5" fill="rgba(255,255,255,0.3)"/>
+                        <circle cx="11" cy="12" r="1.5" fill="rgba(255,255,255,0.3)"/>
+                      </svg>
+                    </div>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
+                      style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
+                      {displayIndex + 1}
+                    </div>
+                    <h3 className="font-semibold text-white">Slide {displayIndex + 1}</h3>
+                    {isDragOver && (
+                      <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{ background: 'rgba(212,175,55,0.2)', color: '#D4AF37' }}>
+                        Drop here
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-gray-400 block mb-2">Image URL</label>
+                    <input
+                      type="url"
+                      value={data.image}
+                      onChange={e => updateSlideField(originalNum, 'image', e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                      placeholder="https://images.unsplash.com/..."
+                    />
+                    {data.image && (
+                      <img
+                        src={data.image}
+                        alt={`Slide ${displayIndex + 1} preview`}
+                        className="mt-3 w-full h-40 object-cover rounded-lg border border-white/10"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm font-semibold text-gray-400 block mb-2">Title</label>
+                      <input
+                        type="text"
+                        value={data.title}
+                        onChange={e => updateSlideField(originalNum, 'title', e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                        placeholder="Slide title"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-semibold text-gray-400 block mb-2">Subtitle</label>
+                      <input
+                        type="text"
+                        value={data.subtitle}
+                        onChange={e => updateSlideField(originalNum, 'subtitle', e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                        placeholder="Slide subtitle"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Login Screen */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6 space-y-6">
+            <div>
+              <h2 className="font-bold text-xl mb-2">Login Screen</h2>
+              <p className="text-sm text-gray-400">Customize the login screen background and tagline.</p>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-gray-400 block mb-2">Background Image URL</label>
+              <input
+                type="url"
+                value={screenSettings.login_background_image}
+                onChange={e => setScreenSettings({ ...screenSettings, login_background_image: e.target.value })}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                placeholder="https://images.unsplash.com/..."
+              />
+              {screenSettings.login_background_image && (
+                <img
+                  src={screenSettings.login_background_image}
+                  alt="Login background preview"
+                  className="mt-3 w-full h-48 object-cover rounded-lg border border-white/10"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-gray-400 block mb-2">Tagline</label>
+              <input
+                type="text"
+                value={screenSettings.login_tagline}
+                onChange={e => setScreenSettings({ ...screenSettings, login_tagline: e.target.value })}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
+                placeholder="Every moment deserves to be captured beautifully."
+              />
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <div className="bg-[#111118] border border-white/5 rounded-2xl p-6">
+            <button
+              onClick={saveScreenSettings}
+              disabled={saving}
+              className="px-6 py-3 rounded-xl font-bold transition-all"
+              style={{ background: 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810' }}>
+              {saving ? 'Saving...' : 'Save Onboarding & Login Settings'}
             </button>
           </div>
         </div>

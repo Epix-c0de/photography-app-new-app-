@@ -85,7 +85,7 @@ interface ContactInfo {
 
 export default function BrandingScreen() {
   const insets = useSafeAreaInsets();
-  const { settings, update, refresh } = useBranding();
+  const { settings, update, refresh, platformDeepLinks } = useBranding();
 
   const [activeTab, setActiveTab] = useState<TabKey>('identity');
   const [isSaving, setIsSaving] = useState(false);
@@ -137,13 +137,8 @@ export default function BrandingScreen() {
     country: '',
   });
 
-  // Deep Links
-  const [shareAppLink, setShareAppLink] = useState('');
-  const [accessCodeLink, setAccessCodeLink] = useState('');
-  const [btsShareLink, setBtsShareLink] = useState('');
-  const [announcementShareLink, setAnnouncementShareLink] = useState('');
-  const [galleryShareLink, setGalleryShareLink] = useState('');
-  const [whatsappShareLink, setWhatsappShareLink] = useState('');
+  // Deep Links (read-only from platform_settings)
+  // No local state needed — rendered from platformDeepLinks
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
@@ -160,12 +155,22 @@ export default function BrandingScreen() {
       setWatermarkSize(settings.watermark_size ?? 'medium');
       setWatermarkPosition(settings.watermark_position ?? 'center');
       setWatermarkLogoUrl(settings.watermark_logo_url ?? null);
-      setShareAppLink(settings.share_app_link ?? '');
-      setAccessCodeLink(settings.access_code_link ?? '');
-      setBtsShareLink(settings.bts_share_link ?? '');
-      setAnnouncementShareLink(settings.announcement_share_link ?? '');
-      setGalleryShareLink(settings.gallery_share_link ?? '');
-      setWhatsappShareLink(settings.whatsapp_share_link ?? '');
+      setSocialLinks({
+        instagram: settings.social_instagram ?? '',
+        facebook: settings.social_facebook ?? '',
+        twitter: settings.social_twitter ?? '',
+        tiktok: settings.social_tiktok ?? '',
+        youtube: settings.social_youtube ?? '',
+        website: settings.social_website ?? '',
+      });
+      setContactInfo({
+        email: settings.contact_email ?? '',
+        phone: settings.contact_phone ?? '',
+        whatsapp: settings.contact_whatsapp ?? '',
+        address: settings.contact_address ?? '',
+        city: settings.contact_city ?? '',
+        country: settings.contact_country ?? '',
+      });
       setLastSyncedAt(new Date());
       setHasUnsavedChanges(false);
     }
@@ -222,12 +227,12 @@ export default function BrandingScreen() {
     setIsSaving(true);
     try {
       await update({
-        share_app_link: shareAppLink,
-        access_code_link: accessCodeLink,
-        bts_share_link: btsShareLink,
-        announcement_share_link: announcementShareLink,
-        gallery_share_link: galleryShareLink,
-        whatsapp_share_link: whatsappShareLink,
+        social_instagram: socialLinks.instagram,
+        social_facebook: socialLinks.facebook,
+        social_twitter: socialLinks.twitter,
+        social_tiktok: socialLinks.tiktok,
+        social_youtube: socialLinks.youtube,
+        social_website: socialLinks.website,
       });
       showSaveSuccess();
     } catch {
@@ -240,10 +245,13 @@ export default function BrandingScreen() {
   const saveContactInfo = async () => {
     setIsSaving(true);
     try {
-      // Contact info fields will be persisted when DB columns are added.
-      // For now, persist what we can via brand_settings.
       await update({
-        tagline: tagline || `${contactInfo.email} ${contactInfo.phone}`.trim(),
+        contact_email: contactInfo.email,
+        contact_phone: contactInfo.phone,
+        contact_whatsapp: contactInfo.whatsapp,
+        contact_address: contactInfo.address,
+        contact_city: contactInfo.city,
+        contact_country: contactInfo.country,
       });
       showSaveSuccess();
     } catch {
@@ -853,52 +861,37 @@ export default function BrandingScreen() {
         ))}
       </View>
 
-      {/* Deep Links */}
+      {/* Deep Links (read-only from platform) */}
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Link2 size={18} color={Colors.gold} />
           <Text style={styles.sectionTitle}>App Deep Links</Text>
+          <View style={styles.readOnlyBadge}>
+            <Text style={styles.readOnlyBadgeText}>Platform</Text>
+          </View>
         </View>
 
         {[
-          { key: 'shareAppLink' as const, label: 'App Download Link', placeholder: 'https://play.google.com/...' },
-          { key: 'accessCodeLink' as const, label: 'Access Code Link', placeholder: 'epix-visuals://gallery?autoUnlock=true&accessCode=' },
-          { key: 'btsShareLink' as const, label: 'BTS Share Link', placeholder: 'Behind-the-scenes link' },
-          { key: 'announcementShareLink' as const, label: 'Announcement Link', placeholder: 'Announcement share link' },
-          { key: 'galleryShareLink' as const, label: 'Gallery Share Link', placeholder: 'Gallery share link' },
-          { key: 'whatsappShareLink' as const, label: 'WhatsApp Share Link', placeholder: 'WhatsApp share link' },
-        ].map(({ key, label, placeholder }) => {
-          const setterMap: Record<string, (v: string) => void> = {
-            shareAppLink: setShareAppLink,
-            accessCodeLink: setAccessCodeLink,
-            btsShareLink: setBtsShareLink,
-            announcementShareLink: setAnnouncementShareLink,
-            galleryShareLink: setGalleryShareLink,
-            whatsappShareLink: setWhatsappShareLink,
-          };
-          const valueMap: Record<string, string> = {
-            shareAppLink,
-            accessCodeLink,
-            btsShareLink,
-            announcementShareLink,
-            galleryShareLink,
-            whatsappShareLink,
-          };
-          return (
-            <View style={styles.field} key={key}>
-              <Text style={styles.label}>{label}</Text>
-              <TextInput
-                style={styles.inputFull}
-                value={valueMap[key]}
-                onChangeText={(v) => { setterMap[key](v); markDirty(); }}
-                placeholder={placeholder}
-                placeholderTextColor={Colors.textMuted}
-                keyboardType="url"
-                autoCapitalize="none"
-              />
+          { label: 'App Download Link', value: platformDeepLinks.appDownloadLink },
+          { label: 'Access Code Link', value: platformDeepLinks.accessCodeLink },
+          { label: 'Admin App Link', value: platformDeepLinks.adminAppLink },
+          { label: 'Deep Link Scheme', value: platformDeepLinks.deepLinkScheme },
+        ].map(({ label, value }) => (
+          <View style={styles.field} key={label}>
+            <Text style={styles.label}>{label}</Text>
+            <View style={styles.readOnlyInput}>
+              <Text style={styles.readOnlyInputText} numberOfLines={1}>
+                {value || 'Not configured'}
+              </Text>
             </View>
-          );
-        })}
+          </View>
+        ))}
+
+        <View style={styles.platformNote}>
+          <Text style={styles.platformNoteText}>
+            Deep links are managed by the platform admin. Contact support to update these.
+          </Text>
+        </View>
 
         <Pressable
           style={[styles.saveBtn, isSaving && { opacity: 0.6 }]}
@@ -910,7 +903,7 @@ export default function BrandingScreen() {
           ) : (
             <Save size={16} color={Colors.background} />
           )}
-          <Text style={styles.saveBtnText}>{isSaving ? 'Saving...' : 'Save Social & Links'}</Text>
+          <Text style={styles.saveBtnText}>{isSaving ? 'Saving...' : 'Save Social Links'}</Text>
         </Pressable>
       </View>
     </View>
@@ -1361,6 +1354,45 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   saveBtnText: { fontSize: 15, fontWeight: '700', color: Colors.background },
+
+  // Read-only
+  readOnlyBadge: {
+    marginLeft: 'auto',
+    backgroundColor: 'rgba(212,175,55,0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  readOnlyBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: Colors.gold,
+    textTransform: 'uppercase',
+  },
+  readOnlyInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    opacity: 0.7,
+  },
+  readOnlyInputText: {
+    fontSize: 13,
+    color: Colors.textMuted,
+  },
+  platformNote: {
+    backgroundColor: 'rgba(212,175,55,0.06)',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  platformNoteText: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    lineHeight: 16,
+  },
 
   // Sync Indicator
   syncIndicator: { flexDirection: 'row', alignItems: 'center', gap: 4 },

@@ -98,17 +98,7 @@ export const ClientService = {
       if (error || !unlocked) return 0;
       const adminIds = Array.from(new Set(unlocked.map((g: any) => g.owner_admin_id).filter(Boolean)));
       
-      // If no unlocked galleries, add a default admin (first admin alphabetically)
-      if (adminIds.length === 0) {
-        const { data: allAdmins, error: adminError } = await supabase
-          .from('user_profiles')
-          .select('id, email')
-          .in('role', ['admin', 'super_admin'])
-          .order('email', { ascending: true });
-        if (!adminError && allAdmins && allAdmins.length > 0) {
-          adminIds.push(allAdmins[0].id);
-        }
-      }
+      if (adminIds.length === 0) return 0;
       
       let created = 0;
       for (const adminId of adminIds) {

@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, X, Send } from 'lucide-react-native';
+import { ChevronLeft, X, Send, Bell, MessageCircle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
@@ -104,17 +104,23 @@ export default function AnnouncementsFeedScreen() {
         .eq('user_id', user?.id ?? '');
       const adminIds = [...new Set((myClients || []).map((c: any) => c.owner_admin_id).filter(Boolean))];
 
-      if (adminIds.length === 0) {
-        setAnnouncements([]);
-        setLoading(false);
-        return;
+      // Build query: announcements from linked admins OR global visibility
+      let annQuery;
+      if (adminIds.length > 0) {
+        annQuery = supabase
+          .from('announcements')
+          .select('*')
+          .eq('is_active', true)
+          .or(`owner_admin_id.in.(${adminIds.join(',')}),visibility.eq.global`);
+      } else {
+        annQuery = supabase
+          .from('announcements')
+          .select('*')
+          .eq('is_active', true)
+          .eq('visibility', 'global');
       }
 
-      const { data, error } = await supabase
-        .from('announcements')
-        .select('*')
-        .eq('is_active', true)
-        .in('owner_admin_id', adminIds)
+      const { data, error } = await annQuery
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -403,6 +409,7 @@ export default function AnnouncementsFeedScreen() {
       onComment={() => handleComment(item)}
       onBookmark={() => handleBookmark(item)}
       onShare={() => handleShare(item)}
+      onCardPress={() => router.push(`/announcements/${item.id}`)}
     />
   );
 
@@ -414,7 +421,9 @@ export default function AnnouncementsFeedScreen() {
           <ChevronLeft size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Announcements</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity style={styles.headerBell}>
+          <Bell size={20} color={Colors.textSecondary} />
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -422,8 +431,12 @@ export default function AnnouncementsFeedScreen() {
           <ActivityIndicator size="large" color={Colors.gold} />
         </View>
       ) : announcements.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.emptyText}>No announcements yet</Text>
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIconWrap}>
+            <MessageCircle size={32} color={Colors.gold} />
+          </View>
+          <Text style={styles.emptyTitle}>No announcements yet</Text>
+          <Text style={styles.emptySubtitle}>When your photographer posts an update, it will appear here.</Text>
         </View>
       ) : (
         <FlatList
@@ -436,6 +449,7 @@ export default function AnnouncementsFeedScreen() {
           refreshing={refreshing}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
         />
       )}
 
@@ -541,18 +555,49 @@ const styles = StyleSheet.create({
     color: Colors.text,
     letterSpacing: 0.3,
   },
+  headerBell: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 20,
+    backgroundColor: Colors.card,
+  },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  emptyText: {
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    gap: 12,
+  },
+  emptyIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(212,175,55,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  emptyTitle: {
     color: Colors.textSecondary,
-    fontSize: 15,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  emptySubtitle: {
+    color: Colors.textMuted,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   feedContainer: {
-    paddingHorizontal: 12,
-    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingTop: 16,
     paddingBottom: 120,
   },
 

@@ -14,7 +14,6 @@ import {
   CreditCard,
   Droplets,
   Share2,
-  Bell,
   Shield,
   Database,
 } from 'lucide-react-native';
@@ -79,7 +78,7 @@ export default function SettingsHub() {
         { label: 'Payment Setup', description: 'M-Pesa & billing', route: '/(admin)/settings/payments', badge: 'Required' },
         { label: 'Manual Payments', description: 'Review client submissions', route: '/(admin)/settings/manual-payments', badge: pendingPayments > 0 ? pendingPayments : undefined },
         { label: 'Packages', description: 'Pricing tiers', route: '/(admin)/settings/package-editor' },
-        { label: 'Delivery', description: 'SMS & download settings', route: '/(admin)/settings/delivery' },
+        { label: 'Credits & Storage', description: 'SMS credits & storage packages', route: '/(admin)/settings/delivery' },
       ],
     },
     {
@@ -89,15 +88,6 @@ export default function SettingsHub() {
       items: [
         { label: 'Links & QR Codes', description: 'Your photographer code', route: '/(admin)/settings/links' },
         { label: 'Watermark', description: 'Brand protection', route: '/(admin)/settings' },
-      ],
-    },
-    {
-      title: 'Notifications',
-      icon: Bell,
-      color: '#F59E0B',
-      items: [
-        { label: 'SMS Management', description: 'Auto-send access codes', route: '/(admin)/settings/messaging' },
-        { label: 'Message Templates', description: 'Customize notifications', route: '/(admin)/settings/messaging' },
       ],
     },
   ];
