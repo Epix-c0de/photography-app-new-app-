@@ -1,20 +1,15 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import './fonts.css';
 
 export const metadata: Metadata = {
-  title: 'Epix Visuals — Photography Galleries & Bookings',
+  title: 'Epix Shots — Professional Photography in Kenya',
   description:
-    'Download the Epix Visuals app to access your photo galleries, book sessions, and stay connected with your photographer. Available on iOS and Android.',
+    'Professional photography services in Kenya. Portrait sessions, event coverage, weddings, and corporate photography. Book your session today.',
   openGraph: {
-    title: 'Epix Visuals',
+    title: 'Epix Shots — Professional Photography',
     description:
-      'Private photo galleries, instant delivery, and secure access for professional photography in Kenya.',
+      'Private galleries, instant delivery, and professional photography services in Kenya.',
     type: 'website',
-    images: ['/og-image.jpg'],
-  },
-  icons: {
-    icon: '/favicon.svg',
   },
 };
 

@@ -1,0 +1,106 @@
+'use client';
+
+import { MessageCircle, Phone, Mail, MapPin, Globe, Clock, Sparkles } from 'lucide-react';
+
+const contactMethods = [
+  { icon: Phone, title: 'Call or WhatsApp', detail: '0717894431', description: 'Available 9 AM - 6 PM daily', action: 'Call Now', href: 'tel:+254717894431' },
+  { icon: MessageCircle, title: 'WhatsApp Chat', detail: 'Instant Response', description: 'Get quick answers to your questions', action: 'Chat Now', href: 'https://wa.me/254717894431?text=Hello! I\'m interested in your photography services.' },
+  { icon: Mail, title: 'Email Us', detail: 'info@epixshots.co.ke', description: 'We\'ll respond within 24 hours', action: 'Send Email', href: 'mailto:info@epixshots.co.ke' },
+  { icon: Globe, title: 'Follow Us', detail: '@epixshots_ke', description: 'See our latest work and behind-the-scenes', action: 'Follow', href: 'https://instagram.com/epixshots_ke' },
+];
+
+const workingHours = [
+  { day: 'Monday - Friday', hours: '9:00 AM - 6:00 PM' },
+  { day: 'Saturday', hours: '10:00 AM - 4:00 PM' },
+  { day: 'Sunday', hours: 'By Appointment' },
+];
+
+export default function ContactSection() {
+  return (
+    <section id="contact" className="py-20 bg-muted/30">
+      <div className="container mx-auto px-4">
+        <div className="text-center mb-16">
+          <div className="inline-flex items-center glass-card px-4 py-2 rounded-full mb-6">
+            <Sparkles className="w-4 h-4 text-primary mr-2" />
+            <span className="text-sm font-medium">Get In Touch</span>
+          </div>
+          <h2 className="text-4xl md:text-6xl font-serif font-bold mb-6">
+            Let&apos;s Create <span className="text-gold-text">Together</span>
+          </h2>
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+            Ready to capture your special moments? Contact us today to discuss your photography needs
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
+          <div className="lg:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {contactMethods.map((method, index) => (
+                <div
+                  key={index}
+                  className="glass-card p-6 hover-lift group"
+                  style={{ animation: `fadeUp 0.6s ease-out ${index * 0.1}s forwards`, opacity: 0 }}
+                >
+                  <div className="flex items-center mb-4">
+                    <div className="w-12 h-12 golden-gradient rounded-xl flex items-center justify-center mr-4 group-hover:animate-glow">
+                      <method.icon className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg group-hover:text-primary transition-colors">{method.title}</h3>
+                      <p className="text-primary font-medium">{method.detail}</p>
+                    </div>
+                  </div>
+                  <p className="text-muted-foreground text-sm mb-4">{method.description}</p>
+                  <a href={method.href} target="_blank" rel="noopener noreferrer">
+                    <button className="w-full glass-button border-border hover:border-primary/50 py-2 px-4 rounded-xl font-semibold transition-all duration-300">
+                      {method.action}
+                    </button>
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="glass-card p-6">
+              <div className="flex items-center mb-4">
+                <Clock className="w-6 h-6 text-primary mr-3" />
+                <h3 className="text-xl font-semibold">Working Hours</h3>
+              </div>
+              <div className="space-y-3">
+                {workingHours.map((schedule, index) => (
+                  <div key={index} className="flex justify-between items-center py-2 border-b border-border/30 last:border-0">
+                    <span className="text-muted-foreground">{schedule.day}</span>
+                    <span className="font-medium">{schedule.hours}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="glass-card p-6">
+              <div className="flex items-center mb-4">
+                <MapPin className="w-6 h-6 text-primary mr-3" />
+                <h3 className="text-xl font-semibold">Studio Location</h3>
+              </div>
+              <p className="text-muted-foreground mb-4">
+                Nairobi, Kenya<br />Available for shoots nationwide
+              </p>
+            </div>
+
+            <div className="glass-card p-6 bg-primary/5 border-primary/20">
+              <h3 className="text-xl font-semibold mb-2 text-primary">24/7 Emergency</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                For urgent photography needs or last-minute bookings
+              </p>
+              <a href="https://wa.me/254717894431" target="_blank" rel="noopener noreferrer">
+                <button className="w-full golden-gradient py-2 px-4 rounded-xl font-semibold text-primary-foreground transition-all duration-300">
+                  WhatsApp: 0717894431
+                </button>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
