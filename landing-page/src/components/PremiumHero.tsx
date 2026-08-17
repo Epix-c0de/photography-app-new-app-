@@ -111,16 +111,15 @@ export default function PremiumHero() {
               </button>
             </a>
             {apkUrl ? (
-              <button
-                onClick={handleDownload}
-                className="glass-button text-foreground border-border hover:border-primary/50 text-lg px-8 py-6 flex items-center gap-2 font-bold rounded-xl transition-all duration-300"
-              >
-                <Download className="w-5 h-5" />
-                {heroData.secondaryCtaText}
-                {apkVersion && <span className="text-xs text-muted-foreground ml-1">{apkVersion}</span>}
-              </button>
+              <a href="/download">
+                <button className="glass-button text-foreground border-border hover:border-primary/50 text-lg px-8 py-6 flex items-center gap-2 font-bold rounded-xl transition-all duration-300">
+                  <Download className="w-5 h-5" />
+                  {heroData.secondaryCtaText}
+                  {apkVersion && <span className="text-xs text-muted-foreground ml-1">{apkVersion}</span>}
+                </button>
+              </a>
             ) : (
-              <a href="https://play.google.com/store/apps/details?id=app.rork.epix_visuals_studios_co" target="_blank" rel="noopener noreferrer">
+              <a href="/download">
                 <button className="glass-button text-foreground border-border hover:border-primary/50 text-lg px-8 py-6 flex items-center gap-2 font-bold rounded-xl transition-all duration-300">
                   {heroData.secondaryCtaText}
                 </button>

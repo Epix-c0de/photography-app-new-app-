@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Menu, X, Camera, LogIn, Sparkles, Zap } from 'lucide-react';
+import { Menu, X, Camera, LogIn, Sparkles, Zap, Download } from 'lucide-react';
 
 const PHOTOGRAPHER_PORTAL = 'https://app.epixvisuals.co.ke/login';
 
@@ -64,6 +64,12 @@ export default function Navbar() {
 
           {/* Auth Section */}
           <div className="hidden lg:flex items-center space-x-4">
+            <a href="/download">
+              <button className="flex items-center gap-2 px-6 py-3 rounded-xl golden-gradient text-primary-foreground transition-all duration-500 hover:shadow-lg hover:shadow-primary/20 font-semibold">
+                <Download className="h-4 w-4 transition-transform duration-500" />
+                Download App
+              </button>
+            </a>
             <a href={PHOTOGRAPHER_PORTAL}>
               <button className="flex items-center gap-2 px-6 py-3 rounded-xl text-foreground border border-primary/30 hover:border-primary/60 transition-all duration-500 hover:shadow-lg hover:shadow-primary/10 font-semibold">
                 <LogIn className="h-4 w-4 transition-transform duration-500" />
@@ -96,6 +102,12 @@ export default function Navbar() {
                 </a>
               ))}
               <div className="pt-6 border-t border-primary/15">
+                <a href="/download" className="block mb-3">
+                  <button className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl golden-gradient text-primary-foreground transition-all duration-500 font-semibold">
+                    <Download className="h-4 w-4" />
+                    Download App
+                  </button>
+                </a>
                 <a href={PHOTOGRAPHER_PORTAL}>
                   <button className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-xl border border-primary/30 hover:border-primary/60 transition-all duration-500 font-semibold text-foreground">
                     <LogIn className="h-4 w-4" />
