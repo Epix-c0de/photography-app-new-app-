@@ -1,0 +1,7 @@
+{
+  "buildCommand": "cd landing-page && npm install && npx next build",
+  "outputDirectory": "landing-page/out",
+  "installCommand": "cd landing-page && npm install",
+  "framework": "nextjs",
+  "rewrites": []
+}
