@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Eye, EyeOff, Mail, Lock, Download, Smartphone, Shield, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, Download, Smartphone, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
 const VIDEO_URL = 'https://videos.pexels.com/video-files/8128311/8128311-uhd_2560_1440_25fps.mp4';
@@ -37,18 +37,12 @@ const VideoBackground = ({ videoUrl }: { videoUrl: string }) => {
 };
 
 export default function DownloadPage() {
-    const [adminApk, setAdminApk] = useState<any>(null);
     const [clientApk, setClientApk] = useState<any>(null);
     const [loadingApk, setLoadingApk] = useState(true);
-    const [downloading, setDownloading] = useState<string | null>(null);
-    const [downloadComplete, setDownloadComplete] = useState<string | null>(null);
+    const [downloading, setDownloading] = useState(false);
+    const [downloadComplete, setDownloadComplete] = useState(false);
 
     useEffect(() => {
-        fetch('/api/apk/download?type=admin')
-            .then(r => r.json())
-            .then(data => { if (data.version) setAdminApk(data); })
-            .catch(() => {});
-
         fetch('/api/apk/download?type=client')
             .then(r => r.json())
             .then(data => { if (data.version) setClientApk(data); })
@@ -56,22 +50,21 @@ export default function DownloadPage() {
             .finally(() => setLoadingApk(false));
     }, []);
 
-    const handleDownload = async (type: 'admin' | 'client') => {
-        const apk = type === 'admin' ? adminApk : clientApk;
-        if (!apk?.download_url) return;
+    const handleDownload = async () => {
+        if (!clientApk?.download_url) return;
 
-        setDownloading(type);
-        setDownloadComplete(null);
+        setDownloading(true);
+        setDownloadComplete(false);
 
         const a = document.createElement('a');
-        a.href = apk.download_url;
-        a.download = apk.filename || `epix-${type}.apk`;
+        a.href = clientApk.download_url;
+        a.download = clientApk.filename || 'epix-client.apk';
         a.click();
 
         setTimeout(() => {
-            setDownloading(null);
-            setDownloadComplete(type);
-            setTimeout(() => setDownloadComplete(null), 3000);
+            setDownloading(false);
+            setDownloadComplete(true);
+            setTimeout(() => setDownloadComplete(false), 3000);
         }, 1500);
     };
 
@@ -93,17 +86,17 @@ export default function DownloadPage() {
                         <h2 className="text-3xl font-bold mb-2 relative group">
                             <span className="absolute -inset-1 bg-gradient-to-r from-purple-600/30 via-pink-500/30 to-blue-500/30 blur-xl opacity-75 group-hover:opacity-100 transition-all duration-500 animate-pulse"></span>
                             <span className="relative inline-block text-3xl font-bold mb-2 text-white">
-                                Download Apps
+                                Epix Shots
                             </span>
                             <span className="absolute -inset-0.5 bg-gradient-to-r from-purple-500/20 to-pink-500/20 blur-sm opacity-0 group-hover:opacity-100 transition-all duration-300"></span>
                         </h2>
                         <p className="text-white/80 flex flex-col items-center space-y-1">
                             <span className="relative group cursor-default">
                                 <span className="absolute -inset-1 bg-gradient-to-r from-purple-600/20 to-pink-600/20 blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-500"></span>
-                                <span className="relative inline-block animate-pulse">Get the Epix Shots apps for your device</span>
+                                <span className="relative inline-block animate-pulse">Your photography universe awaits</span>
                             </span>
                             <span className="text-xs text-white/50 animate-pulse">
-                                [Available for Android]
+                                [Download the app to get started]
                             </span>
                             <div className="flex space-x-2 text-xs text-white/40">
                                 <span className="animate-pulse">📱</span>
@@ -113,63 +106,11 @@ export default function DownloadPage() {
                         </p>
                     </div>
 
-                    {/* Download Cards — styled like the form inputs */}
-                    <div className="space-y-4">
-                        {/* Admin App */}
+                    {/* Download Card — styled like the login form */}
+                    <div className="space-y-6">
                         <div className="p-5 rounded-xl bg-white/5 border border-white/10 hover:border-purple-500/50 transition-all duration-300 group">
                             <div className="flex items-center gap-4 mb-4">
                                 <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-600 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/20 group-hover:shadow-purple-500/40 transition-all">
-                                    <Shield className="w-7 h-7 text-white" />
-                                </div>
-                                <div className="flex-1">
-                                    <h3 className="text-white font-bold text-lg">Admin App</h3>
-                                    <p className="text-white/50 text-sm">For photographers & studios</p>
-                                </div>
-                            </div>
-
-                            <p className="text-white/60 text-sm mb-4">
-                                Manage galleries, clients, bookings, and payments. Upload photos, track revenue, and grow your photography business.
-                            </p>
-
-                            {adminApk && (
-                                <div className="flex items-center gap-2 mb-4 text-xs text-white/40">
-                                    <span>Version {adminApk.version}</span>
-                                    <span>•</span>
-                                    <span>{(adminApk.file_size / (1024 * 1024)).toFixed(1)} MB</span>
-                                </div>
-                            )}
-
-                            <button
-                                onClick={() => handleDownload('admin')}
-                                disabled={!adminApk || downloading === 'admin'}
-                                className={`w-full py-3 rounded-lg ${downloadComplete === 'admin'
-                                        ? 'bg-green-600'
-                                        : 'bg-purple-600 hover:bg-purple-700'
-                                    } text-white font-medium transition-all duration-200 ease-in-out transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none shadow-lg shadow-purple-500/20 hover:shadow-purple-500/40 flex items-center justify-center gap-2`}
-                            >
-                                {downloadComplete === 'admin' ? (
-                                    <>
-                                        <CheckCircle size={18} />
-                                        Download Started
-                                    </>
-                                ) : downloading === 'admin' ? (
-                                    <>
-                                        <Loader2 size={18} className="animate-spin" />
-                                        Downloading...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Download size={18} />
-                                        Download Admin APK
-                                    </>
-                                )}
-                            </button>
-                        </div>
-
-                        {/* Client App */}
-                        <div className="p-5 rounded-xl bg-white/5 border border-white/10 hover:border-blue-500/50 transition-all duration-300 group">
-                            <div className="flex items-center gap-4 mb-4">
-                                <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:shadow-blue-500/40 transition-all">
                                     <Smartphone className="w-7 h-7 text-white" />
                                 </div>
                                 <div className="flex-1">
@@ -191,19 +132,19 @@ export default function DownloadPage() {
                             )}
 
                             <button
-                                onClick={() => handleDownload('client')}
-                                disabled={!clientApk || downloading === 'client'}
-                                className={`w-full py-3 rounded-lg ${downloadComplete === 'client'
+                                onClick={handleDownload}
+                                disabled={!clientApk || downloading}
+                                className={`w-full py-3 rounded-lg ${downloadComplete
                                         ? 'bg-green-600'
-                                        : 'bg-blue-600 hover:bg-blue-700'
-                                    } text-white font-medium transition-all duration-200 ease-in-out transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none shadow-lg shadow-blue-500/20 hover:shadow-blue-500/40 flex items-center justify-center gap-2`}
+                                        : 'bg-purple-600 hover:bg-purple-700'
+                                    } text-white font-medium transition-all duration-200 ease-in-out transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none shadow-lg shadow-purple-500/20 hover:shadow-purple-500/40 flex items-center justify-center gap-2`}
                             >
-                                {downloadComplete === 'client' ? (
+                                {downloadComplete ? (
                                     <>
                                         <CheckCircle size={18} />
                                         Download Started
                                     </>
-                                ) : downloading === 'client' ? (
+                                ) : downloading ? (
                                     <>
                                         <Loader2 size={18} className="animate-spin" />
                                         Downloading...
@@ -211,7 +152,7 @@ export default function DownloadPage() {
                                 ) : (
                                     <>
                                         <Download size={18} />
-                                        Download Client APK
+                                        Download App
                                     </>
                                 )}
                             </button>
@@ -219,9 +160,9 @@ export default function DownloadPage() {
                     </div>
 
                     {/* No APKs available */}
-                    {!loadingApk && !adminApk && !clientApk && (
+                    {!loadingApk && !clientApk && (
                         <div className="text-center py-8">
-                            <p className="text-white/40 text-sm">Apps are not available for download yet. Check back later.</p>
+                            <p className="text-white/40 text-sm">App is not available for download yet. Check back later.</p>
                         </div>
                     )}
 
