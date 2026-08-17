@@ -1,6 +1,6 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "landing-page/out",
   "installCommand": "cd landing-page && npm install",
-  "framework": "nextjs"
+  "buildCommand": "cd landing-page && npx next build",
+  "outputDirectory": "landing-page/out",
+  "framework": null
 }
