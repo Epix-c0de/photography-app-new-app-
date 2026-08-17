@@ -50,3 +50,4 @@ core
 
 # Rust build artifacts
 target/
+.env*
