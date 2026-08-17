@@ -22,6 +22,7 @@ const navItems = [
   { href: '/dashboard/moderation', label: 'Moderation', icon: '👁️' },
   { href: '/dashboard/chat', label: 'Chat', icon: '💬' },
   { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' },
+  { href: '/dashboard/apks', label: 'APK Management', icon: '📦' },
 ];
 
 export default function SuperAdminLayout({ children }: { children: React.ReactNode }) {

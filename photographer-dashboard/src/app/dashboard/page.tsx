@@ -25,6 +25,8 @@ export default function DashboardOverview() {
   const [recentClients, setRecentClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [adminName, setAdminName] = useState('');
+  const [adminApk, setAdminApk] = useState<any>(null);
+  const [clientApk, setClientApk] = useState<any>(null);
 
   useEffect(() => {
     (async () => {
@@ -52,6 +54,12 @@ export default function DashboardOverview() {
       ]);
 
       setAdminName((profile as any)?.name || user.email?.split('@')[0] || 'Photographer');
+
+      // Fetch latest APKs
+      const apkRes = await fetch('/api/apk/latest');
+      const apkData = await apkRes.json();
+      setAdminApk(apkData.admin || null);
+      setClientApk(apkData.client || null);
 
       const galleryList = galleries || [];
       const allRevenueGalleries = allGalleriesForRevenue || [];
@@ -110,6 +118,20 @@ export default function DashboardOverview() {
     { label: 'Pending Bookings', value: stats.pendingBookings, color: '#FF9F0A', icon: '📅', href: '/dashboard/bookings' },
     { label: 'Confirmed Shoots', value: stats.confirmedBookings, color: '#0A84FF', icon: '✅', href: '/dashboard/bookings' },
   ];
+
+  const handleApkDownload = async (type: 'admin' | 'client') => {
+    try {
+      const res = await fetch(`/api/apk/download?type=${type}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const a = document.createElement('a');
+      a.href = data.download_url;
+      a.download = data.filename;
+      a.click();
+    } catch (err) {
+      console.error('Download failed', err);
+    }
+  };
 
   if (loading) {
     return (
@@ -267,6 +289,42 @@ export default function DashboardOverview() {
           </div>
         </div>
       )}
+
+      {/* Download Apps */}
+      <div>
+        <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, marginBottom: 14 }}>Download Apps</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div style={{ background: '#111111', borderRadius: 20, padding: 24, border: '1px solid rgba(212,175,55,0.12)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 14, background: 'rgba(212,175,55,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📱</div>
+              <div>
+                <p style={{ fontWeight: 800, fontSize: 15, color: 'white' }}>Admin App</p>
+                <p style={{ fontSize: 12, color: '#D4AF37', fontWeight: 600 }}>{adminApk ? `v${adminApk.version}` : 'Not available'}</p>
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 16 }}>Download the photographer admin app to manage galleries, clients, and bookings on the go.</p>
+            <button onClick={() => handleApkDownload('admin')} disabled={!adminApk}
+              style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', background: adminApk ? 'linear-gradient(135deg, #D4AF37, #F0D060)' : 'rgba(255,255,255,0.05)', color: adminApk ? '#080810' : 'rgba(255,255,255,0.2)', fontWeight: 800, fontSize: 13, cursor: adminApk ? 'pointer' : 'not-allowed' }}>
+              {adminApk ? '⬇ Download Admin APK' : 'No APK Available'}
+            </button>
+          </div>
+
+          <div style={{ background: '#111111', borderRadius: 20, padding: 24, border: '1px solid rgba(52,199,89,0.12)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 14, background: 'rgba(52,199,89,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>📲</div>
+              <div>
+                <p style={{ fontWeight: 800, fontSize: 15, color: 'white' }}>Client App</p>
+                <p style={{ fontSize: 12, color: '#34C759', fontWeight: 600 }}>{clientApk ? `v${clientApk.version}` : 'Not available'}</p>
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 16 }}>Download the client app to share galleries, collect payments, and deliver photos to your clients.</p>
+            <button onClick={() => handleApkDownload('client')} disabled={!clientApk}
+              style={{ width: '100%', padding: '12px', borderRadius: 12, border: 'none', background: clientApk ? 'linear-gradient(135deg, #34C759, #30D158)' : 'rgba(255,255,255,0.05)', color: clientApk ? '#080810' : 'rgba(255,255,255,0.2)', fontWeight: 800, fontSize: 13, cursor: clientApk ? 'pointer' : 'not-allowed' }}>
+              {clientApk ? '⬇ Download Client APK' : 'No APK Available'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

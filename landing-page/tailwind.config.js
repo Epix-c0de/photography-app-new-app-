@@ -8,14 +8,14 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        background: '#0A0A0A',
-        foreground: '#FFFFFF',
-        card: { DEFAULT: '#111111', foreground: '#FFFFFF' },
-        primary: { DEFAULT: '#D4AF37', foreground: '#080810', glow: '#F0D060' },
+        background: '#FFFFFF',
+        foreground: '#1A1A1A',
+        card: { DEFAULT: '#F8F9FA', foreground: '#1A1A1A' },
+        primary: { DEFAULT: '#D4AF37', foreground: '#FFFFFF', glow: '#F0D060' },
         accent: '#38BDF8',
         purple: { 500: '#A855F7' },
-        border: 'rgba(255,255,255,0.08)',
-        muted: { DEFAULT: 'rgba(255,255,255,0.06)', foreground: 'rgba(255,255,255,0.5)' },
+        border: 'rgba(0,0,0,0.08)',
+        muted: { DEFAULT: 'rgba(0,0,0,0.04)', foreground: 'rgba(0,0,0,0.5)' },
         gold: '#D4AF37',
       },
       fontFamily: {
