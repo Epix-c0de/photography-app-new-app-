@@ -9,8 +9,8 @@ import { toast } from 'sonner';
 const sanitizeUserInput = (input: string, maxLen: number) => input.slice(0, maxLen);
 const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 const useSecurityLogger = () => ({
-  logSecurityEvent: async () => {},
-  logSuspiciousActivity: async () => {}
+  logSecurityEvent: async (..._args: any[]) => {},
+  logSuspiciousActivity: async (..._args: any[]) => {}
 });
 
 interface ContactFormProps {
