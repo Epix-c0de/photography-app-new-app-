@@ -1,75 +1,30 @@
 'use client';
 
 import { Button } from "../ui/button";
-import { ArrowRight, Play, Sparkles } from "lucide-react";
+import { ArrowRight, Download, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import AnimatedText from "./AnimatedText";
-import GlassCard from "./GlassCard";
-import { useWebsiteContent } from "../../hooks/useWebsiteContent";
-import { useEffect, useState } from "react";
 
 const heroImageUrl = 'https://images.unsplash.com/photo-1452587925148-ce544e77e70d?q=80&w=2000&auto=format&fit=crop';
 
 const PremiumHero = () => {
   const router = useRouter();
-  const { data: content, isLoading } = useWebsiteContent<any>('hero');
-  
-  const [heroData, setHeroData] = useState({
-    headline: 'Unlock Your',
-    subheadline: 'Memories',
-    primaryCtaText: 'View Portfolio',
-    primaryCtaHref: '/portfolio',
-    secondaryCtaText: 'Client Login',
-    secondaryCtaHref: '/auth',
-    backgroundImageUrl: heroImageUrl,
-    stats: [
-      { value: '500+', label: 'Happy Clients' },
-      { value: '1000+', label: 'Photos Delivered' },
-      { value: '50+', label: 'Events Covered' }
-    ]
-  });
-
-  useEffect(() => {
-    if (content?.content) {
-      setHeroData(prev => ({
-        ...prev,
-        headline: content.content.headline || prev.headline,
-        subheadline: content.content.subheadline || prev.subheadline,
-        primaryCtaText: content.content.primaryCtaText || prev.primaryCtaText,
-        primaryCtaHref: content.content.primaryCtaHref || prev.primaryCtaHref,
-        secondaryCtaText: content.content.secondaryCtaText || prev.secondaryCtaText,
-        secondaryCtaHref: content.content.secondaryCtaHref || prev.secondaryCtaHref,
-        backgroundImageUrl: content.content.backgroundImageUrl || prev.backgroundImageUrl,
-        stats: content.content.stats || prev.stats
-      }));
-    }
-  }, [content]);
-
-  const handleViewPortfolio = () => {
-    router.push(heroData.primaryCtaHref);
-  };
-
-  const handleClientLogin = () => {
-    router.push(heroData.secondaryCtaHref);
-  };
 
   return (
     <section id="home" className="relative min-h-screen flex items-center justify-center overflow-hidden">
       {/* Background image with overlays */}
       <div className="absolute inset-0">
         <motion.img 
-          src={heroData.backgroundImageUrl} 
+          src={heroImageUrl} 
           alt="Professional Photography Studio" 
           className="w-full h-full object-cover"
           initial={{ scale: 1.1 }}
           animate={{ scale: 1 }}
           transition={{ duration: 1.5, ease: 'easeOut' }}
         />
-        {/* Multi-layer gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/60 to-background" />
         <div className="absolute inset-0 bg-gradient-to-r from-background/70 via-transparent to-background/70" />
-        {/* Radial accent */}
         <div 
           className="absolute inset-0"
           style={{
@@ -81,26 +36,17 @@ const PremiumHero = () => {
       {/* Floating decorative elements */}
       <motion.div 
         className="absolute top-32 left-[10%] w-3 h-3 rounded-full bg-primary/60"
-        animate={{ 
-          y: [-10, 10, -10],
-          opacity: [0.4, 0.8, 0.4]
-        }}
+        animate={{ y: [-10, 10, -10], opacity: [0.4, 0.8, 0.4] }}
         transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
       />
       <motion.div 
         className="absolute top-1/4 right-[15%] w-4 h-4 rounded-full bg-accent/50"
-        animate={{ 
-          y: [10, -10, 10],
-          opacity: [0.3, 0.6, 0.3]
-        }}
+        animate={{ y: [10, -10, 10], opacity: [0.3, 0.6, 0.3] }}
         transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
       />
       <motion.div 
         className="absolute bottom-1/3 left-[20%]"
-        animate={{ 
-          y: [-5, 15, -5],
-          rotate: [0, 180, 360]
-        }}
+        animate={{ y: [-5, 15, -5], rotate: [0, 180, 360] }}
         transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
       >
         <Sparkles className="w-6 h-6 text-primary/40" />
@@ -129,7 +75,7 @@ const PremiumHero = () => {
           {/* Main Heading */}
           <h1 className="text-5xl md:text-7xl lg:text-8xl font-serif font-bold mb-6 leading-tight">
             <AnimatedText 
-              text={heroData.headline} 
+              text="Unlock Your" 
               className="justify-center text-foreground"
               delay={0.4}
             />
@@ -139,7 +85,7 @@ const PremiumHero = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.8 }}
             >
-              {heroData.subheadline}
+              Memories
             </motion.span>
             <AnimatedText 
               text="One Click at a Time" 
@@ -155,7 +101,7 @@ const PremiumHero = () => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 1.2 }}
           >
-            Secure, personalized photography experience with instant access to your beautiful moments
+            Access your photo galleries, view and download high-resolution images, and share your beautiful moments with family and friends.
           </motion.p>
 
           {/* CTA Buttons */}
@@ -168,10 +114,10 @@ const PremiumHero = () => {
             <Button 
               size="lg" 
               className="golden-gradient hover-scale shadow-golden text-lg px-8 py-6 ripple group"
-              onClick={handleViewPortfolio}
+              onClick={() => router.push('/download')}
             >
-              <Play className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform" />
-              {heroData.primaryCtaText}
+              <Download className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform" />
+              Download App
               <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
             </Button>
             
@@ -179,9 +125,9 @@ const PremiumHero = () => {
               size="lg" 
               variant="outline" 
               className="glass-button text-foreground border-border hover:border-primary/50 text-lg px-8 py-6"
-              onClick={handleClientLogin}
+              onClick={() => router.push('https://wa.me/254717894431')}
             >
-              {heroData.secondaryCtaText}
+              Contact Us
             </Button>
           </motion.div>
 
@@ -192,7 +138,11 @@ const PremiumHero = () => {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.8, delay: 1.6 }}
           >
-            {heroData.stats.map((stat, index) => (
+            {[
+              { value: '500+', label: 'Happy Clients' },
+              { value: '1000+', label: 'Photos Delivered' },
+              { value: '50+', label: 'Events Covered' }
+            ].map((stat, index) => (
               <motion.div 
                 key={stat.label}
                 className="text-center"

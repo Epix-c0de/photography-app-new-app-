@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { useScrollReveal } from '../../hooks/useScrollReveal';
 import { Button } from '../ui/button';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, Download, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 const CTASection = () => {
@@ -12,7 +12,6 @@ const CTASection = () => {
 
   return (
     <section className="relative py-24 overflow-hidden">
-      {/* Background with gradient */}
       <div className="absolute inset-0 hero-gradient" />
       <div 
         className="absolute inset-0"
@@ -30,7 +29,6 @@ const CTASection = () => {
           className="max-w-3xl mx-auto"
         >
           <div className="glass-premium p-12 md:p-16 text-center relative overflow-hidden">
-            {/* Decorative elements */}
             <motion.div 
               className="absolute top-8 left-8"
               animate={{ rotate: 360 }}
@@ -46,17 +44,15 @@ const CTASection = () => {
               <Sparkles className="w-8 h-8 text-accent/30" />
             </motion.div>
 
-            {/* Glow effect */}
             <div className="absolute inset-0 rounded-2xl animate-pulse-glow opacity-30 pointer-events-none" />
 
-            {/* Content */}
             <motion.span 
               className="inline-block text-primary text-sm font-medium tracking-widest uppercase mb-4"
               initial={{ opacity: 0, y: 10 }}
               animate={isVisible ? { opacity: 1, y: 0 } : {}}
               transition={{ delay: 0.2 }}
             >
-              Start Your Journey
+              Get Started Today
             </motion.span>
 
             <motion.h2 
@@ -65,7 +61,7 @@ const CTASection = () => {
               animate={isVisible ? { opacity: 1, y: 0 } : {}}
               transition={{ delay: 0.3 }}
             >
-              Ready to Capture Your <span className="text-gradient">Perfect Moments</span>?
+              Ready to Access Your <span className="text-gradient">Beautiful Moments</span>?
             </motion.h2>
 
             <motion.p 
@@ -74,7 +70,7 @@ const CTASection = () => {
               animate={isVisible ? { opacity: 1, y: 0 } : {}}
               transition={{ delay: 0.4 }}
             >
-              Book your session today and let us create timeless memories together
+              Download the Epix Shots app and get instant access to your photo galleries. View, download, and share your memories.
             </motion.p>
 
             <motion.div
@@ -85,9 +81,10 @@ const CTASection = () => {
               <Button 
                 size="lg" 
                 className="golden-gradient hover-scale shadow-golden text-lg px-10 py-6 ripple group"
-                onClick={() => router.push('/book')}
+                onClick={() => router.push('/download')}
               >
-                Book Now
+                <Download className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform" />
+                Download Now
                 <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
               </Button>
             </motion.div>

@@ -6,28 +6,28 @@ import { Calendar, Camera, Image, Download } from 'lucide-react';
 
 const steps = [
   {
-    icon: Calendar,
-    number: '01',
-    title: 'Book Your Session',
-    description: 'Choose your preferred date and photography package'
-  },
-  {
     icon: Camera,
-    number: '02',
-    title: 'Capture the Moment',
-    description: 'Enjoy a professional photography session'
+    number: '01',
+    title: 'Book a Session',
+    description: 'Contact us to schedule your photography session at a time that works for you'
   },
   {
     icon: Image,
-    number: '03',
-    title: 'Review & Select',
-    description: 'Browse your gallery and select your favorites'
+    number: '02',
+    title: 'Get Your Photos',
+    description: 'Your photos are professionally edited and uploaded to your personal gallery'
   },
   {
     icon: Download,
+    number: '03',
+    title: 'Download the App',
+    description: 'Download the Epix Shots app to access your gallery on any device'
+  },
+  {
+    icon: Calendar,
     number: '04',
-    title: 'Download & Share',
-    description: 'Get instant access to your beautiful photos'
+    title: 'View & Share',
+    description: 'Browse, download, and share your beautiful moments with family and friends'
   }
 ];
 
@@ -35,8 +35,7 @@ const HowItWorks = () => {
   const { ref, isVisible } = useScrollReveal({ threshold: 0.1 });
 
   return (
-    <section className="relative py-24 overflow-hidden">
-      {/* Background */}
+    <section id="how-it-works" className="relative py-24 overflow-hidden">
       <div className="absolute inset-0 hero-gradient opacity-50" />
       
       <div className="container mx-auto px-4 relative z-10">
@@ -54,12 +53,11 @@ const HowItWorks = () => {
             How It <span className="text-gradient">Works</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            A seamless experience from booking to delivery
+            From booking to viewing your photos, it&apos;s as easy as 1-2-3-4
           </p>
         </motion.div>
 
         <div className="relative">
-          {/* Connecting line - desktop only */}
           <div className="hidden lg:block absolute top-1/2 left-0 right-0 h-px bg-gradient-to-r from-transparent via-border to-transparent -translate-y-1/2" />
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -71,9 +69,7 @@ const HowItWorks = () => {
                 transition={{ duration: 0.6, delay: index * 0.15 }}
                 className="relative"
               >
-                {/* Card */}
                 <div className="glass-premium p-8 text-center group hover-lift">
-                  {/* Number badge */}
                   <motion.div 
                     className="absolute -top-4 left-1/2 -translate-x-1/2 w-8 h-8 rounded-full golden-gradient flex items-center justify-center text-sm font-bold text-primary-foreground shadow-golden"
                     whileHover={{ scale: 1.2 }}
@@ -81,7 +77,6 @@ const HowItWorks = () => {
                     {index + 1}
                   </motion.div>
 
-                  {/* Icon */}
                   <motion.div 
                     className="w-16 h-16 mx-auto rounded-full glass-card flex items-center justify-center mb-6 group-hover:shadow-[0_0_30px_hsl(var(--primary)/0.3)] transition-shadow"
                     whileHover={{ rotate: 360 }}
@@ -90,7 +85,6 @@ const HowItWorks = () => {
                     <step.icon className="w-8 h-8 text-primary" />
                   </motion.div>
 
-                  {/* Content */}
                   <h3 className="font-serif text-xl font-semibold mb-3">
                     {step.title}
                   </h3>
@@ -99,7 +93,6 @@ const HowItWorks = () => {
                   </p>
                 </div>
 
-                {/* Arrow to next - desktop only */}
                 {index < steps.length - 1 && (
                   <motion.div 
                     className="hidden lg:block absolute top-1/2 -right-4 text-primary/50"

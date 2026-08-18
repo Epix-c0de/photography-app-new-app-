@@ -5,8 +5,6 @@ import PremiumHero from '@/components/home/PremiumHero';
 import ShowcaseSection from '@/components/home/ShowcaseSection';
 import ServicesSection from '@/components/home/ServicesSection';
 import HowItWorks from '@/components/home/HowItWorks';
-import TestimonialsSection from '@/components/home/TestimonialsSection';
-import Pricing from '@/components/Pricing';
 import Contact from '@/components/Contact';
 import CTASection from '@/components/home/CTASection';
 import PremiumFooter from '@/components/home/PremiumFooter';
@@ -27,8 +25,6 @@ const Index = () => {
         <ShowcaseSection />
         <ServicesSection />
         <HowItWorks />
-        <TestimonialsSection />
-        <Pricing />
         <CTASection />
         <Contact />
         <PremiumFooter />
