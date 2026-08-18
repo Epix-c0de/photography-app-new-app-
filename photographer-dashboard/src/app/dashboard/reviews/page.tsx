@@ -220,7 +220,8 @@ export default function ReviewsPage() {
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 4 }}>Rating Distribution</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
             {[5, 4, 3, 2, 1].map((star) => {
-              const count = stats?.[`${['one', 'two', 'three', 'four', 'five'][star - 1]}_star_count`] || 0;
+              const key = `${['one', 'two', 'three', 'four', 'five'][star - 1]}_star_count` as keyof ReviewStats;
+              const count = (stats?.[key] as number) || 0;
               const total = stats?.total_reviews || 1;
               const percentage = (count / total) * 100;
               return (
