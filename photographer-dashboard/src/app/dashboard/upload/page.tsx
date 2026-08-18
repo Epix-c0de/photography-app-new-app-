@@ -265,7 +265,7 @@ export default function UploadPage() {
               for (let j = 0; j < binaryString.length; j++) {
                 bytes[j] = binaryString.charCodeAt(j);
               }
-              uploadFile = new Blob([bytes], { type: `image/${compressed.format}` });
+              uploadFile = new File([bytes], f.file.name, { type: `image/${compressed.format}`, lastModified: Date.now() });
               compressedSize = compressed.compressedSize;
               console.log(`Compressed ${f.file.name}: ${formatFileSize(f.file.size)} → ${formatFileSize(compressedSize)} (${compressed.compressionRatio})`);
               setFiles(prev => prev.map(p => p.id === f.id ? { ...p, compressedSize } : p));
