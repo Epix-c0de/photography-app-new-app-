@@ -340,7 +340,7 @@ export default function UploadPage() {
         client_id: clientData.id,
         gallery_id: galleryId,
       });
-      showToast('SMS sent successfully!');
+      console.log('SMS sent successfully!');
     } catch (e: any) {
       // Fallback to browser SMS
       window.open(`sms:${clientData.phone}?body=${encodeURIComponent(msg)}`, '_blank');
@@ -360,7 +360,7 @@ export default function UploadPage() {
         client_id: clientData.id,
         gallery_id: galleryId,
       });
-      showToast('WhatsApp sent successfully!');
+      console.log('WhatsApp sent successfully!');
     } catch (e: any) {
       // Fallback to browser WhatsApp
       const phone = clientData.phone.replace(/[^0-9]/g, '');
