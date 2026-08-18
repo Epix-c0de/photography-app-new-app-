@@ -85,7 +85,7 @@ const PremiumHero = () => {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.8 }}
             >
-              {heroData.subheadline}
+              Memories
             </motion.span>
             <AnimatedText 
               text="One Click at a Time" 
