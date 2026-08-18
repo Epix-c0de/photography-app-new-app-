@@ -107,7 +107,7 @@ export default function BookingsPage() {
     if (clientId) {
       const { data: client } = await supabase.from('clients').select('user_id').eq('id', clientId).maybeSingle();
       const clientUserId = client?.user_id;
-      await supabase.from('notifications').insert({
+      try { await supabase.from('notifications').insert({
         user_id: clientUserId || null,
         owner_admin_id: user?.id,
         type: 'booking_status_update',
@@ -115,7 +115,7 @@ export default function BookingsPage() {
         body: `Your booking status is now ${status.toUpperCase()}.`,
         data: { bookingId: id, status },
         read: false,
-      }).then(() => {}).catch(() => {});
+      }); } catch { /* notification failure is non-critical */ }
     }
     await loadBookings();
     setActionLoading(null);

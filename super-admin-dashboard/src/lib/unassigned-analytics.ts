@@ -216,7 +216,8 @@ export async function getAssignmentSourceDistribution(): Promise<AssignmentSourc
   if (total === 0) return [];
 
   const sources: AssignmentSourceDistribution[] = [];
-  for (const [source, count] of counts.entries()) {
+  for (const entry of counts.entries()) {
+    const [source, count] = entry;
     sources.push({
       assigned_via: source as AssignmentSourceDistribution['assigned_via'],
       assignment_count: count,
