@@ -122,6 +122,7 @@ module.exports = {
       // These are EXPO_PUBLIC_ vars — accessible via process.env in the app bundle
       EXPO_PUBLIC_SUPABASE_URL: SUPABASE_URL,
       EXPO_PUBLIC_SUPABASE_ANON_KEY: SUPABASE_ANON_KEY,
+      EXPO_PUBLIC_GOOGLE_CLIENT_ID: '767341239944-cudtttstl53ojun1od4jrdof1ddmvj4.apps.googleusercontent.com',
     },
   },
 };
