@@ -4,43 +4,50 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { useScrollReveal } from '../../hooks/useScrollReveal';
 import GlassCard from './GlassCard';
-import { Camera, Image, Users, Download, Sparkles, Star } from 'lucide-react';
+import { Camera, Image, Download, Users, Sparkles, Star } from 'lucide-react';
+import Link from 'next/link';
 
 const services = [
   {
+    id: 'portrait-photography',
     icon: Camera,
-    title: 'Professional Photography',
-    description: 'Expert photographers capturing your special moments with precision and artistry',
+    title: 'Portrait Photography',
+    description: 'Professional portraits that capture your unique personality and style with expert lighting and composition',
     color: 'primary'
   },
   {
+    id: 'event-coverage',
     icon: Image,
-    title: 'Online Gallery Access',
-    description: 'View your photos anytime, anywhere through our secure online gallery system',
+    title: 'Event Coverage',
+    description: 'Complete documentation of your special moments, from weddings to corporate events',
     color: 'accent'
   },
   {
+    id: 'online-gallery',
     icon: Download,
-    title: 'Instant Downloads',
-    description: 'Download high-resolution photos directly from your gallery to any device',
+    title: 'Online Gallery Access',
+    description: 'View your photos anytime, anywhere through our secure online gallery system',
     color: 'purple'
   },
   {
+    id: 'family-sharing',
     icon: Users,
     title: 'Family Sharing',
-    description: 'Share your beautiful moments with family and friends through the app',
+    description: 'Share your beautiful moments with family and friends through the Epix Shots app',
     color: 'primary'
   },
   {
+    id: 'photo-editing',
     icon: Sparkles,
-    title: 'Professional Editing',
-    description: 'Every photo is expertly retouched and color-graded for flawless results',
+    title: 'Photo Editing',
+    description: 'Expert retouching and color grading for flawless, magazine-quality results',
     color: 'accent'
   },
   {
+    id: 'premium-prints',
     icon: Star,
-    title: 'Premium Quality',
-    description: 'Gallery-quality prints and albums available to preserve your memories',
+    title: 'Premium Prints',
+    description: 'Gallery-quality prints and albums to preserve your memories for generations',
     color: 'purple'
   }
 ];
@@ -95,44 +102,55 @@ const ServicesSection = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {services.map((service, index) => (
             <motion.div
-              key={service.title}
+              key={service.id}
               initial={{ opacity: 0, y: 40 }}
               animate={isVisible ? { opacity: 1, y: 0 } : {}}
               transition={{ duration: 0.6, delay: index * 0.1 }}
             >
-              <GlassCard 
-                className={`h-full group transition-shadow duration-500 ${getGlowClass(service.color)} hover:scale-105`}
-              >
-                <motion.div 
-                  className={`w-14 h-14 rounded-xl glass-card flex items-center justify-center mb-5 ${getColorClass(service.color)}`}
-                  whileHover={{ rotate: [0, -10, 10, 0] }}
-                  transition={{ duration: 0.5 }}
+              <Link href={`/services/${service.id}`}>
+                <GlassCard 
+                  className={`h-full group transition-shadow duration-500 ${getGlowClass(service.color)} hover:scale-105 cursor-pointer`}
                 >
-                  <service.icon className="w-7 h-7" />
-                </motion.div>
-
-                <h3 className="font-serif text-xl font-semibold mb-3 group-hover:text-primary transition-colors">
-                  {service.title}
-                </h3>
-                <p className="text-muted-foreground leading-relaxed">
-                  {service.description}
-                </p>
-
-                <motion.div 
-                  className="mt-5 flex items-center text-sm font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <span>Learn more</span>
-                  <motion.span
-                    className="ml-2"
-                    animate={{ x: [0, 5, 0] }}
-                    transition={{ duration: 1, repeat: Infinity }}
+                  <motion.div 
+                    className={`w-14 h-14 rounded-xl glass-card flex items-center justify-center mb-5 ${getColorClass(service.color)}`}
+                    whileHover={{ rotate: [0, -10, 10, 0] }}
+                    transition={{ duration: 0.5 }}
                   >
-                    →
-                  </motion.span>
-                </motion.div>
-              </GlassCard>
+                    <service.icon className="w-7 h-7" />
+                  </motion.div>
+
+                  <h3 className="font-serif text-xl font-semibold mb-3 group-hover:text-primary transition-colors">
+                    {service.title}
+                  </h3>
+                  <p className="text-muted-foreground leading-relaxed">
+                    {service.description}
+                  </p>
+
+                  <motion.div 
+                    className="mt-5 flex items-center text-sm font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <span>Learn more</span>
+                    <motion.span
+                      className="ml-2"
+                      animate={{ x: [0, 5, 0] }}
+                      transition={{ duration: 1, repeat: Infinity }}
+                    >
+                      →
+                    </motion.span>
+                  </motion.div>
+                </GlassCard>
+              </Link>
             </motion.div>
           ))}
+        </div>
+
+        <div className="text-center mt-12">
+          <Link 
+            href="/services"
+            className="inline-flex items-center gap-2 text-primary hover:text-primary-glow font-semibold transition-colors"
+          >
+            View All Services →
+          </Link>
         </div>
       </div>
     </section>
