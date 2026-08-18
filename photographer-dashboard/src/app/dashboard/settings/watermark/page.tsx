@@ -194,7 +194,7 @@ export default function WatermarkSettingsPage() {
                     {preset.label}
                   </div>
                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
-                    {preset.description}
+                    {'description' in preset ? preset.description : `${preset.label} watermark preset`}
                   </div>
                 </button>
               ))}
