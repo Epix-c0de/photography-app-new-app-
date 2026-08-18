@@ -397,7 +397,7 @@ export default function SignupPage() {
                   provider: 'google',
                   options: { redirectTo: 'https://epix-visuals.vercel.app/auth/callback' },
                 });
-                if (error) setError(error.message);
+                if (error) setErrorMsg(error.message);
               }}
               className="w-full py-3 rounded-xl font-semibold text-xs border border-zinc-200 text-zinc-700 hover:bg-zinc-50 hover:border-zinc-300 transition-all flex items-center justify-center gap-2"
             >
