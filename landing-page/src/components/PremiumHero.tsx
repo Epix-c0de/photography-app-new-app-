@@ -145,8 +145,6 @@ export default function PremiumHero() {
           </div>
         </div>
       </div>
-
-      </div>
     </section>
   );
 }

@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { LiquidButton } from '@/components/ui/liquid-glass-button';
 
-export default function PhotographerLogin() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
@@ -216,5 +216,13 @@ export default function PhotographerLogin() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function PhotographerLogin() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black flex items-center justify-center"><div className="text-white/60">Loading...</div></div>}>
+      <LoginForm />
+    </Suspense>
   );
 }
