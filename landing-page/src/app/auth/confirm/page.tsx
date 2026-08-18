@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, Suspense } from 'react';
 import { Mail, CheckCircle, Loader2, ArrowRight, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { createClient } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/supabase/client';
 
 const VIDEO_URL = 'https://videos.pexels.com/video-files/8128311/8128311-uhd_2560_1440_25fps.mp4';
 
@@ -49,8 +49,6 @@ function ConfirmContent() {
       setMessage('Invalid confirmation link. Please check your email and try again.');
       return;
     }
-
-    const supabase = createClient();
 
     const verifyEmail = async () => {
       try {
