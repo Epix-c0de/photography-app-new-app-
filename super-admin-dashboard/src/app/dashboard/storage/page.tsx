@@ -71,7 +71,7 @@ export default function StoragePage() {
 
       // Enrich purchases with admin names
       const purchaseData = (purchasesRes.data || []) as StoragePurchase[];
-      const adminIds = [...new Set(purchaseData.map(p => p.admin_id))];
+      const adminIds = Array.from(new Set(purchaseData.map(p => p.admin_id)));
       let adminMap = new Map<string, string>();
       if (adminIds.length > 0) {
         const { data: profiles } = await supabase.from('user_profiles').select('id, name').in('id', adminIds);

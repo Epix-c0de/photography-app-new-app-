@@ -307,7 +307,7 @@ export default function CalendarPage() {
         await supabase.from('event_clients').delete().eq('event_id', eventId);
 
         // Insert new assignments
-        const allUserIds = [...new Set([...formSelectedClients, formClientId].filter(Boolean))];
+        const allUserIds = Array.from(new Set([...formSelectedClients, formClientId].filter(Boolean)));
         if (allUserIds.length > 0) {
           const assignments = allUserIds.map(uid => ({
             event_id: eventId,

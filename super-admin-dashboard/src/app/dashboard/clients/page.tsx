@@ -40,7 +40,7 @@ export default function AllClientsPage() {
       if (!clientsData?.length) { setClients([]); return; }
 
       // Get owner names
-      const ownerIds = [...new Set(clientsData.map(c => c.owner_admin_id).filter(Boolean))];
+      const ownerIds = Array.from(new Set(clientsData.map(c => c.owner_admin_id).filter(Boolean)));
       const { data: owners } = await supabase
         .from('user_profiles').select('id, name, email').in('id', ownerIds);
       const ownerMap = new Map((owners || []).map(o => [o.id, o]));

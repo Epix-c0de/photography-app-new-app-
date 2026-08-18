@@ -73,7 +73,7 @@ export default function BookingsPage() {
       .order('date', { ascending: true }) as any;
 
     // Map user_id to client_id
-    const userIds = [...new Set((data || []).map((b: any) => b.user_id).filter(Boolean))];
+    const userIds = Array.from(new Set((data || []).map((b: any) => b.user_id).filter(Boolean)));
     let userToClientMap = new Map<string, string>();
     if (userIds.length > 0) {
       const { data: clients } = await supabase.from('clients').select('id, user_id').eq('owner_admin_id', user.id).in('user_id', userIds);
@@ -115,7 +115,7 @@ export default function BookingsPage() {
         body: `Your booking status is now ${status.toUpperCase()}.`,
         data: { bookingId: id, status },
         read: false,
-      }).catch(() => {});
+      }).then(() => {}).catch(() => {});
     }
     await loadBookings();
     setActionLoading(null);

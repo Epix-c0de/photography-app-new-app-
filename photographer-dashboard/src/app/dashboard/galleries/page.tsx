@@ -60,7 +60,7 @@ export default function GalleriesPage() {
       .eq('owner_admin_id', user.id)
       .order('created_at', { ascending: false });
 
-    const clientIds = [...new Set((data || []).map((g: any) => g.client_id).filter(Boolean))];
+    const clientIds = Array.from(new Set((data || []).map((g: any) => g.client_id).filter(Boolean)));
     let clientMap = new Map<string, string>();
     if (clientIds.length > 0) {
       const { data: clients } = await supabase.from('clients').select('id, name').in('id', clientIds);

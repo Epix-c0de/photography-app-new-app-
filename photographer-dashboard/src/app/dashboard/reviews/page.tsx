@@ -56,8 +56,8 @@ export default function ReviewsPage() {
       .order('created_at', { ascending: false });
 
     // Get client and gallery names
-    const clientIds = [...new Set((reviewsData || []).map((r: any) => r.client_id).filter(Boolean))];
-    const galleryIds = [...new Set((reviewsData || []).map((r: any) => r.gallery_id).filter(Boolean))];
+    const clientIds = Array.from(new Set((reviewsData || []).map((r: any) => r.client_id).filter(Boolean)));
+    const galleryIds = Array.from(new Set((reviewsData || []).map((r: any) => r.gallery_id).filter(Boolean)));
 
     let clientMap = new Map<string, string>();
     let galleryMap = new Map<string, string>();
