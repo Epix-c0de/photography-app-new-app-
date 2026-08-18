@@ -382,7 +382,9 @@ export default function PhotographersPage() {
             <div className="flex gap-2 mt-6">
               <button
                 onClick={() => {
-                  const text = `Your Epix Visuals Login:\n\nEmail: ${credentialsModal.photographer.email}\nPassword: ${credentialsModal.tempPassword}\n\nLogin here: https://web-onboarding-seven.vercel.app/login`;
+                  const p = credentialsModal.photographer;
+                  if (!p) return;
+                  const text = `Your Epix Visuals Login:\n\nEmail: ${p.email}\nPassword: ${credentialsModal.tempPassword}\n\nLogin here: https://web-onboarding-seven.vercel.app/login`;
                   navigator.clipboard.writeText(text);
                 }}
                 className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
@@ -391,7 +393,7 @@ export default function PhotographersPage() {
                 📋 Copy All
               </button>
               <a
-                href={`https://wa.me/?text=${encodeURIComponent(`Your Epix Visuals Login:\n\nEmail: ${credentialsModal.photographer.email}\nPassword: ${credentialsModal.tempPassword}\n\nLogin here: https://web-onboarding-seven.vercel.app/login`)}`}
+                href={`https://wa.me/?text=${encodeURIComponent(`Your Epix Visuals Login:\n\nEmail: ${credentialsModal.photographer?.email || ''}\nPassword: ${credentialsModal.tempPassword}\n\nLogin here: https://web-onboarding-seven.vercel.app/login`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-center"
