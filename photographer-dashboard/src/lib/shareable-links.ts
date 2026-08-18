@@ -13,7 +13,7 @@ export interface BrandSettings {
   brand_name: string;
   brand_slug: string;
   custom_domain?: string;
-  share_app_link: string;
+  share_app_link?: string;
 }
 
 // Cache domain and deep link scheme from platform_settings

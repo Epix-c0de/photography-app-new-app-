@@ -216,14 +216,13 @@ export async function getAssignmentSourceDistribution(): Promise<AssignmentSourc
   if (total === 0) return [];
 
   const sources: AssignmentSourceDistribution[] = [];
-  for (const entry of counts.entries()) {
-    const [source, count] = entry;
+  Array.from(counts.entries()).forEach(([source, count]) => {
     sources.push({
       assigned_via: source as AssignmentSourceDistribution['assigned_via'],
       assignment_count: count,
       percentage: parseFloat(((count / total) * 100).toFixed(2)),
     });
-  }
+  });
 
   return sources.sort((a, b) => b.assignment_count - a.assignment_count);
 }
