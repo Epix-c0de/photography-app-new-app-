@@ -40,6 +40,7 @@ export default function PhotographersPage() {
   const [filter, setFilter] = useState<'all' | 'active' | 'expired' | 'inactive'>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [storageModal, setStorageModal] = useState<{ visible: boolean; photographer: Photographer | null; metrics: StorageMetrics | null }>({ visible: false, photographer: null, metrics: null });
+  const [credentialsModal, setCredentialsModal] = useState<{ visible: boolean; photographer: Photographer | null; tempPassword: string }>({ visible: false, photographer: null, tempPassword: '' });
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -141,6 +142,20 @@ export default function PhotographersPage() {
     }
   };
 
+  const handleSendCredentials = async (photographer: Photographer) => {
+    if (!confirm(`Send login credentials to ${photographer.name || photographer.email}?`)) return;
+    setActionLoading(photographer.id);
+    try {
+      const tempPassword = `Epix${Math.random().toString(36).slice(-8)}!`;
+      const { error } = await supabase.auth.admin.updateUserById(photographer.id, { password: tempPassword });
+      if (error) throw error;
+      setCredentialsModal({ visible: true, photographer, tempPassword });
+    } catch (e: any) {
+      alert('Failed to reset password: ' + (e.message || 'Unknown error'));
+    }
+    setActionLoading(null);
+  };
+
   const filtered = photographers.filter(p => {
     const matchSearch = !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.email?.toLowerCase().includes(search.toLowerCase());
     const now = new Date();
@@ -234,6 +249,11 @@ export default function PhotographersPage() {
                   </td>
                   <td style={{ padding: '14px 20px' }}>
                     <div className="flex items-center gap-2">
+                      <button onClick={() => handleSendCredentials(p)} disabled={actionLoading === p.id}
+                        className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                        style={{ background: 'rgba(0,122,255,0.1)', border: '1px solid rgba(0,122,255,0.2)', color: '#007AFF' }}>
+                        {actionLoading === p.id ? '...' : '📧 Send Creds'}
+                      </button>
                       <button onClick={() => handleToggleMasterAdmin(p.id, !!p.is_master_admin)} disabled={actionLoading === p.id}
                         className="text-xs px-3 py-1.5 rounded-lg font-semibold"
                         style={p.is_master_admin
@@ -331,6 +351,63 @@ export default function PhotographersPage() {
             ) : (
               <p className="text-center text-gray-500 py-8">No storage data available</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Credentials Modal */}
+      {credentialsModal.visible && credentialsModal.photographer && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-6 z-50" onClick={() => setCredentialsModal({ visible: false, photographer: null, tempPassword: '' })}>
+          <div className="bg-[#111118] border border-white/10 rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-white mb-4">Login Credentials</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Credentials for <span className="text-white font-semibold">{credentialsModal.photographer.name || credentialsModal.photographer.email}</span>
+            </p>
+
+            <div className="space-y-3">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                <p className="text-xs text-gray-400 mb-1">Email</p>
+                <p className="text-sm text-white font-mono">{credentialsModal.photographer.email}</p>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                <p className="text-xs text-gray-400 mb-1">Temporary Password</p>
+                <p className="text-sm text-white font-mono font-bold">{credentialsModal.tempPassword}</p>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                <p className="text-xs text-gray-400 mb-1">Dashboard URL</p>
+                <p className="text-sm text-white font-mono">https://web-onboarding-seven.vercel.app/login</p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => {
+                  const text = `Your Epix Visuals Login:\n\nEmail: ${credentialsModal.photographer.email}\nPassword: ${credentialsModal.tempPassword}\n\nLogin here: https://web-onboarding-seven.vercel.app/login`;
+                  navigator.clipboard.writeText(text);
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ background: 'rgba(0,122,255,0.15)', border: '1px solid rgba(0,122,255,0.3)', color: '#007AFF' }}
+              >
+                📋 Copy All
+              </button>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Your Epix Visuals Login:\n\nEmail: ${credentialsModal.photographer.email}\nPassword: ${credentialsModal.tempPassword}\n\nLogin here: https://web-onboarding-seven.vercel.app/login`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-center"
+                style={{ background: 'rgba(52,199,89,0.15)', border: '1px solid rgba(52,199,89,0.3)', color: '#34C759' }}
+              >
+                💬 Send via WhatsApp
+              </a>
+            </div>
+
+            <button
+              onClick={() => setCredentialsModal({ visible: false, photographer: null, tempPassword: '' })}
+              className="w-full mt-3 py-2.5 rounded-xl text-sm font-semibold"
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)' }}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
