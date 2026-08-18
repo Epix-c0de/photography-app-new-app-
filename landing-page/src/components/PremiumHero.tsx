@@ -146,14 +146,6 @@ export default function PremiumHero() {
         </div>
       </div>
 
-      {/* Scroll indicator */}
-      <div
-        className="absolute bottom-8 left-1/2 -translate-x-1/2"
-        style={{ animation: 'fadeIn 0.5s ease-out 2s forwards', opacity: 0 }}
-      >
-        <div className="w-6 h-10 rounded-full border-2 border-muted-foreground/20 flex justify-center pt-2 animate-bounce">
-          <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-        </div>
       </div>
     </section>
   );
