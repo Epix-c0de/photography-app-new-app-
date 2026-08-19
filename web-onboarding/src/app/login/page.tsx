@@ -65,33 +65,17 @@ export default function LoginPage() {
           profile.subscription_expires_at &&
           new Date(profile.subscription_expires_at) > new Date());
 
+      // Get the current session tokens to pass to dashboard
+      const { data: { session } } = await supabase.auth.getSession();
+      const at = session?.access_token || '';
+      const rt = session?.refresh_token || '';
+
       if (!isActive) {
-        const res = await fetch('/api/generate-login-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ admin_id: data.user.id }),
-        });
-        const tokenData = await res.json();
-        if (tokenData.token) {
-          window.location.href = `${dashboardUrl}/login?token=${tokenData.token}&email=${encodeURIComponent(email)}&renew=1`;
-        } else {
-          window.location.href = `${dashboardUrl}`;
-        }
+        window.location.href = `${dashboardUrl}/login?access_token=${encodeURIComponent(at)}&refresh_token=${encodeURIComponent(rt)}&renew=1`;
         return;
       }
 
-      const res = await fetch('/api/generate-login-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ admin_id: data.user.id }),
-      });
-      const tokenData = await res.json();
-
-      if (tokenData.token) {
-        window.location.href = `${dashboardUrl}/login?token=${tokenData.token}&email=${encodeURIComponent(email)}`;
-      } else {
-        window.location.href = `${dashboardUrl}`;
-      }
+      window.location.href = `${dashboardUrl}/login?access_token=${encodeURIComponent(at)}&refresh_token=${encodeURIComponent(rt)}`;
     } catch (err: any) {
       setError(err.message || 'Login failed. Please check your credentials.');
     } finally {
