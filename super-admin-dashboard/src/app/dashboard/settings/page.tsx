@@ -373,6 +373,24 @@ export default function SettingsPage() {
     }
   }
 
+  async function uploadOnboardingImage(file: File): Promise<string | null> {
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `onboarding/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from('media').upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from('media').getPublicUrl(path);
+      return urlData.publicUrl;
+    } catch (e: any) {
+      console.error('Upload failed:', e);
+      alert('Image upload failed: ' + (e.message || 'Unknown error'));
+      return null;
+    }
+  }
+
   async function saveScreenSettings() {
     setSaving(true);
     try {
@@ -1203,22 +1221,52 @@ export default function SettingsPage() {
                   </div>
 
                   <div>
-                    <label className="text-sm font-semibold text-gray-400 block mb-2">Image URL</label>
+                    <label className="text-sm font-semibold text-gray-400 block mb-2">Image</label>
+                    <div
+                      onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                      onDrop={async e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const file = e.dataTransfer.files?.[0];
+                        if (file && file.type.startsWith('image/')) {
+                          const url = await uploadOnboardingImage(file);
+                          if (url) updateSlideField(originalNum, 'image', url);
+                        }
+                      }}
+                      className="relative group rounded-lg border-2 border-dashed border-white/10 hover:border-[#D4AF37]/40 transition-colors overflow-hidden cursor-pointer"
+                      onClick={e => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.accept = 'image/*';
+                        input.onchange = async (ev: any) => {
+                          const file = ev.target.files?.[0];
+                          if (file) {
+                            const url = await uploadOnboardingImage(file);
+                            if (url) updateSlideField(originalNum, 'image', url);
+                          }
+                        };
+                        input.click();
+                      }}
+                    >
+                      {data.image ? (
+                        <img src={data.image} alt={`Slide ${displayIndex + 1}`} className="w-full h-40 object-cover" />
+                      ) : (
+                        <div className="w-full h-40 flex flex-col items-center justify-center text-gray-500">
+                          <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338 0 4.5 4.5 0 01-1.41 8.775H6.75z" /></svg>
+                          <span className="text-xs mt-2">Drop image or click to upload</span>
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <span className="text-xs font-semibold text-white bg-black/60 px-3 py-1.5 rounded-lg">Change Image</span>
+                      </div>
+                    </div>
                     <input
                       type="url"
                       value={data.image}
                       onChange={e => updateSlideField(originalNum, 'image', e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
-                      placeholder="https://images.unsplash.com/..."
+                      className="w-full mt-2 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white text-xs"
+                      placeholder="Or paste image URL..."
                     />
-                    {data.image && (
-                      <img
-                        src={data.image}
-                        alt={`Slide ${displayIndex + 1} preview`}
-                        className="mt-3 w-full h-40 object-cover rounded-lg border border-white/10"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      />
-                    )}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1256,22 +1304,52 @@ export default function SettingsPage() {
             </div>
 
             <div>
-              <label className="text-sm font-semibold text-gray-400 block mb-2">Background Image URL</label>
+              <label className="text-sm font-semibold text-gray-400 block mb-2">Background Image</label>
+              <div
+                onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={async e => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const file = e.dataTransfer.files?.[0];
+                  if (file && file.type.startsWith('image/')) {
+                    const url = await uploadOnboardingImage(file);
+                    if (url) setScreenSettings({ ...screenSettings, login_background_image: url });
+                  }
+                }}
+                className="relative group rounded-lg border-2 border-dashed border-white/10 hover:border-[#D4AF37]/40 transition-colors overflow-hidden cursor-pointer"
+                onClick={e => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'image/*';
+                  input.onchange = async (ev: any) => {
+                    const file = ev.target.files?.[0];
+                    if (file) {
+                      const url = await uploadOnboardingImage(file);
+                      if (url) setScreenSettings({ ...screenSettings, login_background_image: url });
+                    }
+                  };
+                  input.click();
+                }}
+              >
+                {screenSettings.login_background_image ? (
+                  <img src={screenSettings.login_background_image} alt="Login background" className="w-full h-48 object-cover" />
+                ) : (
+                  <div className="w-full h-48 flex flex-col items-center justify-center text-gray-500">
+                    <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338 0 4.5 4.5 0 01-1.41 8.775H6.75z" /></svg>
+                    <span className="text-xs mt-2">Drop image or click to upload</span>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="text-xs font-semibold text-white bg-black/60 px-3 py-1.5 rounded-lg">Change Image</span>
+                </div>
+              </div>
               <input
                 type="url"
                 value={screenSettings.login_background_image}
                 onChange={e => setScreenSettings({ ...screenSettings, login_background_image: e.target.value })}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white"
-                placeholder="https://images.unsplash.com/..."
+                className="w-full mt-2 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white text-xs"
+                placeholder="Or paste image URL..."
               />
-              {screenSettings.login_background_image && (
-                <img
-                  src={screenSettings.login_background_image}
-                  alt="Login background preview"
-                  className="mt-3 w-full h-48 object-cover rounded-lg border border-white/10"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              )}
             </div>
 
             <div>
