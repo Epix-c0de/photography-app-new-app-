@@ -157,11 +157,14 @@ export default function AnalyticsPage() {
       const report: PhotographerConversion[] = photographers.map(p => ({
         photographer_id: p.id,
         photographer_name: p.name || 'Unknown',
+        photographer_code: '',
+        total_assigned_clients: clientCounts.get(p.id) || 0,
         total_clients: clientCounts.get(p.id) || 0,
-        total_unassigned_at_start: 0,
+        users_who_attempted: 0,
+        conversion_rate_pct: 0,
         conversion_rate: 0,
-        avg_time_to_assign_hours: null,
-        failed_attempt_rate: 0,
+        avg_time_to_assign_hours: 0,
+        total_failed_attempts: 0,
       }));
 
       setConversions(report);
