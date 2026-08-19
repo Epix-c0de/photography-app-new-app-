@@ -127,12 +127,12 @@ function BTSStoryCard({
               {!isPlaying ? (
                 <>
                   <Image 
-                    source={{ uri: item.image_url || item.media_url }} 
+                    source={{ uri: (item as any).video_thumbnail_url || item.image_url || item.media_url }} 
                     style={styles.btsImage} 
                     contentFit="cover" 
                   />
                   <View style={styles.btsPlay}>
-                    <Play size={16} color={Colors.white} fill={Colors.white} />
+                    <Play size={14} color={Colors.white} fill={Colors.white} />
                   </View>
                 </>
               ) : (
@@ -1224,12 +1224,14 @@ const styles = StyleSheet.create({
   },
   btsPlay: {
     position: 'absolute' as const,
-    top: 50,
-    right: 16,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    top: '50%' as any,
+    left: '50%' as any,
+    marginLeft: -12,
+    marginTop: -12,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,

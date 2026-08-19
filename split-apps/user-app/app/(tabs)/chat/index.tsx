@@ -115,9 +115,9 @@ function StructuredMessageCard({ message, onCtaPress }: { message: ChatMessage; 
   );
 }
 
-function MessageBubble({ message, onStructuredCtaPress }: { message: ChatMessage; onStructuredCtaPress?: (kind: string) => void }) {
+function MessageBubble({ message, onStructuredCtaPress }: { message: ChatMessage; onStructuredCtaPress?: (kind: string, message?: ChatMessage) => void }) {
   if (message.kind && message.kind !== 'text') {
-    return <StructuredMessageCard message={message} onCtaPress={() => onStructuredCtaPress?.(message.kind || 'text')} />;
+    return <StructuredMessageCard message={message} onCtaPress={() => onStructuredCtaPress?.(message.kind || 'text', message)} />;
   }
 
   const isClient = message.sender === 'client';
@@ -761,15 +761,25 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
 
   const router = useRouter();
 
-  const handleStructuredCtaPress = useCallback((kind: string) => {
+  const handleStructuredCtaPress = useCallback((kind: string, msg?: ChatMessage) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     switch (kind) {
       case 'invoice':
         router.push('/(tabs)/profile');
         break;
-      case 'gallery_ready':
-        router.push({ pathname: '/(tabs)/gallery', params: { tab: 'unlock' } });
+      case 'gallery_ready': {
+        // Extract access code from message text (e.g., "Use code: 4DGH32 to unlock")
+        let accessCode = '';
+        if (msg?.text) {
+          const match = msg.text.match(/code[:\s]+([A-Z0-9-]+)/i);
+          if (match) accessCode = match[1];
+        }
+        router.push({
+          pathname: '/(tabs)/gallery',
+          params: { tab: 'unlock', ...(accessCode ? { accessCode } : {}) },
+        });
         break;
+      }
       case 'booking_confirmation':
         router.push('/(tabs)/bookings');
         break;
