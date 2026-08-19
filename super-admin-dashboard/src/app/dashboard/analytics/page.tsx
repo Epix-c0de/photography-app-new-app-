@@ -62,17 +62,111 @@ export default function AnalyticsPage() {
   async function loadData() {
     setLoading(true);
     try {
+      // Try RPCs first
       const [summaryRes, conversionRes] = await Promise.all([
         supabase.rpc('get_unassigned_user_analytics', { p_limit_top_content: 10 } as any),
         supabase.rpc('get_photographer_conversion_report' as any),
       ]);
 
-      if (summaryRes.data) setSummary(summaryRes.data as AnalyticsSummary);
-      if (conversionRes.data) setConversions(conversionRes.data as PhotographerConversion[]);
+      if (summaryRes.data && !summaryRes.error) {
+        setSummary(summaryRes.data as AnalyticsSummary);
+      } else {
+        // Fallback: query tables directly
+        await loadFallbackData();
+      }
+
+      if (conversionRes.data && !conversionRes.error) {
+        setConversions(conversionRes.data as PhotographerConversion[]);
+      } else {
+        await loadConversionFallback();
+      }
     } catch (e) {
       console.error('Analytics load error:', e);
+      await loadFallbackData();
+      await loadConversionFallback();
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadFallbackData() {
+    try {
+      // Count unassigned clients
+      const { data: clients } = await supabase
+        .from('clients')
+        .select('id, user_id, owner_admin_id')
+        .is('owner_admin_id', null);
+
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('id, role')
+        .eq('role', 'client');
+
+      const unassignedCount = clients?.length ?? 0;
+
+      // Count total photographers
+      const { data: photographers } = await supabase
+        .from('user_profiles')
+        .select('id, name, email')
+        .in('role', ['admin', 'super_admin']);
+
+      // Count total clients assigned
+      const { data: assignedClients } = await supabase
+        .from('clients')
+        .select('id, owner_admin_id')
+        .not('owner_admin_id', 'is', null);
+
+      setSummary({
+        total_unassigned_users: unassignedCount,
+        average_time_to_assignment: null,
+        assignment_source_distribution: [],
+        failed_attempts: { avg_attempts_per_session: 0, sessions_with_failed_attempts: 0, total_failed_sessions_30d: 0 },
+        top_viewed_content: [],
+        _meta: {
+          total_photographers: photographers?.length ?? 0,
+          total_assigned_clients: assignedClients?.length ?? 0,
+          total_profiles: profiles?.length ?? 0,
+          generated_at: new Date().toISOString(),
+        },
+      } as any);
+    } catch (e) {
+      console.error('Fallback load error:', e);
+    }
+  }
+
+  async function loadConversionFallback() {
+    try {
+      const { data: photographers } = await supabase
+        .from('user_profiles')
+        .select('id, name, email')
+        .in('role', ['admin', 'super_admin']);
+
+      const { data: allClients } = await supabase
+        .from('clients')
+        .select('id, owner_admin_id');
+
+      if (!photographers || !allClients) return;
+
+      const clientCounts = new Map<string, number>();
+      allClients.forEach(c => {
+        if (c.owner_admin_id) {
+          clientCounts.set(c.owner_admin_id, (clientCounts.get(c.owner_admin_id) || 0) + 1);
+        }
+      });
+
+      const report: PhotographerConversion[] = photographers.map(p => ({
+        photographer_id: p.id,
+        photographer_name: p.name || 'Unknown',
+        total_clients: clientCounts.get(p.id) || 0,
+        total_unassigned_at_start: 0,
+        conversion_rate: 0,
+        avg_time_to_assign_hours: null,
+        failed_attempt_rate: 0,
+      }));
+
+      setConversions(report);
+    } catch (e) {
+      console.error('Conversion fallback error:', e);
     }
   }
 
@@ -117,7 +211,7 @@ export default function AnalyticsPage() {
               <p className="text-3xl font-black" style={{ color: '#FF9F0A' }}>
                 {summary?.total_unassigned_users ?? '—'}
               </p>
-              <p className="text-xs text-gray-500 mt-2">No photographer yet</p>
+              <p className="text-xs text-gray-500 mt-2">Without photographer assignment</p>
             </div>
 
             <div className="bg-[#111118] border border-white/5 rounded-2xl p-6">

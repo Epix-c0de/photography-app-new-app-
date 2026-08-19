@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Image } from "imagescript";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,10 +21,7 @@ const PRESETS: Record<string, CompressionOptions> = {
   full: { maxWidth: 4000, maxHeight: 4000, quality: 90, format: "jpeg" },
 };
 
-const TARGET_SIZES = {
-  maxBytes: 10 * 1024 * 1024, // 10MB
-  targetBytes: 5 * 1024 * 1024, // 5MB target
-};
+const TARGET_SIZE = 5 * 1024 * 1024; // 5MB target
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -42,17 +39,11 @@ serve(async (req) => {
     }
 
     const options = PRESETS[preset] || PRESETS.standard;
-
-    // Decode base64 to bytes
     const imageBytes = Uint8Array.from(atob(imageBase64), (c) => c.charCodeAt(0));
-
-    // Use client-side compression info to guide server-side
-    // Since Edge Functions don't have ImageMagick, we return the original
-    // with compression recommendations for the client to handle
     const originalSize = imageBytes.length;
 
     // If already small enough, return as-is
-    if (originalSize <= TARGET_SIZES.targetBytes) {
+    if (originalSize <= TARGET_SIZE) {
       return new Response(
         JSON.stringify({
           success: true,
@@ -64,35 +55,53 @@ serve(async (req) => {
           format: mimeType.includes("png") ? "png" : "jpg",
           filename: filename || "image",
         }),
-        {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/json",
-          },
-        }
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // For large images, signal that client-side compression is needed
-    // The client will use Canvas API to compress
+    // Decode and resize using imagescript
+    const img = await Image.decode(imageBytes);
+    let { width, height } = img;
+
+    // Scale down proportionally
+    if (width > options.maxWidth || height > options.maxHeight) {
+      const ratio = Math.min(options.maxWidth / width, options.maxHeight / height);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
+
+    const resized = img.resize(width, height);
+
+    // Encode to JPEG with quality
+    const quality = Math.round(options.quality * 100);
+    const compressedBytes = await resized.encodeJPEG({ quality });
+    const compressedSize = compressedBytes.length;
+
+    // Convert to base64
+    let base64 = "";
+    for (let i = 0; i < compressedBytes.length; i++) {
+      base64 += String.fromCharCode(compressedBytes[i]);
+    }
+    const compressedBase64 = btoa(base64);
+
+    const compressionRatio = ((1 - compressedSize / originalSize) * 100).toFixed(1) + "%";
+
+    console.log(
+      `Compressed: ${originalSize} -> ${compressedSize} (${compressionRatio}), ${width}x${height}, q${quality}`
+    );
+
     return new Response(
       JSON.stringify({
         success: true,
-        needsCompression: true,
-        recommendation: {
-          maxWidth: options.maxWidth,
-          quality: options.quality,
-          preset,
-        },
+        needsCompression: false,
+        compressedBase64,
         originalSize,
-        message: "Image too large for server compression. Use client-side compression.",
+        compressedSize,
+        compressionRatio,
+        format: "jpg",
+        filename: (filename || "image").replace(/\.[^.]+$/, ".jpg"),
       }),
-      {
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-      }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("Compression error:", error);
