@@ -375,10 +375,11 @@ export default function SettingsPage() {
 
   async function uploadOnboardingImage(file: File): Promise<string | null> {
     try {
-      const ext = file.name.split('.').pop() || 'jpg';
+      const compressed = await compressImage(file, 800, 0.8);
+      const ext = 'jpg';
       const path = `onboarding/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from('media').upload(path, file, {
-        contentType: file.type,
+      const { error: uploadError } = await supabase.storage.from('media').upload(path, compressed, {
+        contentType: 'image/jpeg',
         upsert: false,
       });
       if (uploadError) throw uploadError;
@@ -389,6 +390,29 @@ export default function SettingsPage() {
       alert('Image upload failed: ' + (e.message || 'Unknown error'));
       return null;
     }
+  }
+
+  function compressImage(file: File, maxDim: number, quality: number): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          const ratio = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(b => { URL.revokeObjectURL(url); resolve(b!); }, 'image/jpeg', quality);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')); };
+      img.src = url;
+    });
   }
 
   async function saveScreenSettings() {
