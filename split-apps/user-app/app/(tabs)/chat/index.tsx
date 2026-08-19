@@ -768,7 +768,7 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
         router.push('/(tabs)/profile');
         break;
       case 'gallery_ready':
-        router.push('/(tabs)/gallery');
+        router.push({ pathname: '/(tabs)/gallery', params: { tab: 'unlock' } });
         break;
       case 'booking_confirmation':
         router.push('/(tabs)/bookings');

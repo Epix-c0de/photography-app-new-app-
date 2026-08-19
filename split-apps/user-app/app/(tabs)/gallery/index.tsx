@@ -401,6 +401,8 @@ export default function GalleryScreen() {
   const [likedPhotos, setLikedPhotos] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState<string>('');
   const unlockAnim = useRef(new RNAnimated.Value(0)).current;
+  const tabContentOpacity = useSharedValue(0);
+  const tabContentTranslateY = useSharedValue(20);
   const photosRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const galleriesRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSharingRef = useRef(false);
@@ -714,6 +716,14 @@ export default function GalleryScreen() {
       setSelectedGallery(null);
     }
   }, [searchParams.tab]);
+
+  // Animate tab content on tab change
+  useEffect(() => {
+    tabContentOpacity.value = 0;
+    tabContentTranslateY.value = 20;
+    tabContentOpacity.value = withSpring(1, { damping: 20, stiffness: 300 });
+    tabContentTranslateY.value = withSpring(0, { damping: 20, stiffness: 300 });
+  }, [activeTab]);
 
   const handleLikePhoto = useCallback(async (id: string, isPortfolio: boolean = false) => {
     if (isPortfolio) {
@@ -1818,7 +1828,7 @@ export default function GalleryScreen() {
         )}
 
         {activeTab === 'unlock' && !selectedGallery && (
-          <View style={styles.unlockSection}>
+          <Animated.View style={[styles.unlockSection, { opacity: tabContentOpacity, transform: [{ translateY: tabContentTranslateY }] }]}>
             <RNAnimated.View style={[styles.unlockIcon, { transform: [{ scale: unlockScale }] }]}>
               <LinearGradient colors={[Colors.goldMuted, 'rgba(212,175,55,0.05)']} style={styles.unlockIconGradient}>
                 <Lock size={32} color={Colors.gold} />
@@ -1878,7 +1888,7 @@ export default function GalleryScreen() {
                 ))}
               </View>
             )}
-          </View>
+          </Animated.View>
         )}
 
         {activeTab === 'my-galleries' && !selectedGallery && (
