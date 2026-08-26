@@ -21,6 +21,7 @@
         "@nkzw/create-context-hook": "^1.1.0",
         "@react-native-async-storage/async-storage": "2.2.0",
         "@react-native-community/netinfo": "^12.0.1",
+        "@react-native-google-signin/google-signin": "^16.1.4",
         "@rork-ai/toolkit-sdk": "^0.2.54",
         "@shopify/flash-list": "2.0.2",
         "@supabase/supabase-js": "^2.95.3",

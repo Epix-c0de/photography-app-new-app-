@@ -332,7 +332,7 @@ export default function AnnouncementViewerScreen() {
             {announcement.media_type === 'video' ? (
               <View style={styles.videoWrap}>
                 <Pressable onPress={() => setIsMuted(!isMuted)}>
-                  <Video source={{ uri: announcement.media_url || announcement.image_url || '' }} style={styles.video} resizeMode={ResizeMode.COVER} useNativeControls={false} isLooping shouldPlay isMuted={isMuted}
+                  <Video source={{ uri: announcement.media_url || announcement.image_url || '' }} style={styles.video} resizeMode={ResizeMode.CONTAIN} useNativeControls={false} isLooping shouldPlay isMuted={isMuted}
                     onPlaybackStatusUpdate={(status) => { if (status.isLoaded && status.durationMillis) setVideoProgress((status.positionMillis / status.durationMillis) * 100); }} />
                 </Pressable>
                 {isMuted && <View style={styles.mutePill}><Text style={styles.mutePillText}>🔇 Tap to unmute</Text></View>}
@@ -510,7 +510,7 @@ const styles = StyleSheet.create({
   mediaWrap: { marginBottom: 4 },
   imageWrap: { width, aspectRatio: 1, position: 'relative', backgroundColor: Colors.cardDark },
   postImage: { width: '100%', height: '100%' },
-  videoWrap: { width: '100%', aspectRatio: 16 / 9, position: 'relative', backgroundColor: '#000', overflow: 'hidden' },
+  videoWrap: { width: '100%', aspectRatio: 16 / 9, position: 'relative', backgroundColor: '#000' },
   video: { width: '100%', height: '100%' },
   mutePill: { position: 'absolute', bottom: 20, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.65)', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20 },
   mutePillText: { color: '#fff', fontSize: 12, fontWeight: '600' },

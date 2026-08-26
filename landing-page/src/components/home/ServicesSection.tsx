@@ -4,50 +4,43 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { useScrollReveal } from '../../hooks/useScrollReveal';
 import GlassCard from './GlassCard';
-import { Camera, Image, Download, Users, Sparkles, Star } from 'lucide-react';
-import Link from 'next/link';
+import { Eye, Download, Share2, Lock, Bell, Smartphone } from 'lucide-react';
 
-const services = [
+const features = [
   {
-    id: 'portrait-photography',
-    icon: Camera,
-    title: 'Portrait Photography',
-    description: 'Professional portraits that capture your unique personality and style with expert lighting and composition',
+    icon: Lock,
+    title: 'Access Code Unlock',
+    description: 'Enter the code from your photographer to instantly unlock your personal photo gallery',
     color: 'primary'
   },
   {
-    id: 'event-coverage',
-    icon: Image,
-    title: 'Event Coverage',
-    description: 'Complete documentation of your special moments, from weddings to corporate events',
+    icon: Eye,
+    title: 'HD Gallery View',
+    description: 'Browse your photos in stunning high resolution with smooth swiping and zoom',
     color: 'accent'
   },
   {
-    id: 'online-gallery',
     icon: Download,
-    title: 'Online Gallery Access',
-    description: 'View your photos anytime, anywhere through our secure online gallery system',
+    title: 'Download Photos',
+    description: 'Save full-resolution images directly to your phone — no compression, no watermarks',
     color: 'purple'
   },
   {
-    id: 'family-sharing',
-    icon: Users,
-    title: 'Family Sharing',
-    description: 'Share your beautiful moments with family and friends through the Epix Shots app',
+    icon: Share2,
+    title: 'Share Instantly',
+    description: 'Share your favorite shots to WhatsApp, Instagram, or any social platform with one tap',
     color: 'primary'
   },
   {
-    id: 'photo-editing',
-    icon: Sparkles,
-    title: 'Photo Editing',
-    description: 'Expert retouching and color grading for flawless, magazine-quality results',
+    icon: Bell,
+    title: 'Instant Notifications',
+    description: 'Get notified the moment your photographer uploads new photos or behind-the-scenes content',
     color: 'accent'
   },
   {
-    id: 'premium-prints',
-    icon: Star,
-    title: 'Premium Prints',
-    description: 'Gallery-quality prints and albums to preserve your memories for generations',
+    icon: Smartphone,
+    title: 'Works Everywhere',
+    description: 'Available on Android and iOS. Access your galleries from any device, anytime',
     color: 'purple'
   }
 ];
@@ -68,11 +61,11 @@ const getGlowClass = (color: string) => {
   }
 };
 
-const ServicesSection = () => {
+const FeaturesSection = () => {
   const { ref, isVisible } = useScrollReveal({ threshold: 0.1 });  
 
   return (
-    <section id="services" className="relative py-24 overflow-hidden">
+    <section id="features" className="relative py-24 overflow-hidden">
       <div 
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -89,72 +82,48 @@ const ServicesSection = () => {
           className="text-center mb-16"
         >
           <span className="text-primary text-sm font-medium tracking-widest uppercase mb-4 block">
-            What We Offer
+            App Features
           </span>
           <h2 className="text-4xl md:text-5xl font-serif font-bold mb-6">
-            Our <span className="text-gradient">Services</span>
+            Everything You <span className="text-gradient">Need</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            Professional photography solutions designed to capture and deliver your most precious moments
+            The Epix Shots app makes it easy to access, view, and share your professional photos
           </p>
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {services.map((service, index) => (
+          {features.map((feature, index) => (
             <motion.div
-              key={service.id}
+              key={feature.title}
               initial={{ opacity: 0, y: 40 }}
               animate={isVisible ? { opacity: 1, y: 0 } : {}}
               transition={{ duration: 0.6, delay: index * 0.1 }}
             >
-              <Link href={`/services/${service.id}`}>
-                <GlassCard 
-                  className={`h-full group transition-shadow duration-500 ${getGlowClass(service.color)} hover:scale-105 cursor-pointer`}
+              <GlassCard 
+                className={`h-full group transition-shadow duration-500 ${getGlowClass(feature.color)} hover:scale-105 cursor-pointer`}
+              >
+                <motion.div 
+                  className={`w-14 h-14 rounded-xl glass-card flex items-center justify-center mb-5 ${getColorClass(feature.color)}`}
+                  whileHover={{ rotate: [0, -10, 10, 0] }}
+                  transition={{ duration: 0.5 }}
                 >
-                  <motion.div 
-                    className={`w-14 h-14 rounded-xl glass-card flex items-center justify-center mb-5 ${getColorClass(service.color)}`}
-                    whileHover={{ rotate: [0, -10, 10, 0] }}
-                    transition={{ duration: 0.5 }}
-                  >
-                    <service.icon className="w-7 h-7" />
-                  </motion.div>
+                  <feature.icon className="w-7 h-7" />
+                </motion.div>
 
-                  <h3 className="font-serif text-xl font-semibold mb-3 group-hover:text-primary transition-colors">
-                    {service.title}
-                  </h3>
-                  <p className="text-muted-foreground leading-relaxed">
-                    {service.description}
-                  </p>
-
-                  <motion.div 
-                    className="mt-5 flex items-center text-sm font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <span>Learn more</span>
-                    <motion.span
-                      className="ml-2"
-                      animate={{ x: [0, 5, 0] }}
-                      transition={{ duration: 1, repeat: Infinity }}
-                    >
-                      →
-                    </motion.span>
-                  </motion.div>
-                </GlassCard>
-              </Link>
+                <h3 className="font-serif text-xl font-semibold mb-3 group-hover:text-primary transition-colors">
+                  {feature.title}
+                </h3>
+                <p className="text-muted-foreground leading-relaxed">
+                  {feature.description}
+                </p>
+              </GlassCard>
             </motion.div>
           ))}
-        </div>
-
-        <div className="text-center mt-12">
-          <Link 
-            href="/services"
-            className="inline-flex items-center gap-2 text-primary hover:text-primary-glow font-semibold transition-colors"
-          >
-            View All Services →
-          </Link>
         </div>
       </div>
     </section>
   );
 };
 
-export default ServicesSection;
+export default FeaturesSection;

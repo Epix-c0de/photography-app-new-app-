@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronRight, CreditCard, FileText, Download, Heart, Shield, Bell, HelpCircle, LogOut, Award, Camera, Gift, CheckCircle, AlertCircle, Share2, User, Star, Clock } from 'lucide-react-native';
+import { ChevronRight, CreditCard, FileText, Download, Heart, Shield, Bell, HelpCircle, LogOut, Award, Camera, Gift, CheckCircle, AlertCircle, Share2, User, Star, Clock, Link as LinkIcon } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
@@ -426,7 +426,8 @@ export default function ProfileScreen() {
   ];
 
   const settingsItems: MenuItem[] = [
-    { icon: <Bell size={20} color={Colors.textSecondary} />, label: 'Notifications', subtitle: 'Manage push preferences', action: () => router.push('/profile/settings/notifications') },
+    { icon: <LinkIcon size={20} color={Colors.gold} />, label: 'Shared Links', subtitle: 'Manage gallery shares', action: () => router.push('/(tabs)/profile/settings/shared-links') },
+    { icon: <Bell size={20} color={Colors.textSecondary} />, label: 'Notifications', subtitle: 'Manage push preferences', action: () => { (global as any).__notificationsFrom = '/(tabs)/profile'; router.push('/notifications'); } },
     { icon: <Shield size={20} color={Colors.textSecondary} />, label: 'Privacy & Security', subtitle: 'Password, data controls', action: () => router.push('/profile/settings/privacy-security') },
     { icon: <HelpCircle size={20} color={Colors.textSecondary} />, label: 'Help & Support', subtitle: 'Chat with us', action: () => router.push('/profile/settings/help-support') },
   ];

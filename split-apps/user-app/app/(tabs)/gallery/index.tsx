@@ -28,6 +28,7 @@ import { demoGalleries } from '@/lib/demo';
 import { downloadAndCompress } from '@/lib/network-compression';
 import PaymentModal from '@/components/PaymentModal';
 import GalleryShareSheet from '@/components/GalleryShareSheet';
+import ShareGalleryModal from '@/components/ShareGalleryModal';
 import { useLocalSearchParams, usePathname, useRouter } from 'expo-router';
 import { galleryTabPressRef } from '../_layout';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -432,6 +433,7 @@ export default function GalleryScreen() {
   const [selectedPhotoItem, setSelectedPhotoItem] = useState<PhotoRow | null>(null);
   const [shareSheet, setShareSheet] = useState<ShareSheetPayload | null>(null);
   const [galleryShareSheet, setGalleryShareSheet] = useState<{ visible: boolean; gallery: GalleryRow | null }>({ visible: false, gallery: null });
+  const [showPrivateShare, setShowPrivateShare] = useState<{ visible: boolean; gallery: GalleryRow | null }>({ visible: false, gallery: null });
   const [refreshing, setRefreshing] = useState(false);
 
   // Phase 3 additions:
@@ -2126,6 +2128,9 @@ export default function GalleryScreen() {
                           <Pressable onPress={() => handleShareGallery(selectedGallery)} hitSlop={8} style={styles.premiumIconButton}>
                             <Share2 size={20} color={Colors.gold} />
                           </Pressable>
+                          <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowPrivateShare({ visible: true, gallery: selectedGallery }); }} hitSlop={8} style={styles.premiumIconButton}>
+                            <Lock size={20} color={Colors.gold} />
+                          </Pressable>
                         </>
                       )}
                     </View>
@@ -2266,6 +2271,49 @@ export default function GalleryScreen() {
         photoCount={galleryShareSheet.gallery?.photo_count || 0}
         brandName={brandName}
       />
+
+      {/* Private Gallery Share Modal */}
+      {showPrivateShare.gallery && (
+        <ShareGalleryModal
+          visible={showPrivateShare.visible}
+          onClose={() => setShowPrivateShare({ visible: false, gallery: null })}
+          galleryId={showPrivateShare.gallery.id}
+          galleryName={showPrivateShare.gallery.name || 'Gallery'}
+          photoCount={showPrivateShare.gallery.photo_count || 0}
+          onShareCreated={(url) => {
+            setShowPrivateShare({ visible: false, gallery: null });
+            Alert.alert('Share Link Created', `Your private gallery link is ready:\n\n${url}`, [
+              { text: 'Copy Link', onPress: async () => { await Clipboard.setStringAsync(url); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); } },
+              { text: 'OK' },
+            ]);
+          }}
+        />
+      )}
+
+      {/* Photo Share Sheet */}
+      <Modal visible={!!shareSheet} transparent animationType="fade" onRequestClose={() => setShareSheet(null)}>
+        <Pressable style={styles.shareSheetBackdrop} onPress={() => setShareSheet(null)}>
+          <Pressable style={styles.shareSheetCard} onPress={() => {}}>
+            <Text style={styles.shareSheetTitle}>{shareSheet?.title || 'Share'}</Text>
+            <Text style={styles.shareSheetSubtitle} numberOfLines={2}>{shareSheet?.message}</Text>
+            <View style={styles.shareSheetActions}>
+              {([
+                { key: 'whatsapp', label: 'WhatsApp', icon: '💬' },
+                { key: 'system', label: 'More...', icon: '📤' },
+                { key: 'copy', label: 'Copy', icon: '📋' },
+              ] as const).map(ch => (
+                <Pressable key={ch.key} style={styles.shareSheetButton} onPress={() => handleShareChannel(ch.key)}>
+                  <View style={styles.shareSheetIconWrap}><Text style={{ fontSize: 20 }}>{ch.icon}</Text></View>
+                  <Text style={styles.shareSheetButtonText}>{ch.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable style={styles.shareSheetButton} onPress={() => setShareSheet(null)}>
+              <Text style={[styles.shareSheetButtonText, { color: '#FF453A' }]}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={!!selectedPortfolioItem} transparent animationType="fade">
         <View style={{ flex: 1, backgroundColor: '#08080c' }}>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { Search, Settings, MessageCircle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -23,6 +24,7 @@ interface ChatThreadListProps {
 
 export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [threads, setThreads] = useState<AdminThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -138,7 +140,14 @@ export default function ChatThreadList({ onSelectThread }: ChatThreadListProps) 
           <Text style={styles.headerTitle}>Messages</Text>
           <Text style={styles.headerSub}>{threads.length} Photographer{threads.length !== 1 ? 's' : ''}</Text>
         </View>
-        <Pressable style={styles.headerBtn}>
+        <Pressable
+          style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
+          hitSlop={12}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push('/(tabs)/chat/settings');
+          }}
+        >
           <Settings size={16} color={Colors.white} />
         </Pressable>
       </View>
@@ -295,9 +304,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   headerBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',

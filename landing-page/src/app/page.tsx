@@ -3,9 +3,9 @@
 import Navbar from '@/components/Navbar';
 import PremiumHero from '@/components/home/PremiumHero';
 import ShowcaseSection from '@/components/home/ShowcaseSection';
-import ServicesSection from '@/components/home/ServicesSection';
+import FeaturesSection from '@/components/home/ServicesSection';
 import HowItWorks from '@/components/home/HowItWorks';
-import Contact from '@/components/Contact';
+import WhatsAppChannel from '@/components/Contact';
 import CTASection from '@/components/home/CTASection';
 import PremiumFooter from '@/components/home/PremiumFooter';
 import ParticleBackground from '@/components/home/ParticleBackground';
@@ -23,10 +23,10 @@ const Index = () => {
       <main>
         <PremiumHero />
         <ShowcaseSection />
-        <ServicesSection />
+        <FeaturesSection />
         <HowItWorks />
         <CTASection />
-        <Contact />
+        <WhatsAppChannel />
         <PremiumFooter />
       </main>
       <SoundToggle isMuted={isMuted} onToggle={toggleMute} />

@@ -24,6 +24,7 @@ function GalleryPreviewCard({ item }: GalleryPreviewCardProps) {
             style={styles.galleryThumbImage}
             contentFit="cover"
             transition={200}
+            cachePolicy="memory-disk"
           />
         ) : (
           <View style={[styles.galleryThumbImage, styles.galleryThumbPlaceholder]}>

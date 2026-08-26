@@ -2,32 +2,32 @@
 
 import { motion } from 'framer-motion';
 import { useScrollReveal } from '../../hooks/useScrollReveal';
-import { Calendar, Camera, Image, Download } from 'lucide-react';
+import { Download, Lock, Image, Share2 } from 'lucide-react';
 
 const steps = [
   {
-    icon: Camera,
+    icon: Download,
     number: '01',
-    title: 'Book a Session',
-    description: 'Contact us to schedule your photography session at a time that works for you'
+    title: 'Download the App',
+    description: 'Get Epix Shots from Google Play or the App Store'
+  },
+  {
+    icon: Lock,
+    number: '02',
+    title: 'Enter Access Code',
+    description: 'Your photographer will give you a code to unlock your gallery'
   },
   {
     icon: Image,
-    number: '02',
-    title: 'Get Your Photos',
-    description: 'Your photos are professionally edited and uploaded to your personal gallery'
-  },
-  {
-    icon: Download,
     number: '03',
-    title: 'Download the App',
-    description: 'Download the Epix Shots app to access your gallery on any device'
+    title: 'View Your Photos',
+    description: 'Browse through your high-resolution photos in a beautiful gallery'
   },
   {
-    icon: Calendar,
+    icon: Share2,
     number: '04',
-    title: 'View & Share',
-    description: 'Browse, download, and share your beautiful moments with family and friends'
+    title: 'Download & Share',
+    description: 'Save photos to your device or share them directly to social media'
   }
 ];
 
@@ -53,7 +53,7 @@ const HowItWorks = () => {
             How It <span className="text-gradient">Works</span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto">
-            From booking to viewing your photos, it&apos;s as easy as 1-2-3-4
+            Get started in four easy steps
           </p>
         </motion.div>
 

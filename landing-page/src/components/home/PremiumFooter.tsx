@@ -1,22 +1,16 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Camera, AtSign, Globe, Share2, Mail, Phone, MapPin } from 'lucide-react';
+import { Camera, MessageCircle, Download, ExternalLink } from 'lucide-react';
 
 const PremiumFooter = () => {
   const currentYear = new Date().getFullYear();
 
-  const socialLinks = [
-    { icon: AtSign, href: 'https://instagram.com/epixshots_ke', label: 'Instagram' },
-    { icon: Globe, href: '#', label: 'Twitter' },
-    { icon: Share2, href: '#', label: 'Facebook' }
-  ];
-
   const quickLinks = [
-    { label: 'Services', href: '#services' },
+    { label: 'Features', href: '#features' },
     { label: 'How It Works', href: '#how-it-works' },
     { label: 'Download App', href: '/download' },
-    { label: 'Contact', href: '#contact' }
+    { label: 'Updates', href: '#updates' }
   ];
 
   return (
@@ -38,24 +32,18 @@ const PremiumFooter = () => {
               <span className="font-serif text-xl font-bold">Epix Shots</span>
             </motion.div>
             <p className="text-muted-foreground text-sm leading-relaxed mb-6">
-              Professional photography services delivering timeless memories with modern convenience.
+              Access your professional photo galleries. View, download, and share your memories in high resolution.
             </p>
-            <div className="flex gap-3">
-              {socialLinks.map((social) => (
-                <motion.a
-                  key={social.label}
-                  href={social.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-10 h-10 rounded-full glass-card flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
-                  whileHover={{ scale: 1.1, y: -2 }}
-                  whileTap={{ scale: 0.95 }}
-                  aria-label={social.label}
-                >
-                  <social.icon className="w-5 h-5" />
-                </motion.a>
-              ))}
-            </div>
+            <a
+              href="https://whatsapp.com/channel/0029VbCq7w5KGGGKVXjSfm2a"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-green-500 hover:text-green-400 text-sm font-medium transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Join our WhatsApp Channel
+              <ExternalLink className="w-3 h-3" />
+            </a>
           </div>
 
           {/* Quick Links */}
@@ -75,36 +63,52 @@ const PremiumFooter = () => {
             </ul>
           </div>
 
-          {/* Contact */}
-          <div>
-            <h4 className="font-serif font-semibold mb-6">Contact</h4>
-            <ul className="space-y-4">
-              <li className="flex items-center gap-3 text-muted-foreground">
-                <Mail className="w-4 h-4 text-primary" />
-                <span className="text-sm">info@epixshots.co.ke</span>
-              </li>
-              <li className="flex items-center gap-3 text-muted-foreground">
-                <Phone className="w-4 h-4 text-primary" />
-                <span className="text-sm">+254 717 894 431</span>
-              </li>
-              <li className="flex items-start gap-3 text-muted-foreground">
-                <MapPin className="w-4 h-4 text-primary mt-0.5" />
-                <span className="text-sm">Nairobi, Kenya</span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Download CTA */}
+          {/* App Info */}
           <div>
             <h4 className="font-serif font-semibold mb-6">Get the App</h4>
             <p className="text-muted-foreground text-sm mb-4">
-              Download the Epix Shots app to access your photo galleries on the go.
+              Download Epix Shots to access your photo galleries on the go.
+            </p>
+            <div className="space-y-3">
+              <a
+                href="https://play.google.com/store/apps/details?id=app.rork.epix_visuals_studios_co"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:text-white transition-colors text-sm"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 01-.61-.92V2.734a1 1 0 01.609-.92zm10.89 10.893l2.302 2.302-10.937 6.333 8.635-8.635zm3.199-3.199l2.302 2.302-2.302 2.302L15.393 12l2.305-2.492zM5.864 2.658L16.8 8.99l-2.302 2.302L5.864 2.658z"/>
+                </svg>
+                Google Play
+              </a>
+              <a
+                href="https://apps.apple.com/app/epix-visuals-studios-co/id6478863262"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:text-white transition-colors text-sm"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                </svg>
+                App Store
+              </a>
+            </div>
+          </div>
+
+          {/* Support */}
+          <div>
+            <h4 className="font-serif font-semibold mb-6">Support</h4>
+            <p className="text-muted-foreground text-sm mb-4">
+              Need help with the app? Join our WhatsApp channel for support and updates.
             </p>
             <a
-              href="/download"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-lg golden-gradient text-white font-semibold hover-scale shadow-golden transition-all"
+              href="https://whatsapp.com/channel/0029VbCq7w5KGGGKVXjSfm2a"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold hover-scale transition-all"
             >
-              Download Now
+              <MessageCircle className="w-4 h-4" />
+              Get Support
             </a>
           </div>
         </div>
@@ -112,7 +116,7 @@ const PremiumFooter = () => {
         {/* Bottom bar */}
         <div className="pt-8 border-t border-border/30">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-muted-foreground">
-            <p>© {currentYear} Epix Shots. All rights reserved.</p>
+            <p>&copy; {currentYear} Epix Shots. All rights reserved.</p>
             <div className="flex gap-6">
               <a href="#" className="hover:text-primary transition-colors">Privacy Policy</a>
               <a href="#" className="hover:text-primary transition-colors">Terms of Service</a>

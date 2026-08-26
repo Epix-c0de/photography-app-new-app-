@@ -971,7 +971,7 @@ export default function AdminBtsAnnouncementsScreen() {
                     <Video
                       source={{ uri: btsPicked.uri }}
                       style={styles.mediaPreviewImage}
-                      resizeMode={ResizeMode.COVER}
+                      resizeMode={ResizeMode.CONTAIN}
                       shouldPlay={false}
                       isMuted={true}
                     />

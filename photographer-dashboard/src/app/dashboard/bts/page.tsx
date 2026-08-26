@@ -244,7 +244,7 @@ export default function BtsAndAnnouncementsPage() {
               {btsPreview ? (
                 btsFile?.type.startsWith('video')
                   ? <video src={btsPreview} className="max-h-48 mx-auto rounded-lg" controls />
-                  : <img src={btsPreview} className="max-h-48 mx-auto rounded-lg object-cover" alt="preview" />
+                  : <img src={btsPreview} className="max-h-48 mx-auto rounded-lg object-contain" alt="preview" />
               ) : (
                 <div className="text-gray-500">
                   <div className="text-4xl mb-2">📸</div>

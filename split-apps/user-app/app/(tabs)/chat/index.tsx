@@ -258,12 +258,23 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
         // ── Step 1: Find or pick the admin to chat with ──
         let adminId: string | null = activeAdminId ?? null;
 
-        // Fetch all available admins first
-        const { data: allAdmins, error: adminError } = await supabase
-          .from('user_profiles')
-          .select('id, name, avatar_url, updated_at')
-          .in('role', ['admin', 'super_admin'])
-          .order('created_at', { ascending: true });
+        // Fetch linked clients and admin profiles in parallel
+        const [clientsResult, allAdminsResult] = await Promise.all([
+          supabase
+            .from('clients')
+            .select('id, owner_admin_id')
+            .eq('user_id', authUser.id),
+          adminId ? Promise.resolve({ data: null, error: null }) : supabase
+            .from('user_profiles')
+            .select('id, name, avatar_url, updated_at')
+            .in('role', ['admin', 'super_admin'])
+            .order('created_at', { ascending: true })
+            .limit(20),
+        ]);
+
+        const existingClients = clientsResult.data;
+        const allAdmins = allAdminsResult.data;
+        const adminError = allAdminsResult.error;
 
         if (adminError) {
           console.error('[Chat] Error fetching admins:', adminError);
@@ -308,12 +319,6 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
         }
 
         if (!adminId) {
-          // Check if user already has a linked client record with ANY admin
-          const { data: existingClients } = await supabase
-            .from('clients')
-            .select('id, owner_admin_id')
-            .eq('user_id', authUser.id);
-
           // If we have existing client records, choose the BEST admin among the linked ones
           if (existingClients && existingClients.length > 0) {
             const linkedAdminIds = Array.from(
@@ -388,29 +393,15 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
           return;
         }
 
-        // ── Step 3: Fetch admin profile ──
-        // First, try to use the admin data we already fetched from allAdmins
+        // ── Step 3: Admin profile (already fetched in Step 1) ──
         const adminFromList = admins.find(a => a.id === adminId);
-        let adminProfileName = adminFromList?.name ?? null;
-        let adminProfileAvatar = adminFromList?.avatar_url ?? null;
-        
-        // Also fetch fresh data from user_profiles to ensure it's up to date
-        const { data: adminProfile } = await supabase
-          .from('user_profiles')
-          .select('id, name, avatar_url, updated_at')
-          .eq('id', adminId)
-          .maybeSingle();
-        
-        // Use fresh data if available, otherwise fallback to list data
-        const finalAdminName = adminProfile?.name ?? adminProfileName;
-        const finalAdminAvatar = adminProfile?.avatar_url ?? adminProfileAvatar;
+        const finalAdminName = adminFromList?.name ?? null;
+        const finalAdminAvatar = adminFromList?.avatar_url ?? null;
         
         console.log('[Chat] Admin profile loaded:', { 
           adminId, 
           finalAdminName, 
           finalAdminAvatar,
-          fromList: adminFromList?.name,
-          fromDb: adminProfile?.name 
         });
 
         // ── Step 4: Fetch existing messages ──

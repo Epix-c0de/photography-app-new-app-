@@ -1,21 +1,22 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert, Linking as NativeLinking, ImageBackground } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Pressable, Animated, StatusBar, KeyboardAvoidingView, Platform, ScrollView, Alert, ImageBackground, Modal, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Mail, Lock, Eye, EyeOff, ArrowRight, Fingerprint } from 'lucide-react-native';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Fingerprint, Phone, X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import * as ExpoLinking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
-import * as Crypto from 'expo-crypto';
+import * as Google from 'expo-auth-session/providers/google';
 import * as LocalAuthentication from 'expo-local-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 
-
 WebBrowser.maybeCompleteAuthSession();
+
+const GOOGLE_WEB_CLIENT_ID = '767341239944-cudtttstl53ojun1od4jrdof1ddmvj4.apps.googleusercontent.com';
+const GOOGLE_ANDROID_CLIENT_ID = '767341239944-t52927a5reph33862jg2ksrjn1m79fp3.apps.googleusercontent.com';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -33,15 +34,26 @@ export default function LoginScreen() {
   const [bgImage, setBgImage] = useState('https://images.unsplash.com/photo-1511285560929-80b456fea0bc?q=80&w=1000&auto=format&fit=crop');
   const [loginTagline, setLoginTagline] = useState('Every moment deserves to be captured beautifully.');
 
+  // Phone collection state
+  const [showPhoneModal, setShowPhoneModal] = useState(false);
+  const [pendingGoogleUser, setPendingGoogleUser] = useState<any>(null);
+  const [phoneInput, setPhoneInput] = useState('');
+  const [phoneSaving, setPhoneSaving] = useState(false);
+
+  // Google OAuth request
+  const [googleRequest, googleResponse, googlePromptAsync] = Google.useAuthRequest({
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    androidClientId: GOOGLE_ANDROID_CLIENT_ID,
+  });
+
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }).start();
-    
-    // Check if biometrics are available and we have a saved email
+
     (async () => {
       const compatible = await LocalAuthentication.hasHardwareAsync();
       const enrolled = await LocalAuthentication.isEnrolledAsync();
       setHasBiometrics(compatible && enrolled);
-      
+
       const email = await AsyncStorage.getItem('saved_login_email');
       const token = await AsyncStorage.getItem('saved_login_token');
       if (email && token && compatible && enrolled) {
@@ -50,7 +62,6 @@ export default function LoginScreen() {
       }
     })();
 
-    // Load dynamic screen settings
     (async () => {
       try {
         const { data } = await supabase
@@ -66,30 +77,122 @@ export default function LoginScreen() {
     })();
   }, []);
 
+  // Handle Google OAuth response
+  useEffect(() => {
+    if (!googleResponse) return;
+
+    if (googleResponse.type === 'success') {
+      const { id_token } = googleResponse.authentication as any;
+      handleGoogleIdToken(id_token);
+    } else if (googleResponse.type === 'error') {
+      console.error('[Google Sign-In] Error:', googleResponse.error);
+      Alert.alert('Sign-In Failed', googleResponse.error?.message || 'Google Sign-In failed. Please try again.');
+      setIsSubmitting(false);
+    } else if (googleResponse.type === 'cancel' || googleResponse.type === 'dismiss') {
+      console.log('[Google Sign-In] User cancelled');
+      setIsSubmitting(false);
+    }
+  }, [googleResponse]);
+
+  const handleGoogleIdToken = async (idToken: string) => {
+    try {
+      console.log('[Google Sign-In] Exchanging ID token with Supabase');
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      });
+
+      if (error) throw error;
+
+      console.log('[Google Sign-In] Success! User:', data.user?.email);
+
+      // Check if user has phone number — prompt collection for new users
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('phone, profile_complete')
+        .eq('id', data.user!.id)
+        .maybeSingle();
+
+      if (!profile?.phone) {
+        setPendingGoogleUser(data.user);
+        setPhoneInput('');
+        setShowPhoneModal(true);
+        setIsSubmitting(false);
+        return;
+      }
+
+      router.replace('/(tabs)/home');
+    } catch (error: any) {
+      console.error('[Google Sign-In] Exchange error:', error?.message || error);
+      Alert.alert('Sign-In Failed', error?.message || 'Failed to complete Google Sign-In. Please try again.');
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSavePhone = async () => {
+    if (!pendingGoogleUser?.id) {
+      Alert.alert('Error', 'Session expired. Please sign in again.');
+      setShowPhoneModal(false);
+      return;
+    }
+
+    const cleaned = phoneInput.replace(/\D/g, '');
+    if (cleaned.length < 9) {
+      Alert.alert('Invalid Phone', 'Please enter a valid phone number (at least 9 digits).');
+      return;
+    }
+
+    setPhoneSaving(true);
+    try {
+      // Convert local format (0712...) to international (+254712...)
+      let fullPhone = cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+      if (fullPhone.startsWith('+0')) {
+        fullPhone = '+254' + fullPhone.slice(2);
+      }
+
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ phone: fullPhone })
+        .eq('id', pendingGoogleUser.id);
+
+      if (error) throw error;
+
+      setShowPhoneModal(false);
+      setPendingGoogleUser(null);
+      router.replace('/(tabs)/home');
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Failed to save phone number.');
+    } finally {
+      setPhoneSaving(false);
+    }
+  };
+
   const handleBiometricLogin = async () => {
     if (!hasBiometrics) return;
-    
+
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: 'Authenticate to sign in',
         fallbackLabel: 'Use password',
       });
-      
+
       if (result.success) {
         setIsSubmitting(true);
-        // We'd ideally use the saved token here with Supabase, 
-        // but for now we'll check if session is still valid or trigger a magic link
-        const token = await AsyncStorage.getItem('saved_login_token');
-        if (token) {
-           const { data, error } = await supabase.auth.getUser(token);
-           if (!error && data?.user) {
-             router.replace('/(tabs)/home');
-             return;
-           }
+        const accessToken = await AsyncStorage.getItem('saved_login_token');
+        const refreshToken = await AsyncStorage.getItem('saved_refresh_token');
+        if (accessToken && refreshToken) {
+          // Restore the full Supabase session
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (!error) {
+            router.replace('/(tabs)/home');
+            return;
+          }
         }
-        
-        // If no token or invalid, fallback to normal auth prompt or error
+
         Alert.alert('Session Expired', 'Please sign in with your password once to re-enable FaceID/TouchID.');
         setIsSubmitting(false);
       }
@@ -126,21 +229,23 @@ export default function LoginScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       await login(email, password);
-      
-      // Save credentials for biometrics
+
       if (hasBiometrics) {
         await AsyncStorage.setItem('saved_login_email', email);
         const session = await supabase.auth.getSession();
         if (session.data.session?.access_token) {
           await AsyncStorage.setItem('saved_login_token', session.data.session.access_token);
         }
+        if (session.data.session?.refresh_token) {
+          await AsyncStorage.setItem('saved_refresh_token', session.data.session.refresh_token);
+        }
       }
-      
+
       router.replace('/(tabs)/home');
     } catch (error: any) {
       console.error('[Login] Error:', error);
       let message = error?.message || 'Check your email or password and try again.';
-      
+
       if (message.toLowerCase().includes('email not confirmed')) {
         Alert.alert(
           'Email Not Confirmed',
@@ -154,7 +259,7 @@ export default function LoginScreen() {
       } else if (message.toLowerCase().includes('invalid login credentials')) {
         message = 'Invalid email or password.';
       }
-      
+
       Alert.alert('Login Failed', message);
     } finally {
       setIsSubmitting(false);
@@ -165,96 +270,14 @@ export default function LoginScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setIsSubmitting(true);
-      console.log('[Google Sign-In] Starting flow with IdToken');
-
-      if (Platform.OS !== 'android' && Platform.OS !== 'ios') {
-        Alert.alert('Google Sign-In', 'Google Sign-In works only in the installed mobile app.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Check if Google Client ID is configured
-      const googleClientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
-      if (!googleClientId) {
-        throw new Error('Google Client ID is not configured. Please check your environment variables.');
-      }
-
-      const redirectUrl = ExpoLinking.createURL('auth/callback');
-      console.log('[Google Sign-In] redirectUrl:', redirectUrl);
-
-      // Create a random nonce for security
-      const nonce = Crypto.getRandomBytesAsync(16).then(bytes => 
-        Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
-      );
-      const nonceString = await nonce;
-
-      // Configure the auth request
-      const request = new AuthSession.AuthRequest({
-        clientId: googleClientId,
-        scopes: ['openid', 'profile', 'email'],
-        redirectUri: redirectUrl,
-        responseType: AuthSession.ResponseType.IdToken,
-        extraParams: {
-          nonce: nonceString,
-          prompt: 'select_account',
-        },
-      });
-
-      const result = await request.promptAsync({});
-
-      console.log('[Google Sign-In] Auth result type:', result.type);
-
-      if (result.type === 'success') {
-        const { params } = result;
-        const idToken = params.id_token;
-
-        if (!idToken) {
-          throw new Error('No ID token received from Google');
-        }
-
-        console.log('[Google Sign-In] ID token received, signing in with Supabase');
-
-        // Sign in with Supabase using the ID token
-        const { data, error } = await supabase.auth.signInWithIdToken({
-          provider: 'google',
-          token: idToken,
-          nonce: nonceString,
-        });
-
-        if (error) {
-          console.error('[Google Sign-In] Supabase sign-in error:', error);
-          throw error;
-        }
-
-        console.log('[Google Sign-In] Success! User signed in:', data.user?.email);
-        
-        // Navigate to home screen on successful sign-in
-        router.replace('/(tabs)/home');
-        
-      } else if (result.type === 'dismiss') {
-        console.log('[Google Sign-In] User dismissed browser');
-      } else if (result.type === 'cancel') {
-        console.log('[Google Sign-In] User cancelled');
-      } else {
-        console.warn('[Google Sign-In] Unexpected result type:', result.type);
-        throw new Error('Authentication was cancelled or failed');
-      }
+      console.log('[Google Sign-In] Starting via expo-auth-session/providers/google');
+      await googlePromptAsync();
     } catch (error: any) {
       console.error('[Google Sign-In] Error:', error?.message || error);
-      
-      let errorMessage = error?.message || 'An error occurred during Google Sign-In';
-      if (errorMessage.includes('developer_error')) {
-        errorMessage = 'Configuration error: Ensure your Android Package Name and SHA-1 fingerprint are registered in Google Cloud Console for the EAS build.';
-      } else if (errorMessage.includes('EXPO_PUBLIC_GOOGLE_CLIENT_ID')) {
-        errorMessage = 'Google Sign-In is not properly configured. Please contact support.';
-      }
-      
-      Alert.alert('Sign-In Failed', errorMessage);
-    } finally {
+      Alert.alert('Sign-In Failed', error?.message || 'An error occurred during Google Sign-In');
       setIsSubmitting(false);
     }
-  }, [router]);
-
+  }, [googlePromptAsync]);
 
   const handleLogoTap = useCallback(() => {
     const newCount = tapCount + 1;
@@ -342,7 +365,7 @@ export default function LoginScreen() {
                 </Pressable>
               </View>
 
-              <Pressable style={styles.forgotButton} onPress={() => router.push('/forgot-password' as any)}>
+              <Pressable style={styles.forgotButton} onPress={() => router.push('/forgot-password')}>
                 <Text style={styles.forgotText}>Forgot password?</Text>
               </Pressable>
 
@@ -403,6 +426,47 @@ export default function LoginScreen() {
           </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Phone Collection Modal */}
+      <Modal visible={showPhoneModal} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Pressable onPress={() => { setShowPhoneModal(false); setPendingGoogleUser(null); }} style={styles.modalClose}>
+              <X size={20} color={Colors.textMuted} />
+            </Pressable>
+            <Phone size={40} color={Colors.gold} style={{ alignSelf: 'center', marginBottom: 16 }} />
+            <Text style={styles.modalTitle}>Add Your Phone Number</Text>
+            <Text style={styles.modalSubtitle}>We need your phone number to connect you with your photographer.</Text>
+
+            <View style={styles.modalInputContainer}>
+              <Phone size={18} color={Colors.textMuted} />
+              <TextInput
+                style={styles.modalInput}
+                placeholder="+254712345678"
+                placeholderTextColor={Colors.textMuted}
+                value={phoneInput}
+                onChangeText={setPhoneInput}
+                keyboardType="phone-pad"
+                autoFocus
+              />
+            </View>
+
+            <Pressable style={styles.modalButton} onPress={handleSavePhone} disabled={phoneSaving}>
+              <LinearGradient colors={[Colors.gold, Colors.goldDark]} style={styles.modalButtonGradient}>
+                {phoneSaving ? (
+                  <ActivityIndicator color="#000" />
+                ) : (
+                  <Text style={styles.modalButtonText}>Continue</Text>
+                )}
+              </LinearGradient>
+            </Pressable>
+
+            <Pressable onPress={() => { setShowPhoneModal(false); setPendingGoogleUser(null); router.replace('/(tabs)/home'); }} style={styles.modalSkip}>
+              <Text style={styles.modalSkipText}>Skip for now</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -569,13 +633,86 @@ const styles = StyleSheet.create({
     fontWeight: '500' as const,
   },
   trustRow: {
-    flexDirection: 'row' as const,
+    flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     marginTop: 32,
   },
   trustText: {
     fontSize: 12,
+    color: Colors.textMuted,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 20,
+    padding: 28,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalClose: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    padding: 4,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  modalInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.inputBg,
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    height: 54,
+    marginBottom: 20,
+    gap: 12,
+  },
+  modalInput: {
+    flex: 1,
+    fontSize: 16,
+    color: Colors.white,
+  },
+  modalButton: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  modalButtonGradient: {
+    height: 54,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.background,
+  },
+  modalSkip: {
+    alignItems: 'center',
+    padding: 8,
+  },
+  modalSkipText: {
+    fontSize: 14,
     color: Colors.textMuted,
   },
 });

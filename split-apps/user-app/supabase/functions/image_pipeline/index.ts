@@ -1,6 +1,6 @@
 /// <reference lib="deno.ns" />
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Image } from "imagescript";
+import { Image } from "npm:imagescript@1.3.0";
 
 // Load font from URL (Roboto Regular)
 const FONT_URL = "https://github.com/google/fonts/raw/main/apache/roboto/Roboto-Regular.ttf";

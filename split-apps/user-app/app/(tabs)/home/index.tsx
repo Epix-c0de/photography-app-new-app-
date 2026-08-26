@@ -6,6 +6,7 @@ import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, usePathname } from 'expo-router';
+import { useNotificationToast } from '@/components/NotificationToast';
 import { Bell, ChevronRight, Camera, Unlock, CreditCard, Zap, Play, Heart, Star } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -365,9 +366,11 @@ export default function HomeScreen() {
   const pathname = usePathname();
   const searchParams = useLocalSearchParams();
   const { user, profile, isDemoMode } = useAuth();
+  const { showNotification: showNotificationToast } = useNotificationToast();
 
   const handleNotificationPress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    (global as any).__notificationsFrom = '/(tabs)/home';
     router.push('/notifications');
   }, [router]);
 
@@ -1043,10 +1046,54 @@ export default function HomeScreen() {
     // React StrictMode re-runs effects, causing "cannot add callbacks after subscribe"
     const channel = supabase
       .channel(`home_feed_${Date.now()}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bts_posts' }, () => fetchBtsRef.current())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => fetchUnreadCountRef.current())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'galleries' }, () => fetchGalleriesRef.current())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, () => fetchAnnouncementsRef.current())
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bts_posts' }, (payload) => {
+        fetchBtsRef.current();
+        const p = payload.new as any;
+        showNotificationToast({
+          id: `bts_${p.id || Date.now()}`,
+          title: 'New BTS Post',
+          body: p.title || p.caption || 'Behind-the-scenes content available',
+          type: 'gallery',
+          onPress: () => (router as any).push('/bts/all'),
+        });
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, (payload) => {
+        fetchUnreadCountRef.current();
+        const n = payload.new as any;
+        const typeLabels: Record<string, string> = {
+          gallery: 'Gallery Update', gallery_ready: 'Gallery Ready', payment: 'Payment',
+          booking: 'Booking', promo: 'Promotion', system: 'System', package: 'Package',
+        };
+        showNotificationToast({
+          id: n.id || String(Date.now()),
+          title: n.title || typeLabels[n.type] || 'Notification',
+          body: n.message || n.body || 'New notification',
+          type: n.type,
+          onPress: () => (router as any).push('/notifications'),
+        });
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'galleries' }, (payload) => {
+        fetchGalleriesRef.current();
+        const g = payload.new as any;
+        if (g.owner_admin_id === user?.id || g.user_id === user?.id) return;
+        showNotificationToast({
+          id: `gallery_${g.id || Date.now()}`,
+          title: 'New Gallery',
+          body: g.name || 'A new gallery has been published',
+          type: 'gallery_ready',
+          onPress: () => (router as any).push('/(tabs)/gallery'),
+        });
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'announcements' }, (payload) => {
+        fetchAnnouncementsRef.current();
+        const a = payload.new as any;
+        showNotificationToast({
+          id: `ann_${a.id || Date.now()}`,
+          title: 'New Announcement',
+          body: a.title || a.content || 'New announcement from your photographer',
+          type: 'promo',
+        });
+      })
       .subscribe();
 
     return () => {

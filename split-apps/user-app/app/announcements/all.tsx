@@ -154,7 +154,7 @@ function AnnouncementCard({ announcement, onPress, index }: { announcement: Anno
                 <Video
                   source={{ uri: announcement.media_urls![0] }}
                   style={styles.video}
-                  resizeMode={ResizeMode.COVER}
+                  resizeMode={ResizeMode.CONTAIN}
                   useNativeControls={true}
                   isLooping={false}
                   shouldPlay={false}

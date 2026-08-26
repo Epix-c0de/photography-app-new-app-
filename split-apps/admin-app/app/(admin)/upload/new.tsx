@@ -684,10 +684,19 @@ export default function ClientPhotoUploadScreen() {
   };
 
   const handleSendSMS = async () => {
-    if (!phoneNumber || !accessCode) return;
+    if (!accessCode) {
+      Alert.alert('Error', 'No access code available. Please try again.');
+      return;
+    }
+    // Use phoneNumber from input, fallback to clientData.phone from the selected client
+    const effectivePhone = phoneNumber || clientData?.phone || '';
+    if (!effectivePhone) {
+      Alert.alert('No Phone Number', 'Please go back and enter a client phone number first.');
+      return;
+    }
     const deepLink = `${accessLink}${accessCode}`;
     const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
-    const smsUrl = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+    const smsUrl = `sms:${effectivePhone}?body=${encodeURIComponent(message)}`;
 
     try {
       const supported = await Linking.canOpenURL(smsUrl);
@@ -696,7 +705,7 @@ export default function ClientPhotoUploadScreen() {
         await supabase.from('sms_logs').insert({
           owner_admin_id: user?.id,
           client_id: clientData?.id,
-          phone_number: phoneNumber,
+          phone_number: effectivePhone,
           message: message,
           status: 'queued',
         });
@@ -710,21 +719,39 @@ export default function ClientPhotoUploadScreen() {
   };
 
   const handleSendWhatsApp = async () => {
-    if (!phoneNumber || !accessCode) return;
+    if (!accessCode) {
+      Alert.alert('Error', 'No access code available. Please try again.');
+      return;
+    }
+    // Use phoneNumber from input, fallback to clientData.phone from the selected client
+    const effectivePhone = phoneNumber || clientData?.phone || '';
     const deepLink = `${accessLink}${accessCode}`;
     const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
-    const whatsappUrl = `https://wa.me/${phoneNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
 
-    try {
-      const supported = await Linking.canOpenURL(whatsappUrl);
-      if (supported) {
-        await Linking.openURL(whatsappUrl);
-        Alert.alert('WhatsApp Opened', 'WhatsApp has been opened with the prefilled message.');
-      } else {
-        Alert.alert('Error', 'WhatsApp is not installed or supported on this device.');
+    if (effectivePhone) {
+      const cleanPhone = effectivePhone.replace(/[^0-9]/g, '');
+      const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+      try {
+        const supported = await Linking.canOpenURL(whatsappUrl);
+        if (supported) {
+          await Linking.openURL(whatsappUrl);
+          Alert.alert('WhatsApp Opened', 'WhatsApp has been opened with the prefilled message.');
+        } else {
+          // Fallback: try wa.me without canOpenURL check
+          await Linking.openURL(whatsappUrl);
+        }
+      } catch (error) {
+        Alert.alert('Error', 'Failed to open WhatsApp. Make sure WhatsApp is installed.');
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to open WhatsApp.');
+    } else {
+      // No phone — open WhatsApp with message only (user selects contact manually)
+      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+      try {
+        await Linking.openURL(whatsappUrl);
+        Alert.alert('WhatsApp Opened', 'Select a contact to send the gallery link to.');
+      } catch (error) {
+        Alert.alert('Error', 'Failed to open WhatsApp.');
+      }
     }
   };
 
@@ -1917,18 +1944,14 @@ export default function ClientPhotoUploadScreen() {
             )}
 
             <View style={styles.successActions}>
-              {!deliveryMethods.includes('sms') && (
-                <Pressable style={styles.actionBtnRow} onPress={handleSendSMS}>
-                  <Send size={16} color={Colors.white} />
-                  <Text style={styles.actionBtnText}>Send SMS</Text>
-                </Pressable>
-              )}
-              {!deliveryMethods.includes('whatsapp') && (
-                <Pressable style={[styles.actionBtnRow, { backgroundColor: '#25D366', borderColor: '#25D366' }]} onPress={handleSendWhatsApp}>
-                  <MessageCircle size={16} color={Colors.white} />
-                  <Text style={styles.actionBtnText}>Send WhatsApp</Text>
-                </Pressable>
-              )}
+              <Pressable style={styles.actionBtnRow} onPress={handleSendSMS}>
+                <Send size={16} color={Colors.white} />
+                <Text style={styles.actionBtnText}>Send SMS</Text>
+              </Pressable>
+              <Pressable style={[styles.actionBtnRow, { backgroundColor: '#25D366', borderColor: '#25D366' }]} onPress={handleSendWhatsApp}>
+                <MessageCircle size={16} color={Colors.white} />
+                <Text style={styles.actionBtnText}>Send WhatsApp</Text>
+              </Pressable>
             </View>
 
             <Pressable

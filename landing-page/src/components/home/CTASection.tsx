@@ -52,7 +52,7 @@ const CTASection = () => {
               animate={isVisible ? { opacity: 1, y: 0 } : {}}
               transition={{ delay: 0.2 }}
             >
-              Get Started Today
+              Get the App
             </motion.span>
 
             <motion.h2 
@@ -61,7 +61,7 @@ const CTASection = () => {
               animate={isVisible ? { opacity: 1, y: 0 } : {}}
               transition={{ delay: 0.3 }}
             >
-              Ready to Access Your <span className="text-gradient">Beautiful Moments</span>?
+              Ready to View Your <span className="text-gradient">Photos</span>?
             </motion.h2>
 
             <motion.p 
@@ -70,7 +70,7 @@ const CTASection = () => {
               animate={isVisible ? { opacity: 1, y: 0 } : {}}
               transition={{ delay: 0.4 }}
             >
-              Download the Epix Shots app and get instant access to your photo galleries. View, download, and share your memories.
+              Download Epix Shots and get instant access to your photo galleries. View, download, and share your memories in high resolution.
             </motion.p>
 
             <motion.div

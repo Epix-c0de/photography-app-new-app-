@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ChevronLeft, Search, Play, AlertTriangle, RefreshCw } from 'lucide-react-native';
+import { ChevronLeft, Search, Play, AlertTriangle, RefreshCw, Bell } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 import { demoBtsPosts } from '@/lib/demo';
@@ -157,9 +157,9 @@ export default function BTSAllScreen() {
         <Text style={styles.headerTitle}>Behind the Scenes</Text>
         <Pressable
           style={styles.sortButton}
-          onPress={() => setSort((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
+          onPress={() => { (global as any).__notificationsFrom = '/bts/all'; router.push('/notifications'); }}
         >
-          <Text style={styles.sortText}>{sort === 'newest' ? 'Newest' : 'Oldest'}</Text>
+          <Bell size={18} color={Colors.white} />
         </Pressable>
       </View>
 

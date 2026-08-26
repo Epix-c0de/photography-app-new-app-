@@ -33,7 +33,6 @@ import {
   VolumeX,
   RefreshCw,
   AlertTriangle,
-  Eye,
   Sparkles,
 } from 'lucide-react-native';
 import { Image } from 'expo-image';
@@ -389,6 +388,7 @@ export default function BTSViewerScreen() {
       const postId = viewableItems[0].item.id;
       setActiveIndex(idx);
       setActivePostId(postId);
+      setIsMuted(true);
       if (!isDemoMode && user) {
         supabase.rpc('increment_views_count', { post_id: postId }).then(() => {}).catch(() => {});
         setPosts(prev => prev.map(p => p.id === postId ? { ...p, views_count: (p.views_count ?? 0) + 1 } : p));
@@ -875,6 +875,14 @@ function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onBookmark
   const [progress, setProgress] = useState(0);
   const [videoError, setVideoError] = useState(false);
   const likeAnim = useRef(new Animated.Value(0)).current;
+  const videoRef = useRef<Video>(null);
+
+  useEffect(() => {
+    if (!videoRef.current || !isVideo) return;
+    if (!isActive) {
+      videoRef.current.pauseAsync().catch(() => {});
+    }
+  }, [isActive, isVideo]);
 
   const handleStatusUpdate = (status: AVPlaybackStatus) => {
     if (status.isLoaded && status.positionMillis !== undefined && status.durationMillis !== undefined) {
@@ -903,6 +911,7 @@ function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onBookmark
           </View>
         ) : (
           <Video
+            ref={videoRef}
             source={{ uri: item.media_url }}
             style={StyleSheet.absoluteFill}
             resizeMode={ResizeMode.CONTAIN}
@@ -997,13 +1006,6 @@ function BTSViewerCard({ item, isActive, isMuted, setIsMuted, onLike, onBookmark
           </View>
           <Text style={styles.actionCount}>Book</Text>
         </TouchableOpacity>
-
-        <View style={styles.actionBtn}>
-          <View style={[styles.actionIconWrap, { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
-            <Eye size={18} color="rgba(255,255,255,0.6)" />
-          </View>
-          <Text style={styles.actionCount}>{item.views_count ?? 0}</Text>
-        </View>
 
         <TouchableOpacity style={styles.actionBtn} onPress={() => setIsMuted(!isMuted)} activeOpacity={0.7}>
           <View style={styles.actionIconWrap}>

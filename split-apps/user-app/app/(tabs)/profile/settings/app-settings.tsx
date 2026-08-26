@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Switch, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Switch, Alert, ActivityIndicator } from 'react-native';
 import { Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronRight, Smartphone, Wifi, Trash2, HardDrive, Moon, Sun, Monitor } from 'lucide-react-native';
+import { ChevronRight, Smartphone, Wifi, Trash2, HardDrive, Moon, Sun, Monitor, Info, RefreshCw, Check, Download } from 'lucide-react-native';
+import * as Linking from 'expo-linking';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';
+import { useUpdate } from '@/contexts/UpdateContext';
+import { UpdateService } from '@/lib/update-service';
 
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -76,6 +79,8 @@ export default function AppSettings() {
   const insets = useSafeAreaInsets();
   const [wifiOnly, setWifiOnly] = useState(false);
   const [theme, setTheme] = useState<'system'|'dark'|'light'>('dark');
+  const { checkForUpdate, status: updateStatus, versionInfo, installedVersion } = useUpdate();
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -110,6 +115,16 @@ export default function AppSettings() {
         }
       ]
     );
+  };
+
+  const handleCheckUpdate = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setIsCheckingUpdate(true);
+    try {
+      await checkForUpdate(true);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
   };
 
   return (
@@ -159,6 +174,59 @@ export default function AppSettings() {
             onPress={handleClearCache}
             showArrow
           />
+        </SettingsSection>
+
+        <SettingsSection title="ABOUT">
+          <View style={styles.versionCard}>
+            <View style={styles.versionRow}>
+              <View style={styles.versionLabelCol}>
+                <Text style={styles.versionLabel}>Installed Version</Text>
+                <Text style={styles.versionValue}>{installedVersion}</Text>
+              </View>
+              {versionInfo && (
+                <View style={styles.versionLabelCol}>
+                  <Text style={styles.versionLabel}>Latest Version</Text>
+                  <Text style={[styles.versionValue, { color: Colors.gold }]}>
+                    {versionInfo.latestVersion}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {updateStatus === 'up-to-date' && (
+              <View style={styles.upToDateRow}>
+                <Check size={14} color={Colors.success} />
+                <Text style={styles.upToDateText}>You're up to date</Text>
+              </View>
+            )}
+          </View>
+
+          <SettingsRow
+            icon={
+              isCheckingUpdate ? (
+                <ActivityIndicator size={16} color={Colors.gold} />
+              ) : (
+                <RefreshCw size={18} color={Colors.gold} />
+              )
+            }
+            label={isCheckingUpdate ? 'Checking...' : 'Check for Updates'}
+            description="Manually check if a new version is available"
+            onPress={handleCheckUpdate}
+            showArrow={!isCheckingUpdate}
+          />
+
+          {versionInfo?.downloadUrl && (
+            <SettingsRow
+              icon={<Download size={18} color={Colors.gold} />}
+              label="Download Latest APK"
+              description={versionInfo.fileSize || 'Open download page'}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                Linking.openURL(versionInfo.downloadUrl);
+              }}
+              showArrow
+            />
+          )}
         </SettingsSection>
       </ScrollView>
     </View>
@@ -264,5 +332,39 @@ const styles = StyleSheet.create({
   },
   themeBoxTextActive: {
     color: Colors.gold,
+  },
+  versionCard: {
+    padding: 16,
+  },
+  versionRow: {
+    flexDirection: 'row',
+    gap: 24,
+    marginBottom: 12,
+  },
+  versionLabelCol: {
+    gap: 4,
+  },
+  versionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  versionValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.white,
+    fontVariant: ['tabular-nums'],
+  },
+  upToDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  upToDateText: {
+    fontSize: 13,
+    color: Colors.success,
+    fontWeight: '500',
   },
 });

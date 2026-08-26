@@ -328,43 +328,60 @@ export default function UploadPage() {
   };
 
   const sendSMS = async () => {
-    if (!clientData?.phone || !finalAccessCode) return;
+    if (!finalAccessCode) {
+      alert('No access code available. Please try again.');
+      return;
+    }
+    const phone = clientData?.phone || '';
+    if (!phone) {
+      alert('No phone number available. Please go back and enter a phone number.');
+      return;
+    }
     const msg = customMessage ||
       `Hello ${clientData.name}, your photos are ready! Use code: ${finalAccessCode} to unlock your gallery.`;
     try {
       const { SMSCloudService } = await import('@/lib/messaging');
       await SMSCloudService.send({
-        phone_number: clientData.phone,
+        phone_number: phone,
         message: msg,
         photographer_id: (await supabase.auth.getUser()).data.user?.id,
         client_id: clientData.id,
         gallery_id: galleryId,
       });
-      console.log('SMS sent successfully!');
+      alert('SMS sent successfully!');
     } catch (e: any) {
       // Fallback to browser SMS
-      window.open(`sms:${clientData.phone}?body=${encodeURIComponent(msg)}`, '_blank');
+      window.open(`sms:${phone}?body=${encodeURIComponent(msg)}`, '_blank');
     }
   };
 
   const sendWhatsApp = async () => {
-    if (!clientData?.phone || !finalAccessCode) return;
+    if (!finalAccessCode) {
+      alert('No access code available. Please try again.');
+      return;
+    }
     const msg = customMessage ||
-      `Hello ${clientData.name}, your photos are ready! Use code: ${finalAccessCode} to unlock your gallery.`;
-    try {
-      const { WhatsAppService } = await import('@/lib/messaging');
-      await WhatsAppService.send({
-        phone_number: clientData.phone,
-        message: msg,
-        photographer_id: (await supabase.auth.getUser()).data.user?.id,
-        client_id: clientData.id,
-        gallery_id: galleryId,
-      });
-      console.log('WhatsApp sent successfully!');
-    } catch (e: any) {
-      // Fallback to browser WhatsApp
-      const phone = clientData.phone.replace(/[^0-9]/g, '');
-      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+      `Hello ${clientData?.name || 'Client'}, your photos are ready! Use code: ${finalAccessCode} to unlock your gallery.`;
+    const phone = clientData?.phone || '';
+    if (phone) {
+      try {
+        const { WhatsAppService } = await import('@/lib/messaging');
+        await WhatsAppService.send({
+          phone_number: phone,
+          message: msg,
+          photographer_id: (await supabase.auth.getUser()).data.user?.id,
+          client_id: clientData.id,
+          gallery_id: galleryId,
+        });
+        alert('WhatsApp sent successfully!');
+      } catch (e: any) {
+        // Fallback to browser WhatsApp
+        const cleanPhone = phone.replace(/[^0-9]/g, '');
+        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+      }
+    } else {
+      // No phone — open WhatsApp contact picker
+      window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
     }
   };
 

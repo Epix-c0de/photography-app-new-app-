@@ -565,7 +565,16 @@ export default function ClientPhotoUploadScreen() {
   };
 
   const handleSendSMS = async () => {
-    if (!phoneNumber || !accessCode) return;
+    if (!accessCode) {
+      Alert.alert('Error', 'No access code available. Please try again.');
+      return;
+    }
+    // Use phoneNumber from input, fallback to clientData.phone from the selected client
+    const effectivePhone = phoneNumber || clientData?.phone || '';
+    if (!effectivePhone) {
+      Alert.alert('No Phone Number', 'Please go back and enter a client phone number first.');
+      return;
+    }
     const deepLink = `${accessLink}${accessCode}`;
     const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
 
@@ -580,7 +589,7 @@ export default function ClientPhotoUploadScreen() {
               setUploadStatus('Sending SMS via cloud...');
               const { data, error } = await supabase.functions.invoke('send-sms', {
                 body: {
-                  phone_number: phoneNumber,
+                  phone_number: effectivePhone,
                   message,
                   photographer_id: user?.id,
                   client_id: clientData?.id,
@@ -601,7 +610,7 @@ export default function ClientPhotoUploadScreen() {
         {
           text: 'Native SMS (Free)',
           onPress: async () => {
-            const smsUrl = `sms:${phoneNumber}?body=${encodeURIComponent(message)}`;
+            const smsUrl = `sms:${effectivePhone}?body=${encodeURIComponent(message)}`;
             try {
               const supported = await Linking.canOpenURL(smsUrl);
               if (supported) {
@@ -609,7 +618,7 @@ export default function ClientPhotoUploadScreen() {
                 await supabase.from('sms_logs').insert({
                   owner_admin_id: user?.id,
                   client_id: clientData?.id,
-                  phone_number: phoneNumber,
+                  phone_number: effectivePhone,
                   message,
                   status: 'queued',
                   provider: 'native',
@@ -628,7 +637,12 @@ export default function ClientPhotoUploadScreen() {
   };
 
   const handleSendWhatsApp = async () => {
-    if (!phoneNumber || !accessCode) return;
+    if (!accessCode) {
+      Alert.alert('Error', 'No access code available. Please try again.');
+      return;
+    }
+    // Use phoneNumber from input, fallback to clientData.phone from the selected client
+    const effectivePhone = phoneNumber || clientData?.phone || '';
     const deepLink = `${accessLink}${accessCode}`;
     const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
 
@@ -639,11 +653,15 @@ export default function ClientPhotoUploadScreen() {
         {
           text: 'WhatsApp Business API',
           onPress: async () => {
+            if (!effectivePhone) {
+              Alert.alert('No Phone Number', 'Cloud API requires a phone number. Use Open WhatsApp App instead.');
+              return;
+            }
             try {
               setUploadStatus('Sending via WhatsApp API...');
               const { data, error } = await supabase.functions.invoke('send-whatsapp', {
                 body: {
-                  phone_number: phoneNumber,
+                  phone_number: effectivePhone,
                   message,
                   photographer_id: user?.id,
                   client_id: clientData?.id,
@@ -664,16 +682,29 @@ export default function ClientPhotoUploadScreen() {
         {
           text: 'Open WhatsApp App',
           onPress: async () => {
-            const whatsappUrl = `https://wa.me/${phoneNumber.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`;
-            try {
-              const supported = await Linking.canOpenURL(whatsappUrl);
-              if (supported) {
-                await Linking.openURL(whatsappUrl);
-              } else {
-                Alert.alert('Error', 'WhatsApp is not installed.');
+            if (effectivePhone) {
+              const cleanPhone = effectivePhone.replace(/[^0-9]/g, '');
+              const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+              try {
+                const supported = await Linking.canOpenURL(whatsappUrl);
+                if (supported) {
+                  await Linking.openURL(whatsappUrl);
+                } else {
+                  // Fallback: try opening directly
+                  await Linking.openURL(whatsappUrl);
+                }
+              } catch (error) {
+                Alert.alert('Error', 'Failed to open WhatsApp. Make sure WhatsApp is installed.');
               }
-            } catch (error) {
-              Alert.alert('Error', 'Failed to open WhatsApp.');
+            } else {
+              // No phone — open WhatsApp with message only (user picks contact)
+              const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+              try {
+                await Linking.openURL(whatsappUrl);
+                Alert.alert('WhatsApp Opened', 'Select a contact to send the gallery link to.');
+              } catch (error) {
+                Alert.alert('Error', 'Failed to open WhatsApp.');
+              }
             }
           },
         },

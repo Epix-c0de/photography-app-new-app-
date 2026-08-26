@@ -611,7 +611,15 @@ export default function NotificationsScreen() {
     <View style={styles.container}>
       <View style={{ zIndex: 10, backgroundColor: Colors.background, paddingBottom: 8 }}>
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-          <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12}>
+          <Pressable onPress={() => {
+            const from = (global as any).__notificationsFrom || null;
+            if (from) {
+              (global as any).__notificationsFrom = null;
+              router.replace(from as any);
+            } else {
+              router.back();
+            }
+          }} style={styles.backButton} hitSlop={12}>
             <ArrowLeft size={22} color={Colors.white} />
           </Pressable>
           <View style={styles.headerCenter}>

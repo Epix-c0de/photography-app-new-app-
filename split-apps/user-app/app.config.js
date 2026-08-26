@@ -29,7 +29,7 @@ module.exports = {
       backgroundColor: '#141313ff',
     },
     updates: {
-      url: 'https://u.expo.dev/3ebabefa-64dc-4b36-b71c-94c1753e94d7',
+      url: 'https://u.expo.dev/59117d8c-75a3-4ea8-bfd0-54e1ed691fe1',
       runtimeVersion: {
         policy: 'appVersion'
       }
@@ -37,6 +37,7 @@ module.exports = {
     ios: {
       supportsTablet: false,
       bundleIdentifier: 'app.rork.epix-visuals-studios-co',
+      associatedDomains: ['applinks:studio.epix.co', 'applinks:epix-visuals.vercel.app'],
       infoPlist: {
         NSBonjourServices: ['_http._tcp', '_https._tcp'],
         NSLocalNetworkUsageDescription:
@@ -72,13 +73,43 @@ module.exports = {
             'android.intent.category.DEFAULT',
           ],
         },
+        // Universal Links — studio.epix.co
         {
           action: 'android.intent.action.VIEW',
           data: [
             {
-              scheme: 'exp',
-              host: '192.168.1.195',
-              pathPrefix: '/--/auth/callback',
+              scheme: 'https',
+              host: 'studio.epix.co',
+              pathPrefix: '/unlock',
+            },
+          ],
+          category: [
+            'android.intent.category.BROWSABLE',
+            'android.intent.category.DEFAULT',
+          ],
+        },
+        {
+          action: 'android.intent.action.VIEW',
+          data: [
+            {
+              scheme: 'https',
+              host: 'studio.epix.co',
+              pathPrefix: '/share',
+            },
+          ],
+          category: [
+            'android.intent.category.BROWSABLE',
+            'android.intent.category.DEFAULT',
+          ],
+        },
+        // Universal Links — epix-visuals.vercel.app (fallback domain)
+        {
+          action: 'android.intent.action.VIEW',
+          data: [
+            {
+              scheme: 'https',
+              host: 'epix-visuals.vercel.app',
+              pathPrefix: '/unlock',
             },
           ],
           category: [
@@ -122,7 +153,7 @@ module.exports = {
     extra: {
       router: {},
       eas: {
-        projectId: '3ebabefa-64dc-4b36-b71c-94c1753e94d7',
+        projectId: '59117d8c-75a3-4ea8-bfd0-54e1ed691fe1',
       },
       // These are EXPO_PUBLIC_ vars — accessible via process.env in the app bundle
       EXPO_PUBLIC_SUPABASE_URL: SUPABASE_URL,

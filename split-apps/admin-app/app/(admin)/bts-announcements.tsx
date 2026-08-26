@@ -276,27 +276,8 @@ export default function AdminBtsAnnouncementsScreen() {
 
       const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(filePath);
 
-      // For video posts, generate thumbnail from first frame
-      if (inferMediaType(btsPicked) === 'video' && !thumbnailUrl) {
-        try {
-          const thumb = await generateThumbnail(btsPicked.uri);
-          if (thumb) {
-            const thumbFileName = `bts-thumb-${Date.now()}.jpg`;
-            const thumbPath = `bts/thumbnails/${user.id}/${thumbFileName}`;
-            const thumbResponse = await fetch(thumb.uri);
-            const thumbBlob = await thumbResponse.blob();
-            const { error: thumbErr } = await supabase.storage
-              .from('media')
-              .upload(thumbPath, thumbBlob, { contentType: 'image/jpeg', upsert: true });
-            if (!thumbErr) {
-              const { data: thumbUrlData } = supabase.storage.from('media').getPublicUrl(thumbPath);
-              thumbnailUrl = thumbUrlData.publicUrl;
-            }
-          }
-        } catch (e) {
-          console.warn('[BTS] Video thumbnail generation failed:', e);
-        }
-      }
+      // For video posts, skip local thumbnail generation (expo-image-manipulator can't process videos)
+      // Thumbnail will be generated server-side via generate_video_thumbnail Edge Function after upload
 
       let musicPublicUrl: string | null = null;
       if (btsMusicFile) {
@@ -317,7 +298,7 @@ export default function AdminBtsAnnouncementsScreen() {
         }
       }
 
-      const { error: dbErr } = await supabase.from('bts_posts').insert({
+      const { data: newPost, error: dbErr } = await supabase.from('bts_posts').insert({
         created_by: user.id,
         admin_id: user.id,
         media_url: publicUrl,
@@ -330,8 +311,15 @@ export default function AdminBtsAnnouncementsScreen() {
         scheduled_for: btsScheduledFor && !isNaN(new Date(btsScheduledFor).getTime()) ? new Date(btsScheduledFor).toISOString() : null,
         music_url: musicPublicUrl,
         has_music: !!musicPublicUrl,
-      } as any);
+      } as any).select().single();
       if (dbErr) throw dbErr;
+
+      // For video posts, trigger server-side thumbnail generation
+      if (inferMediaType(btsPicked) === 'video' && newPost) {
+        supabase.functions.invoke('generate_video_thumbnail', {
+          body: { videoUrl: publicUrl, postId: newPost.id, type: 'bts' }
+        }).catch(err => console.warn('[BTS] Thumbnail trigger failed:', err));
+      }
 
       Alert.alert('Success', 'BTS post uploaded!');
       setBtsPicked(null);
@@ -370,7 +358,7 @@ export default function AdminBtsAnnouncementsScreen() {
 
       const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(filePath);
 
-      const { error: dbErr } = await supabase.from('announcements').insert({
+      const { data: newAnn, error: dbErr } = await supabase.from('announcements').insert({
         created_by: user.id,
         owner_admin_id: user.id,
         title: annTitle || 'Untitled Announcement',
@@ -383,8 +371,16 @@ export default function AdminBtsAnnouncementsScreen() {
         is_active: true,
         expires_at: annExpiryDays ? daysToExpiryIso(Number(annExpiryDays)) : null,
         scheduled_for: annScheduledFor && !isNaN(new Date(annScheduledFor).getTime()) ? new Date(annScheduledFor).toISOString() : null,
-      } as any);
+      } as any).select().single();
+
       if (dbErr) throw dbErr;
+
+      // For video announcements, trigger server-side thumbnail generation
+      if (inferMediaType(annPicked) === 'video' && newAnn) {
+        supabase.functions.invoke('generate_video_thumbnail', {
+          body: { videoUrl: publicUrl, postId: newAnn.id, type: 'announcement' }
+        }).catch(err => console.warn('[Announcement] Thumbnail trigger failed:', err));
+      }
 
       Alert.alert('Success', 'Announcement uploaded!');
       setAnnPicked(null);
@@ -547,7 +543,7 @@ export default function AdminBtsAnnouncementsScreen() {
       {picked ? (
         <View style={styles.mediaPreview}>
           {inferMediaType(picked) === 'video' ? (
-            <Video source={{ uri: picked.uri }} style={styles.mediaPreviewImage} resizeMode={ResizeMode.COVER} shouldPlay={false} isMuted={true} />
+            <Video source={{ uri: picked.uri }} style={styles.mediaPreviewImage} resizeMode={ResizeMode.CONTAIN} shouldPlay={false} isMuted={true} />
           ) : (
             <Image source={{ uri: picked.uri }} style={styles.mediaPreviewImage} />
           )}

@@ -7,11 +7,15 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
-import { Session } from '@supabase/supabase-js';
+
+let authInitialized = false;
+let cachedUserId: string | null = null;
 
 import { AuthProvider } from '@/contexts/AuthContext';
 import { BrandingProvider } from '@/contexts/BrandingContext';
-import { UpdateProvider } from '@/components/UpdateProvider';
+import { UpdateProvider } from '@/contexts/UpdateContext';
+import { UpdateDialog, ForceUpdateScreen } from '@/components/UpdateDialog';
+import { NotificationToastProvider } from '@/components/NotificationToast';
 import SecurityGuard from '@/components/SecurityGuard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import Colors from '@/constants/colors';
@@ -34,6 +38,8 @@ function RootLayoutNav() {
       <Stack.Screen name="reset-password" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="security-setup" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="auth-required" options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="(tabs)/chat/settings" options={{ headerShown: false, animation: 'slide_from_right' }} />
+      <Stack.Screen name="(tabs)/profile/settings/shared-links" options={{ headerShown: false, animation: 'slide_from_right' }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="auth" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen
@@ -80,27 +86,28 @@ function RootLayoutNav() {
 }
 
 function RootLayout() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const authInitRef = useRef(false);
+  const [isLoading, setIsLoading] = useState(!authInitialized);
 
   useEffect(() => {
-    if (authInitRef.current) return;
-    authInitRef.current = true;
+    if (authInitialized) {
+      setIsLoading(false);
+      SplashScreen.hideAsync();
+      return;
+    }
 
     const initializeAuth = async () => {
       try {
-        // Get initial session
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) {
           console.error('[Auth] Error getting session:', error);
         } else {
-          setSession(session);
+          cachedUserId = session?.user?.id || null;
           console.log('[Auth] Session initialized:', session?.user?.email || 'No user');
         }
       } catch (error) {
         console.error('[Auth] Error initializing auth:', error);
       } finally {
+        authInitialized = true;
         setIsLoading(false);
         SplashScreen.hideAsync();
       }
@@ -108,10 +115,11 @@ function RootLayout() {
 
     initializeAuth();
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      console.log('[Auth] State changed:', _event, session?.user?.email || 'No user');
-      setSession(session);
+    // Clear cached user ID on sign out
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        cachedUserId = null;
+      }
     });
 
     // Handle initial URL (for OAuth callbacks and invite links when app is launched)
@@ -205,8 +213,8 @@ function RootLayout() {
     });
 
     return () => {
-      subscription.unsubscribe();
       linkingSubscription?.remove();
+      subscription?.unsubscribe();
     };
   }, []);
   
@@ -224,11 +232,15 @@ function RootLayout() {
           <AuthProvider>
             <BrandingProvider>
               <UpdateProvider>
-                <SecurityGuard userId={session?.user?.id || null}>
-                  <ErrorBoundary label="App">
-                    <RootLayoutNav />
-                  </ErrorBoundary>
-                </SecurityGuard>
+                <NotificationToastProvider>
+                  <SecurityGuard userId={cachedUserId}>
+                    <ErrorBoundary label="App">
+                      <RootLayoutNav />
+                    </ErrorBoundary>
+                  </SecurityGuard>
+                  <UpdateDialog />
+                  <ForceUpdateScreen />
+                </NotificationToastProvider>
               </UpdateProvider>
             </BrandingProvider>
           </AuthProvider>

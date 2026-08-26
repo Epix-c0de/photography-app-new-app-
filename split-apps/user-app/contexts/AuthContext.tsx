@@ -517,12 +517,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           isLoading: false,
         }));
 
-        // Redirect based on security requirements
-        if (requiresSecuritySetup) {
-          router.replace('/security-setup' as any);
-        } else if (requiresAuthOnLaunch) {
-          router.replace('/auth-required' as any);
-        }
+        // Redirect based on security requirements — handled by SecurityGuard in layout
+        // No navigation needed here to avoid competing auth flows
         if (profile.role === 'client') {
           try {
             await ClientService.clients.ensureLinkedRecordsForCurrentUser();

@@ -1,40 +1,12 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, Mail, Lock, Download, Smartphone, ArrowLeft, CheckCircle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
-const VIDEO_URL = 'https://videos.pexels.com/video-files/8128311/8128311-uhd_2560_1440_25fps.mp4';
-
-// VideoBackground Component — copied from epix-shots-gallery-app
-const VideoBackground = ({ videoUrl }: { videoUrl: string }) => {
-    const videoRef = useRef<HTMLVideoElement>(null);
-
-    useEffect(() => {
-        if (videoRef.current) {
-            videoRef.current.play().catch(error => {
-                console.error("Video autoplay failed:", error);
-            });
-        }
-    }, []);
-
-    return (
-        <div className="absolute inset-0 w-full h-full overflow-hidden">
-            <div className="absolute inset-0 bg-black/30 z-10" />
-            <video
-                ref={videoRef}
-                className="absolute inset-0 min-w-full min-h-full object-cover w-auto h-auto"
-                autoPlay
-                loop
-                muted
-                playsInline
-            >
-                <source src={videoUrl} type="video/mp4" />
-                Your browser does not support the video tag.
-            </video>
-        </div>
-    );
-};
+const GradientBackground = () => (
+    <div className="absolute inset-0 bg-gradient-to-br from-black via-gray-900 to-black" />
+);
 
 export default function DownloadPage() {
     const [clientApk, setClientApk] = useState<any>(null);
@@ -70,7 +42,7 @@ export default function DownloadPage() {
 
     return (
         <div className="relative min-h-screen w-full flex items-center justify-center px-4 py-12">
-            <VideoBackground videoUrl={VIDEO_URL} />
+            <GradientBackground />
 
             <div className="relative z-20 w-full max-w-md animate-fadeIn">
                 {/* Back to home */}
@@ -123,39 +95,48 @@ export default function DownloadPage() {
                                 Access your photo galleries, view and download high-resolution images, and share your beautiful moments with family and friends.
                             </p>
 
-                            {clientApk && (
-                                <div className="flex items-center gap-2 mb-4 text-xs text-white/40">
-                                    <span>Version {clientApk.version}</span>
-                                    <span>•</span>
-                                    <span>{(clientApk.file_size / (1024 * 1024)).toFixed(1)} MB</span>
+                            {loadingApk ? (
+                                <div className="space-y-3 animate-pulse">
+                                    <div className="h-3 bg-white/10 rounded w-32 mx-auto" />
+                                    <div className="h-10 bg-white/10 rounded-lg" />
                                 </div>
-                            )}
+                            ) : (
+                                <>
+                                    {clientApk && (
+                                        <div className="flex items-center gap-2 mb-4 text-xs text-white/40">
+                                            <span>Version {clientApk.version}</span>
+                                            <span>•</span>
+                                            <span>{(clientApk.file_size / (1024 * 1024)).toFixed(1)} MB</span>
+                                        </div>
+                                    )}
 
-                            <button
-                                onClick={handleDownload}
-                                disabled={!clientApk || downloading}
-                                className={`w-full py-3 rounded-lg ${downloadComplete
-                                        ? 'bg-green-600'
-                                        : 'bg-purple-600 hover:bg-purple-700'
-                                    } text-white font-medium transition-all duration-200 ease-in-out transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none shadow-lg shadow-purple-500/20 hover:shadow-purple-500/40 flex items-center justify-center gap-2`}
-                            >
-                                {downloadComplete ? (
-                                    <>
-                                        <CheckCircle size={18} />
-                                        Download Started
-                                    </>
-                                ) : downloading ? (
-                                    <>
-                                        <Loader2 size={18} className="animate-spin" />
-                                        Downloading...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Download size={18} />
-                                        Download App
-                                    </>
-                                )}
-                            </button>
+                                    <button
+                                        onClick={handleDownload}
+                                        disabled={!clientApk || downloading}
+                                        className={`w-full py-3 rounded-lg ${downloadComplete
+                                                ? 'bg-green-600'
+                                                : 'bg-purple-600 hover:bg-purple-700'
+                                            } text-white font-medium transition-all duration-200 ease-in-out transform hover:-translate-y-1 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-50 disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none shadow-lg shadow-purple-500/20 hover:shadow-purple-500/40 flex items-center justify-center gap-2`}
+                                    >
+                                        {downloadComplete ? (
+                                            <>
+                                                <CheckCircle size={18} />
+                                                Download Started
+                                            </>
+                                        ) : downloading ? (
+                                            <>
+                                                <Loader2 size={18} className="animate-spin" />
+                                                Downloading...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Download size={18} />
+                                                Download App
+                                            </>
+                                        )}
+                                    </button>
+                                </>
+                            )}
                         </div>
                     </div>
 

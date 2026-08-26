@@ -303,7 +303,30 @@ export default function PrivacySecurity() {
               }
             } catch (error: any) {
               console.error('Export error:', error);
-              Alert.alert('Export Failed', error.message || 'Could not compile your data. Please try again.');
+              // Fallback: fetch data directly from Supabase
+              try {
+                const { data: { user: authUser } } = await supabase.auth.getUser();
+                if (!authUser) throw new Error('Not authenticated');
+
+                const [profileRes, bookingsRes, notifsRes] = await Promise.all([
+                  supabase.from('user_profiles').select('*').eq('id', authUser.id).single(),
+                  supabase.from('bookings').select('*').eq('user_id', authUser.id),
+                  supabase.from('notifications').select('*').eq('user_id', authUser.id),
+                ]);
+
+                const exportPayload = {
+                  exported_at: new Date().toISOString(),
+                  profile: profileRes.data,
+                  bookings: bookingsRes.data,
+                  notifications: notifsRes.data,
+                };
+
+                setExportData(exportPayload);
+                setShowExportSummary(true);
+                Alert.alert('Data Compiled', 'Your data has been compiled successfully.');
+              } catch (fallbackError: any) {
+                Alert.alert('Export Failed', fallbackError.message || 'Could not compile your data.');
+              }
             } finally {
               setExportSubmitting(false);
             }

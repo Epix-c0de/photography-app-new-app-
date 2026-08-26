@@ -428,6 +428,7 @@ export default function BookingsScreen() {
   }, [searchParams.preselectPackage, packages]);
 
   useEffect(() => {
+    let cancelled = false;
     async function loadData() {
       try {
         setLoading(true);
@@ -449,6 +450,8 @@ export default function BookingsScreen() {
           ) as string[];
         }
 
+        if (cancelled) return;
+
         // 2. Fetch admin profiles for the dropdown
         if (myAdminIds.length > 0) {
           const { data: adminProfiles } = await supabase
@@ -458,32 +461,42 @@ export default function BookingsScreen() {
           const admins = adminProfiles || [];
           setLinkedAdmins(admins);
 
-          // Auto-select: if only one admin, select it; otherwise keep null (show dropdown)
+          if (cancelled) return;
+
           if (admins.length === 1) {
             setSelectedAdminId(admins[0].id);
           }
         }
 
-        // 3. Fetch packages — filter to user's linked admins (or all active if unlinked)
+        // 3 & 4. Fetch packages and bookings in parallel
         const pkgQuery = supabase
           .from('packages')
           .select('*')
           .eq('is_active', true)
           .order('price');
 
-        // Only filter by admin if the user has linked admins
-        const finalQuery = myAdminIds.length > 0
+        const finalPkgQuery = myAdminIds.length > 0
           ? pkgQuery.in('owner_admin_id', myAdminIds)
           : pkgQuery;
 
-        const { data: packagesData, error: pkgError } = await finalQuery;
+        const bookingsQuery = user
+          ? supabase
+              .from('bookings')
+              .select('*, packages(name)')
+              .eq('user_id', user.id)
+              .order('date', { ascending: false })
+          : Promise.resolve({ data: null, error: null });
 
-        if (pkgError) {
-          console.error('[Bookings] Package fetch error:', pkgError);
+        const [pkgResult, bookingsResult] = await Promise.all([finalPkgQuery, bookingsQuery]);
+
+        if (cancelled) return;
+
+        if (pkgResult.error) {
+          console.error('[Bookings] Package fetch error:', pkgResult.error);
         }
 
-        if (packagesData) {
-          const normalized = packagesData.map((p: any) => ({
+        if (pkgResult.data) {
+          const normalized = pkgResult.data.map((p: any) => ({
             ...p,
             is_popular: p.is_popular === true,
             description: p.description ?? null,
@@ -496,23 +509,16 @@ export default function BookingsScreen() {
           setPackages(normalized);
         }
 
-        if (user) {
-          const { data: bookingsData } = await supabase
-            .from('bookings')
-            .select('*, packages(name)')
-            .eq('user_id', user.id)
-            .order('date', { ascending: false });
-          
-          if (bookingsData) setBookings(bookingsData);
-        }
+        if (bookingsResult.data) setBookings(bookingsResult.data);
       } catch (e) {
         console.error('Error loading booking data:', e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     
     loadData();
+    return () => { cancelled = true; };
   }, [isDemoMode, user]);
 
   // Check if packages need scroll indicator
@@ -1161,6 +1167,16 @@ export default function BookingsScreen() {
                         });
 
                       if (error) throw error;
+
+                      // Re-fetch bookings so the new pending booking appears
+                      if (user) {
+                        const { data: bookingsData } = await supabase
+                          .from('bookings')
+                          .select('*, packages(name)')
+                          .eq('user_id', user.id)
+                          .order('date', { ascending: false });
+                        if (bookingsData) setBookings(bookingsData);
+                      }
 
                       Alert.alert('Booking Saved', 'Your booking has been saved. The photographer will confirm it shortly.', [
                         { text: 'OK', onPress: () => setActiveSection('bookings') },
