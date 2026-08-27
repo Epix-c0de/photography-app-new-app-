@@ -38,8 +38,6 @@ function RootLayoutNav() {
       <Stack.Screen name="reset-password" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="security-setup" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="auth-required" options={{ headerShown: false, gestureEnabled: false }} />
-      <Stack.Screen name="(tabs)/chat/settings" options={{ headerShown: false, animation: 'slide_from_right' }} />
-      <Stack.Screen name="(tabs)/profile/settings/shared-links" options={{ headerShown: false, animation: 'slide_from_right' }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="auth" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen
