@@ -825,8 +825,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)', backgroundColor: 'rgba(8,8,16,0.95)',
   },
   chatBackBtn: {
-    width: 36, height: 36, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center', justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center', justifyContent: 'center', marginRight: 4,
   },
   chatHeaderAvatar: { width: 42, height: 42, borderRadius: 14 },
   chatHeaderAvatarFallback: {

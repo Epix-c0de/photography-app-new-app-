@@ -43,20 +43,49 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'APK not found' }, { status: 404 });
     }
 
-    const { data: signedUrl, error: signError } = await supabase.storage
-      .from('apk-files')
-      .createSignedUrl(apkRecord.storage_path, 3600);
+    const chunkCount = (apkRecord as any).chunk_count || 1;
 
-    if (signError) {
-      return NextResponse.json({ error: signError.message }, { status: 500 });
+    if (chunkCount <= 1) {
+      const { data: signedUrl, error: signError } = await supabase.storage
+        .from('apk-files')
+        .createSignedUrl((apkRecord as any).storage_path, 3600);
+
+      if (signError) {
+        return NextResponse.json({ error: signError.message }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        download_url: signedUrl.signedUrl,
+        version: (apkRecord as any).version,
+        filename: (apkRecord as any).filename,
+        file_size: (apkRecord as any).file_size,
+        type: (apkRecord as any).type,
+        chunked: false,
+      });
+    }
+
+    const chunkUrls: string[] = [];
+    for (let i = 0; i < chunkCount; i++) {
+      const chunkPath = `${(apkRecord as any).storage_path}/chunk-${String(i).padStart(4, '0')}`;
+      const { data: signedUrl, error: signError } = await supabase.storage
+        .from('apk-files')
+        .createSignedUrl(chunkPath, 3600);
+
+      if (signError) {
+        return NextResponse.json({ error: `Failed to sign chunk ${i}: ${signError.message}` }, { status: 500 });
+      }
+      chunkUrls.push(signedUrl.signedUrl);
     }
 
     return NextResponse.json({
-      download_url: signedUrl.signedUrl,
-      version: apkRecord.version,
-      filename: apkRecord.filename,
-      file_size: apkRecord.file_size,
-      type: apkRecord.type,
+      download_url: chunkUrls[0],
+      chunk_urls: chunkUrls,
+      chunked: true,
+      chunk_count: chunkCount,
+      version: (apkRecord as any).version,
+      filename: (apkRecord as any).filename,
+      file_size: (apkRecord as any).file_size,
+      type: (apkRecord as any).type,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal error' }, { status: 500 });

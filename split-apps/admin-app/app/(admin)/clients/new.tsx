@@ -22,17 +22,11 @@ export default function NewClientScreen() {
 
     setLoading(true);
     try {
-      await AdminService.client.create({
+      await AdminService.clients.create({
         name: name.trim(),
         phone: phone.trim(),
-        notes: notes.trim() || null,
-        total_paid: 0,
-        package_name: null,
-        session_date: null,
-        session_type: null,
-        status: 'active',
-        is_archived: false,
-      });
+        notes: notes.trim() || undefined,
+      } as any);
 
       Alert.alert('Success', `${name} has been added`, [
         { text: 'OK', onPress: () => router.back() },

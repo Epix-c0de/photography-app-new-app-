@@ -33,6 +33,7 @@ export default function ApksPage() {
   const [apks, setApks] = useState<ApkVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
   const [uploadType, setUploadType] = useState<'admin' | 'client'>('client');
   const [version, setVersion] = useState('');
   const [changelog, setChangelog] = useState('');
@@ -90,6 +91,8 @@ export default function ApksPage() {
 
   useEffect(() => { fetchApks(); fetchVersionConfig(); }, []);
 
+  const CHUNK_SIZE = 40 * 1024 * 1024; // 40MB per chunk (under 50MB Supabase limit)
+
   const handleUpload = async () => {
     if (!file || !version) {
       setError('Select a file and enter a version number');
@@ -104,16 +107,46 @@ export default function ApksPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { setError('Not authenticated'); return; }
 
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('type', uploadType);
-      formData.append('version', version);
-      formData.append('changelog', changelog);
+      const filename = `epix-${uploadType}-v${version}.apk`;
+      const basePath = `${uploadType}/${version}`;
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+      const arrayBuffer = await file.arrayBuffer();
+
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = arrayBuffer.slice(start, end);
+        const chunkPath = `${basePath}/chunk-${String(i).padStart(4, '0')}`;
+
+        setUploadStatus(`Uploading chunk ${i + 1}/${totalChunks}...`);
+
+        const { error: uploadError } = await supabase.storage
+          .from('apk-files')
+          .upload(chunkPath, chunk, {
+            contentType: 'application/octet-stream',
+            upsert: true,
+          });
+
+        if (uploadError) throw new Error(`Chunk ${i + 1} failed: ${uploadError.message}`);
+      }
+
+      setUploadStatus('Recording version...');
 
       const res = await fetch('/api/apk/upload', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          type: uploadType,
+          version,
+          changelog,
+          storage_path: basePath,
+          file_size: file.size,
+          chunk_count: totalChunks,
+        }),
       });
 
       const data = await res.json();
@@ -161,9 +194,11 @@ export default function ApksPage() {
       setFile(null);
       setVersion('');
       setChangelog('');
+      setUploadStatus('');
       fetchApks();
     } catch (err: any) {
       setError(err.message || 'Upload failed');
+      setUploadStatus('');
     } finally {
       setUploading(false);
     }
@@ -525,7 +560,7 @@ export default function ApksPage() {
             </button>
             <button onClick={handleUpload} disabled={uploading || !file || !version}
               style={{ padding: '10px 24px', borderRadius: 10, border: 'none', background: uploading ? 'rgba(212,175,55,0.3)' : 'linear-gradient(135deg, #D4AF37, #F0D060)', color: '#080810', fontWeight: 800, fontSize: 13, cursor: uploading ? 'wait' : 'pointer', opacity: !file || !version ? 0.5 : 1 }}>
-              {uploading ? 'Uploading...' : 'Upload APK'}
+              {uploading ? (uploadStatus || 'Uploading...') : 'Upload APK'}
             </button>
           </div>
         </div>

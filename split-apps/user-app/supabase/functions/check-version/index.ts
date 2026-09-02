@@ -3,8 +3,8 @@
  *
  * GET /check-version
  *
- * Reads from the `app_versions` table (single row with id = 'current').
- * Falls back to hardcoded defaults if the table doesn't exist yet.
+ * Reads from the `apk_versions` table (latest row per type).
+ * Falls back to `app_versions` table or hardcoded defaults.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -20,7 +20,6 @@ const corsHeaders = {
   "Cache-Control": "public, max-age=300, s-maxage=300",
 };
 
-// Fallback if the table doesn't exist yet
 const FALLBACK_CONFIG = {
   latestVersion: "1.0.0",
   minimumVersion: "1.0.0",
@@ -48,6 +47,54 @@ Deno.serve(async (req: Request) => {
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Try apk_versions table first (new APK management)
+    const { data: apkData } = await supabase
+      .from("apk_versions")
+      .select("*")
+      .eq("type", "client")
+      .eq("is_latest", true)
+      .single();
+
+    if (apkData) {
+      const chunkCount = (apkData as any).chunk_count || 1;
+      let downloadUrl = "";
+
+      if (chunkCount <= 1) {
+        // Single file — create signed URL
+        const { data: signedUrl } = await supabase.storage
+          .from("apk-files")
+          .createSignedUrl((apkData as any).storage_path, 3600);
+        downloadUrl = signedUrl?.signedUrl || "";
+      } else {
+        // Chunked — use landing page download API which streams all chunks as one file
+        downloadUrl = `https://epix-visuals.vercel.app/api/apk/download?id=${apkData.id}`;
+      }
+
+      return new Response(
+        JSON.stringify({
+          latestVersion: apkData.version,
+          minimumVersion: "1.0.0",
+          forceUpdate: false,
+          releaseNotes: apkData.changelog || `Version ${apkData.version}`,
+          downloadUrl,
+          fileSize: apkData.file_size
+            ? `~${Math.round((apkData.file_size as number) / (1024 * 1024))} MB`
+            : undefined,
+          provider: "apk-direct",
+          publishedAt: apkData.created_at,
+          versionHistory: [],
+          chunked: chunkCount > 1,
+          chunkCount,
+          storagePath: (apkData as any).storage_path,
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // Fallback to app_versions table
     const { data, error } = await supabase
       .from("app_versions")
       .select("*")
@@ -55,7 +102,6 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (error || !data) {
-      // Table might not exist yet — return fallback
       console.warn("[check-version] Falling back to static config:", error?.message);
       return new Response(JSON.stringify(FALLBACK_CONFIG), {
         status: 200,

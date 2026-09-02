@@ -509,6 +509,10 @@ export default function BookingsScreen() {
           setPackages(normalized);
         }
 
+        if (bookingsResult.error) {
+          console.error('[Bookings] Bookings fetch error:', bookingsResult.error);
+        }
+
         if (bookingsResult.data) setBookings(bookingsResult.data);
       } catch (e) {
         console.error('Error loading booking data:', e);
@@ -520,6 +524,20 @@ export default function BookingsScreen() {
     loadData();
     return () => { cancelled = true; };
   }, [isDemoMode, user]);
+
+  // Re-fetch bookings when switching to bookings tab
+  useEffect(() => {
+    if (activeSection === 'bookings' && user && !isDemoMode) {
+      supabase
+        .from('bookings')
+        .select('*, packages(name)')
+        .eq('user_id', user.id)
+        .order('date', { ascending: false })
+        .then(({ data }) => {
+          if (data) setBookings(data);
+        });
+    }
+  }, [activeSection, user, isDemoMode]);
 
   // Check if packages need scroll indicator
   useEffect(() => {

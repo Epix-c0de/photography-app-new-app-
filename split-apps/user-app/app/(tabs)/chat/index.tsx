@@ -817,14 +817,19 @@ function ChatBody({ initialMessage, isDemoMode, activeAdminId, brandName, onBack
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerTopRow}>
-          {onBack && (
-            <Pressable
-              onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onBack(); }}
-              style={{ marginRight: 10, padding: 6 }}
-            >
-              <ArrowLeft size={20} color={Colors.white} />
-            </Pressable>
-          )}
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              if (onBack) {
+                onBack();
+              } else {
+                router.back();
+              }
+            }}
+            style={styles.backButton}
+          >
+            <ArrowLeft size={20} color={Colors.white} />
+          </Pressable>
           {logoUrl ? (
             <Image source={{ uri: logoUrl }} style={styles.headerLogo} contentFit="cover" />
           ) : adminAvatar ? (

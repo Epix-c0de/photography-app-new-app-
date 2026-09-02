@@ -43,34 +43,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const formData = await req.formData();
-    const file = formData.get('file') as File;
-    const type = formData.get('type') as string;
-    const version = formData.get('version') as string;
-    const changelog = formData.get('changelog') as string;
+    const body = await req.json();
+    const { type, version, changelog, storage_path, file_size, chunk_count } = body;
 
-    if (!file || !type || !version) {
+    if (!type || !version || !storage_path) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
     if (type !== 'admin' && type !== 'client') {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
-    }
-
-    const filename = `epix-${type}-v${version}.apk`;
-    const storagePath = `${type}/${filename}`;
-
-    const bytes = await file.arrayBuffer();
-
-    const { error: uploadError } = await serviceSupabase.storage
-      .from('apk-files')
-      .upload(storagePath, bytes, {
-        contentType: 'application/vnd.android.package-archive',
-        upsert: true,
-      });
-
-    if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
     }
 
     await serviceSupabase
@@ -79,14 +60,17 @@ export async function POST(req: NextRequest) {
       .eq('type', type)
       .eq('is_latest', true);
 
+    const filename = `epix-${type}-v${version}.apk`;
+
     const { data: apkVersion, error: dbError } = await serviceSupabase
       .from('apk_versions')
       .insert({
         type,
         version,
         filename,
-        storage_path: storagePath,
-        file_size: file.size,
+        storage_path,
+        file_size: file_size || null,
+        chunk_count: chunk_count || 1,
         changelog: changelog || null,
         is_latest: true,
         uploaded_by: user.id,

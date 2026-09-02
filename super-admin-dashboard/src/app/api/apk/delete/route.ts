@@ -47,7 +47,7 @@ export async function DELETE(req: NextRequest) {
 
     const { data: apk } = await serviceSupabase
       .from('apk_versions')
-      .select('storage_path, type, is_latest')
+      .select('storage_path, type, is_latest, chunk_count')
       .eq('id', id)
       .single();
 
@@ -55,7 +55,16 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'APK not found' }, { status: 404 });
     }
 
-    await serviceSupabase.storage.from('apk-files').remove([apk.storage_path]);
+    const chunkCount = (apk as any).chunk_count || 1;
+    if (chunkCount > 1) {
+      const chunkPaths: string[] = [];
+      for (let i = 0; i < chunkCount; i++) {
+        chunkPaths.push(`${apk.storage_path}/chunk-${String(i).padStart(4, '0')}`);
+      }
+      await serviceSupabase.storage.from('apk-files').remove(chunkPaths);
+    } else {
+      await serviceSupabase.storage.from('apk-files').remove([apk.storage_path]);
+    }
     await serviceSupabase.from('apk_versions').delete().eq('id', id);
 
     if ((apk as any).is_latest) {

@@ -137,6 +137,23 @@ function generateSecureToken(): string {
   return `EPIX-${token}`;
 }
 
+function generateAutoPassword(): string {
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lower = 'abcdefghijklmnopqrstuvwxyz';
+  const digits = '0123456789';
+  const all = upper + lower + digits;
+  let pw = '';
+  // Ensure at least one of each type
+  pw += upper[Math.floor(Math.random() * upper.length)];
+  pw += lower[Math.floor(Math.random() * lower.length)];
+  pw += digits[Math.floor(Math.random() * digits.length)];
+  for (let i = 0; i < 5; i++) {
+    pw += all[Math.floor(Math.random() * all.length)];
+  }
+  // Shuffle
+  return pw.split('').sort(() => Math.random() - 0.5).join('');
+}
+
 export default function ShareGalleryModal({
   visible,
   onClose,
@@ -218,16 +235,7 @@ export default function ShareGalleryModal({
     }
   }, [settings.expiration, settings.customExpirationDate]);
 
-  const handleCreateLink = useCallback(async () => {
-    if (settings.requirePassword && settings.password.length < 6) {
-      Alert.alert('Password Required', 'Password must be at least 6 characters.');
-      return;
-    }
-    if (settings.requirePassword && settings.password.length > 64) {
-      Alert.alert('Password Too Long', 'Password must be 64 characters or less.');
-      return;
-    }
-
+  const createShareLink = useCallback(async (passwordToUse: string) => {
     setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
@@ -235,10 +243,10 @@ export default function ShareGalleryModal({
       const shareToken = generateSecureToken();
 
       let passwordHash: string | null = null;
-      if (settings.requirePassword && settings.password) {
+      if (settings.requirePassword && passwordToUse) {
         passwordHash = await Crypto.digestStringAsync(
           Crypto.CryptoDigestAlgorithm.SHA256,
-          settings.password
+          passwordToUse
         );
       }
 
@@ -287,6 +295,20 @@ export default function ShareGalleryModal({
       setLoading(false);
     }
   }, [settings, galleryId, galleryName, getExpirationDate, onShareCreated]);
+
+  const handleCreateLink = useCallback(async () => {
+    let passwordToUse = settings.password;
+    if (settings.requirePassword && passwordToUse.length < 6) {
+      // Auto-generate password instead of prompting
+      passwordToUse = generateAutoPassword();
+      setSettings((prev) => ({ ...prev, password: passwordToUse }));
+    }
+    if (passwordToUse.length > 64) {
+      Alert.alert('Password Too Long', 'Password must be 64 characters or less.');
+      return;
+    }
+    await createShareLink(passwordToUse);
+  }, [settings, createShareLink]);
 
   const handleCopyLink = useCallback(async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -388,6 +410,7 @@ export default function ShareGalleryModal({
   );
 
   return (
+    <>
     <Modal
       visible={visible}
       animationType="slide"
@@ -577,13 +600,15 @@ export default function ShareGalleryModal({
                 'Access Limits'
               )}
               <View style={styles.radioGroup}>
-                {ACCESS_LIMIT_OPTIONS.map((option) =>
-                  renderRadioOption(
-                    option.label,
-                    settings.accessLimit === option.value,
-                    () => updateSetting('accessLimit', option.value)
-                  )
-                )}
+                {ACCESS_LIMIT_OPTIONS.map((option) => (
+                  <React.Fragment key={option.value}>
+                    {renderRadioOption(
+                      option.label,
+                      settings.accessLimit === option.value,
+                      () => updateSetting('accessLimit', option.value)
+                    )}
+                  </React.Fragment>
+                ))}
               </View>
             </View>
 
@@ -782,6 +807,14 @@ export default function ShareGalleryModal({
               </Pressable>
             ) : (
               <View style={styles.linkCreatedContainer}>
+                {settings.requirePassword && settings.password && (
+                  <View style={[styles.linkDisplay, { backgroundColor: 'rgba(212,175,55,0.15)', borderColor: Colors.gold, marginBottom: 8 }]}>
+                    <Lock size={16} color={Colors.gold} />
+                    <Text style={[styles.linkText, { color: Colors.gold }]} selectable>
+                      Password: {settings.password}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.linkDisplay}>
                   <Check size={16} color="#10B981" />
                   <Text style={styles.linkText} numberOfLines={1}>
@@ -810,6 +843,7 @@ export default function ShareGalleryModal({
         </View>
       </View>
     </Modal>
+    </>
   );
 }
 

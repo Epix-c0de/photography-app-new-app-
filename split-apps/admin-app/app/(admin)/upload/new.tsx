@@ -71,6 +71,11 @@ async function getFileSize(uri: string): Promise<number> {
 
 async function compressImage(uri: string): Promise<{ uri: string; width: number; height: number; size: number; compressed: boolean }> {
   const originalSize = await getFileSize(uri);
+  const FIVE_MB = 5 * 1024 * 1024;
+
+  if (originalSize > 0 && originalSize < FIVE_MB) {
+    return { uri, width: 0, height: 0, size: originalSize, compressed: false };
+  }
 
   // Try native ImageManipulator first (iOS/Android)
   if (ImageManipulator) {
@@ -454,7 +459,7 @@ export default function ClientPhotoUploadScreen() {
               let height = asset.height;
               let didCompress = false;
 
-              if (!isVideo) {
+              if (!isVideo && fileSize > 5 * 1024 * 1024) {
                 setUploadStatus(`Compressing ${fileName}...`);
                 const originalSize = asset.fileSize || await getFileSize(asset.uri);
                 const compressed = await compressImage(asset.uri);
@@ -464,7 +469,7 @@ export default function ClientPhotoUploadScreen() {
                 if (compressed.width) width = compressed.width;
                 if (compressed.height) height = compressed.height;
                 console.log(`[Compress] ${fileName}: ${(originalSize / 1024).toFixed(0)}KB → ${(fileSize / 1024).toFixed(0)}KB (${compressed.compressed ? 'compressed' : 'unchanged'})`);
-              } else if (fileSize > 100 * 1024 * 1024) {
+              } else if (isVideo && fileSize > 100 * 1024 * 1024) {
                 Alert.alert('Large Video', `${fileName} is ${(fileSize / (1024 * 1024)).toFixed(0)}MB. Upload may be slow.`);
               }
 
@@ -695,7 +700,9 @@ export default function ClientPhotoUploadScreen() {
       return;
     }
     const deepLink = `${accessLink}${accessCode}`;
-    const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
+    const clientName = temporaryClientName.trim() || clientData?.name || phoneNumber.trim() || 'Client';
+    const downloadPageUrl = 'https://studio.epix.co/download';
+    const message = `Hello ${clientName}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${downloadPageUrl}`;
     const smsUrl = `sms:${effectivePhone}?body=${encodeURIComponent(message)}`;
 
     try {
@@ -726,7 +733,9 @@ export default function ClientPhotoUploadScreen() {
     // Use phoneNumber from input, fallback to clientData.phone from the selected client
     const effectivePhone = phoneNumber || clientData?.phone || '';
     const deepLink = `${accessLink}${accessCode}`;
-    const message = `Hello ${clientData?.name || resolveClientName()}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${appLink}`;
+    const clientName = temporaryClientName.trim() || clientData?.name || phoneNumber.trim() || 'Client';
+    const downloadPageUrl = 'https://studio.epix.co/download';
+    const message = `Hello ${clientName}, your photos are ready! \n\nDirect Link: ${deepLink}\n\nUse code: ${accessCode} to unlock if the link doesn't open. \n\nDownload App: ${downloadPageUrl}`;
 
     if (effectivePhone) {
       const cleanPhone = effectivePhone.replace(/[^0-9]/g, '');
@@ -977,12 +986,13 @@ export default function ClientPhotoUploadScreen() {
       // 4. Send via selected delivery methods
       if (sendNotificationAfterUpload && deliveryMethods.length > 0) {
         setUploadStatus('Sending notifications...');
-        const resolvedName = clientData?.name || resolveClientName();
+        const resolvedName = temporaryClientName.trim() || clientData?.name || phoneNumber.trim() || 'Client';
         const links = await SMSService.utils.getAdminLinks();
         const appLinkBase = links?.access_code_delivery_link || links?.share_app_link || accessLink;
         const deepLink = `${appLinkBase}${finalAccessCode}`;
-        const smsBody = `Hello ${resolvedName}, your ${galleryName} photos are ready!\n\nView here: ${deepLink}\n\nUse code: ${finalAccessCode} to unlock.\n\nEpix Visuals Studios`;
-        const whatsappBody = `Hello ${resolvedName}, your ${galleryName} photos are ready!\n\nView here: ${deepLink}\n\nUse code: ${finalAccessCode} to unlock.`;
+        const downloadPageUrl = 'https://studio.epix.co/download';
+        const smsBody = `Hello ${resolvedName}, your ${galleryName} photos are ready!\n\nView here: ${deepLink}\n\nUse code: ${finalAccessCode} to unlock.\n\nDownload App: ${downloadPageUrl}`;
+        const whatsappBody = `Hello ${resolvedName}, your ${galleryName} photos are ready!\n\nView here: ${deepLink}\n\nUse code: ${finalAccessCode} to unlock.\n\nDownload App: ${downloadPageUrl}`;
 
         // In-App Notification
         if (deliveryMethods.includes('in_app')) {

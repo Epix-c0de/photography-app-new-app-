@@ -32,21 +32,26 @@ export default function UnassignedEmptyState({
       const { data: settings } = await supabase
         .from('platform_settings')
         .select('key, value')
-        .in('key', ['platform_admin_app_android_link', 'platform_admin_app_ios_link', 'platform_invite_url'])
+        .in('key', ['platform_admin_web_onboarding_url', 'platform_invite_url', 'platform_admin_app_android_link', 'platform_admin_app_ios_link'])
         .order('key');
 
       if (settings && settings.length > 0) {
         const kvMap: Record<string, string> = {};
         settings.forEach((r: any) => { kvMap[r.key] = r.value ?? ''; });
-        const link = kvMap['platform_invite_url'] || kvMap['platform_admin_app_android_link'] || kvMap['platform_admin_app_ios_link'];
+        const link = kvMap['platform_admin_web_onboarding_url'] || kvMap['platform_invite_url'];
         if (link) { setInviteLink(link); return; }
       }
+
+      // Default: use the platform domain with /onboarding path
+      const { getPlatformDomain } = await import('@/lib/platform-config');
+      const domain = await getPlatformDomain();
+      setInviteLink(`${domain}/onboarding`);
 
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         const { getPlatformDomain } = await import('@/lib/platform-config');
         const domain = await getPlatformDomain();
-        setInviteLink(domain);
+        setInviteLink(`${domain}/onboarding`);
         return;
       }
 
@@ -73,11 +78,11 @@ export default function UnassignedEmptyState({
 
       const { getPlatformDomain } = await import('@/lib/platform-config');
       const fallbackDomain = await getPlatformDomain();
-      setInviteLink(fallbackDomain);
+      setInviteLink(`${fallbackDomain}/onboarding`);
     } catch {
       const { getPlatformDomain } = await import('@/lib/platform-config');
       const fallbackDomain = await getPlatformDomain();
-      setInviteLink(fallbackDomain);
+      setInviteLink(`${fallbackDomain}/onboarding`);
     }
   };
 
