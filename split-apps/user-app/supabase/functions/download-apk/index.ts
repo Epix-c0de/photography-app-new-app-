@@ -57,9 +57,10 @@ Deno.serve(async (req: Request) => {
     const chunkCount = (apkRecord as any).chunk_count || 1;
 
     if (chunkCount <= 1) {
+      const filePath = `${(apkRecord as any).storage_path}/chunk-0000`;
       const { data: signedUrl } = await supabase.storage
         .from("apk-files")
-        .createSignedUrl((apkRecord as any).storage_path, 3600);
+        .createSignedUrl(filePath, 3600);
 
       return new Response(
         JSON.stringify({

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { createServiceClient } from '@/lib/supabase';
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,6 +10,8 @@ export async function GET(req: NextRequest) {
     if (!type && !id) {
       return NextResponse.json({ error: 'Missing type or id parameter' }, { status: 400 });
     }
+
+    const supabase = createServiceClient();
 
     let apkRecord;
     if (id) {
@@ -24,12 +26,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'APK not found' }, { status: 404 });
     }
 
-    const { data: urlData } = supabase.storage
+    const filePath = `${apkRecord.storage_path}/chunk-0000`;
+    const { data: signedUrlData, error } = await supabase.storage
       .from('apk-files')
-      .getPublicUrl(apkRecord.storage_path);
+      .createSignedUrl(filePath, 3600);
+
+    if (error || !signedUrlData?.signedUrl) {
+      return NextResponse.json({ error: error?.message || 'Failed to generate URL' }, { status: 500 });
+    }
 
     return NextResponse.json({
-      download_url: urlData.publicUrl,
+      download_url: signedUrlData.signedUrl,
       version: apkRecord.version,
       filename: apkRecord.filename,
       file_size: apkRecord.file_size,

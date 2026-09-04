@@ -190,12 +190,12 @@ export default function ApksPage() {
       }
 
       setSuccess(`${uploadType === 'admin' ? 'Admin' : 'Client'} APK v${version} uploaded successfully`);
-      setShowUpload(false);
       setFile(null);
       setVersion('');
       setChangelog('');
       setUploadStatus('');
       fetchApks();
+      setTimeout(() => { setShowUpload(false); setSuccess(''); }, 2000);
     } catch (err: any) {
       setError(err.message || 'Upload failed');
       setUploadStatus('');
@@ -233,10 +233,32 @@ export default function ApksPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      const a = document.createElement('a');
-      a.href = data.download_url;
-      a.download = apk.filename;
-      a.click();
+      if (data.chunked && data.chunk_urls) {
+        // Chunked: fetch all chunks and combine into single blob
+        const chunks: Blob[] = [];
+        for (let i = 0; i < data.chunk_urls.length; i++) {
+          const chunkRes = await fetch(data.chunk_urls[i]);
+          if (!chunkRes.ok) throw new Error(`Chunk ${i} failed`);
+          chunks.push(await chunkRes.blob());
+        }
+        const fullBlob = new Blob(chunks, { type: 'application/vnd.android.package-archive' });
+        const url = URL.createObjectURL(fullBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = apk.filename || `epix-${apk.type}-v${apk.version}.apk`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else {
+        // Single chunk: direct download
+        const a = document.createElement('a');
+        a.href = data.download_url;
+        a.download = apk.filename || `epix-${apk.type}-v${apk.version}.apk`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
     } catch (err) {
       console.error('Download error', err);
     }
@@ -326,7 +348,7 @@ export default function ApksPage() {
   };
 
   const formatSize = (bytes: number | null) => {
-    if (!bytes) return '—';
+    if (bytes == null) return '—';
     const mb = bytes / (1024 * 1024);
     return `${mb.toFixed(1)} MB`;
   };

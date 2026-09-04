@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const type = searchParams.get('type');
     const id = searchParams.get('id');
+    const action = searchParams.get('action'); // 'metadata' or 'stream'
 
     if (type && type !== 'admin' && type !== 'client') {
       return NextResponse.json({ error: 'Invalid type' }, { status: 400 });
@@ -41,16 +42,58 @@ export async function GET(req: NextRequest) {
     }
 
     const chunkCount = (apk as any).chunk_count || 1;
+    const filename = (apk as any).filename || `epix-${(apk as any).type}-v${(apk as any).version}.apk`;
 
-    if (chunkCount <= 1) {
-      const { data: signedUrl } = supabase.storage
-        .from('apk-files')
-        .getPublicUrl((apk as any).storage_path);
+    // ── Metadata mode: return JSON with chunk info ──
+    if (action === 'metadata') {
+      if (chunkCount <= 1) {
+        const filePath = `${(apk as any).storage_path}/chunk-0000`;
+        const { data: signedUrlData, error } = await supabase.storage
+          .from('apk-files')
+          .createSignedUrl(filePath, 3600);
 
-      return NextResponse.redirect(signedUrl.publicUrl);
+        if (error || !signedUrlData?.signedUrl) {
+          return NextResponse.json({ error: 'Failed to generate download URL' }, { status: 500 });
+        }
+
+        return NextResponse.json({
+          chunked: false,
+          download_url: signedUrlData.signedUrl,
+          version: (apk as any).version,
+          filename,
+          file_size: (apk as any).file_size || 0,
+          type: (apk as any).type,
+          changelog: (apk as any).changelog || null,
+        });
+      }
+
+      // Chunked — return chunk signed URLs
+      const chunkUrls: string[] = [];
+      for (let i = 0; i < chunkCount; i++) {
+        const chunkPath = `${(apk as any).storage_path}/chunk-${String(i).padStart(4, '0')}`;
+        const { data: signedUrlData, error } = await supabase.storage
+          .from('apk-files')
+          .createSignedUrl(chunkPath, 3600);
+
+        if (error || !signedUrlData?.signedUrl) {
+          return NextResponse.json({ error: `Chunk ${i} not available` }, { status: 500 });
+        }
+        chunkUrls.push(signedUrlData.signedUrl);
+      }
+
+      return NextResponse.json({
+        chunked: true,
+        chunk_urls: chunkUrls,
+        chunk_count: chunkCount,
+        version: (apk as any).version,
+        filename,
+        file_size: (apk as any).file_size || 0,
+        type: (apk as any).type,
+        changelog: (apk as any).changelog || null,
+      });
     }
 
-    // Chunked APK — fetch all chunks and stream as one response
+    // ── Stream mode: fetch chunks and stream as single binary ──
     const chunkUrls: string[] = [];
     for (let i = 0; i < chunkCount; i++) {
       const chunkPath = `${(apk as any).storage_path}/chunk-${String(i).padStart(4, '0')}`;
@@ -63,9 +106,6 @@ export async function GET(req: NextRequest) {
       }
       chunkUrls.push(signedUrlData.signedUrl);
     }
-
-    const encoder = new TextEncoder();
-    const filename = (apk as any).filename || `epix-client-v${(apk as any).version}.apk`;
 
     const stream = new ReadableStream({
       async start(controller) {

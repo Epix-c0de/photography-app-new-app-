@@ -5,6 +5,7 @@
  *
  * Reads from the `apk_versions` table (latest row per type).
  * Falls back to `app_versions` table or hardcoded defaults.
+ * Reads minimum_version and force_update from `app_versions` if available.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -47,6 +48,13 @@ Deno.serve(async (req: Request) => {
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Read version config from app_versions (for minimum_version, force_update, version_history)
+    const { data: versionConfig } = await supabase
+      .from("app_versions")
+      .select("*")
+      .eq("id", "current")
+      .single();
+
     // Try apk_versions table first (new APK management)
     const { data: apkData } = await supabase
       .from("apk_versions")
@@ -61,20 +69,26 @@ Deno.serve(async (req: Request) => {
 
       if (chunkCount <= 1) {
         // Single file — create signed URL
+        const filePath = `${(apkData as any).storage_path}/chunk-0000`;
         const { data: signedUrl } = await supabase.storage
           .from("apk-files")
-          .createSignedUrl((apkData as any).storage_path, 3600);
+          .createSignedUrl(filePath, 3600);
         downloadUrl = signedUrl?.signedUrl || "";
       } else {
-        // Chunked — use landing page download API which streams all chunks as one file
-        downloadUrl = `https://epix-visuals.vercel.app/api/apk/download?id=${apkData.id}`;
+        // Chunked — use landing page metadata API for client-side assembly
+        downloadUrl = `https://epix-visuals.vercel.app/api/apk/download?type=client&action=metadata`;
       }
+
+      // Use app_versions settings if available, otherwise defaults
+      const minimumVersion = versionConfig?.minimum_version || "1.0.0";
+      const forceUpdate = versionConfig?.force_update ?? false;
+      const versionHistory = versionConfig?.version_history ?? [];
 
       return new Response(
         JSON.stringify({
           latestVersion: apkData.version,
-          minimumVersion: "1.0.0",
-          forceUpdate: false,
+          minimumVersion,
+          forceUpdate,
           releaseNotes: apkData.changelog || `Version ${apkData.version}`,
           downloadUrl,
           fileSize: apkData.file_size
@@ -82,7 +96,7 @@ Deno.serve(async (req: Request) => {
             : undefined,
           provider: "apk-direct",
           publishedAt: apkData.created_at,
-          versionHistory: [],
+          versionHistory,
           chunked: chunkCount > 1,
           chunkCount,
           storagePath: (apkData as any).storage_path,
@@ -95,38 +109,32 @@ Deno.serve(async (req: Request) => {
     }
 
     // Fallback to app_versions table
-    const { data, error } = await supabase
-      .from("app_versions")
-      .select("*")
-      .eq("id", "current")
-      .single();
-
-    if (error || !data) {
-      console.warn("[check-version] Falling back to static config:", error?.message);
-      return new Response(JSON.stringify(FALLBACK_CONFIG), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (versionConfig) {
+      return new Response(
+        JSON.stringify({
+          latestVersion: versionConfig.latest_version,
+          minimumVersion: versionConfig.minimum_version,
+          forceUpdate: versionConfig.force_update,
+          releaseNotes: versionConfig.release_notes,
+          downloadUrl: versionConfig.download_url,
+          fileSize: versionConfig.file_size,
+          sha256: versionConfig.sha256,
+          provider: versionConfig.provider ?? "apk-direct",
+          publishedAt: versionConfig.published_at,
+          versionHistory: versionConfig.version_history ?? [],
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
-    return new Response(
-      JSON.stringify({
-        latestVersion: data.latest_version,
-        minimumVersion: data.minimum_version,
-        forceUpdate: data.force_update,
-        releaseNotes: data.release_notes,
-        downloadUrl: data.download_url,
-        fileSize: data.file_size,
-        sha256: data.sha256,
-        provider: data.provider ?? "apk-direct",
-        publishedAt: data.published_at,
-        versionHistory: data.version_history ?? [],
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    console.warn("[check-version] Falling back to static config");
+    return new Response(JSON.stringify(FALLBACK_CONFIG), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (err) {
     console.error("[check-version] Error:", err);
     return new Response(JSON.stringify(FALLBACK_CONFIG), {
