@@ -319,7 +319,7 @@ export default function AnnouncementsFeedScreen() {
 
       const { data, error } = await supabase
         .from('announcement_comments')
-        .select(`*, user_profiles:client_id (name, avatar_url)`)
+        .select(`*, user_profiles:client_id (name, avatar_url, email)`)
         .eq('announcement_id', postId)
         .order('created_at', { ascending: false });
 
@@ -327,7 +327,7 @@ export default function AnnouncementsFeedScreen() {
 
       const mapped: AnnouncementComment[] = (data || []).map((c: any) => ({
         id: c.id,
-        user_name: c.user_profiles?.name || 'User',
+        user_name: c.user_profiles?.name || c.user_profiles?.email?.split('@')[0] || 'User',
         user_avatar: c.user_profiles?.avatar_url,
         comment: c.comment,
         created_at: c.created_at,

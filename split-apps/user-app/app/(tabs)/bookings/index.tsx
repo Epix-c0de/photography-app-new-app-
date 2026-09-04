@@ -35,6 +35,8 @@ interface Booking extends BookingRow {
   packages?: {
     name: string;
   } | null;
+  package_name?: string;
+  photographer_name?: string;
 }
 
 const { width } = Dimensions.get('window');
@@ -49,7 +51,7 @@ const statusConfig: Record<string, { color: string; icon: React.ReactNode; label
   ready: { color: Colors.success, icon: <Check size={14} color={Colors.success} />, label: 'Ready' },
 };
 
-function MiniCalendar({ selectedDate, onSelectDate, busyDates = [], availableDates = [] }: { selectedDate: number | null; onSelectDate: (d: number) => void; busyDates?: number[]; availableDates?: number[] }) {
+function MiniCalendar({ selectedDate, onSelectDate, busyDates = [], availableDates = [] }: { selectedDate: number | null; onSelectDate: (d: number) => void; busyDates?: string[]; availableDates?: string[] }) {
   const [monthOffset, setMonthOffset] = useState<number>(0);
 
   const now = new Date();
@@ -67,11 +69,15 @@ function MiniCalendar({ selectedDate, onSelectDate, busyDates = [], availableDat
     return cells;
   }, [firstDay, daysInMonth]);
 
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+
   const getDayStatus = useCallback((day: number) => {
-    if (busyDates.includes(day)) return 'busy';
-    if (availableDates.includes(day)) return 'available';
+    const dateStr = `${day} of ${monthNames[month]} ${year}`;
+    if (busyDates.includes(dateStr)) return 'busy';
+    if (availableDates.includes(dateStr)) return 'available';
     return 'normal';
-  }, [busyDates, availableDates]);
+  }, [busyDates, availableDates, month, year]);
 
   return (
     <View style={calStyles.calendarContainer}>
@@ -258,9 +264,11 @@ function getOrdinalSuffix(n: number): string {
   return s[(v - 20) % 10] || s[v] || s[0];
 }
 
-function BookingCard({ booking }: { booking: Booking }) {
+function BookingCard({ booking, packages: pkgList }: { booking: Booking; packages?: any[] }) {
   const config = statusConfig[booking.status] || statusConfig.booked;
   const [reminderSet, setReminderSet] = useState(false);
+  const pkgName = booking.package_name || pkgList?.find((p: any) => p.id === booking.package_id)?.name || null;
+  const router = useRouter();
 
   useEffect(() => {
     // Check if reminder is already set
@@ -276,7 +284,7 @@ function BookingCard({ booking }: { booking: Booking }) {
       await AsyncStorage.setItem(`reminder_${booking.id}`, JSON.stringify({
         date: booking.date,
         time: booking.time,
-        title: booking.packages?.name || 'Photography Session',
+        title: pkgName || 'Photography Session',
       }));
       setReminderSet(true);
       Alert.alert('Reminder Set', `You'll be reminded about your ${booking.packages?.name || 'session'} on ${booking.date}.`);
@@ -284,7 +292,10 @@ function BookingCard({ booking }: { booking: Booking }) {
   };
 
   return (
-    <Pressable style={styles.bookingCard} onPress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}>
+    <Pressable style={styles.bookingCard} onPress={() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      router.push(`/(tabs)/bookings/${booking.id}`);
+    }}>
       <View style={styles.bookingHeader}>
         <View style={[styles.statusBadge, { backgroundColor: config.color + '20' }]}>
           {config.icon}
@@ -297,7 +308,15 @@ function BookingCard({ booking }: { booking: Booking }) {
           </Text>
         </Pressable>
       </View>
-      <Text style={styles.bookingPackage}>{booking.packages?.name || 'Unknown Package'}</Text>
+      <Text style={styles.bookingPackage}>{pkgName || 'Unknown Package'}</Text>
+      {booking.photographer_name && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+          <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: Colors.gold + '30', alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ color: Colors.gold, fontSize: 10, fontWeight: '700' }}>{booking.photographer_name.charAt(0).toUpperCase()}</Text>
+          </View>
+          <Text style={{ fontSize: 12, color: Colors.textMuted }}>{booking.photographer_name}</Text>
+        </View>
+      )}
       <View style={styles.bookingDetails}>
         <View style={styles.bookingDetail}>
           <Calendar size={14} color={Colors.textMuted} />
@@ -482,7 +501,7 @@ export default function BookingsScreen() {
         const bookingsQuery = user
           ? supabase
               .from('bookings')
-              .select('*, packages(name)')
+              .select('*')
               .eq('user_id', user.id)
               .order('date', { ascending: false })
           : Promise.resolve({ data: null, error: null });
@@ -507,13 +526,32 @@ export default function BookingsScreen() {
             admin_profile: null,
           }));
           setPackages(normalized);
-        }
 
-        if (bookingsResult.error) {
-          console.error('[Bookings] Bookings fetch error:', bookingsResult.error);
+          // Resolve package names and photographer names on bookings
+          if (bookingsResult.data) {
+            const pkgMap = new Map(normalized.map((p: any) => [p.id, p.name]));
+            // Fetch photographer names for unique admin IDs
+            const adminIds = [...new Set(bookingsResult.data.map((b: any) => b.owner_admin_id).filter(Boolean))];
+            let adminMap = new Map<string, string>();
+            if (adminIds.length > 0) {
+              const { data: adminProfiles } = await supabase
+                .from('user_profiles')
+                .select('id, name')
+                .in('id', adminIds);
+              if (adminProfiles) {
+                adminMap = new Map(adminProfiles.map((a: any) => [a.id, a.name]));
+              }
+            }
+            const enriched = bookingsResult.data.map((b: any) => ({
+              ...b,
+              package_name: pkgMap.get(b.package_id) || null,
+              photographer_name: adminMap.get(b.owner_admin_id) || null,
+            }));
+            setBookings(enriched);
+          }
+        } else if (bookingsResult.data) {
+          setBookings(bookingsResult.data);
         }
-
-        if (bookingsResult.data) setBookings(bookingsResult.data);
       } catch (e) {
         console.error('Error loading booking data:', e);
       } finally {
@@ -530,14 +568,17 @@ export default function BookingsScreen() {
     if (activeSection === 'bookings' && user && !isDemoMode) {
       supabase
         .from('bookings')
-        .select('*, packages(name)')
+        .select('*')
         .eq('user_id', user.id)
         .order('date', { ascending: false })
         .then(({ data }) => {
-          if (data) setBookings(data);
+          if (data) {
+            const pkgMap = new Map(packages.map((p: any) => [p.id, p.name]));
+            setBookings(data.map((b: any) => ({ ...b, package_name: pkgMap.get(b.package_id) || null })));
+          }
         });
     }
-  }, [activeSection, user, isDemoMode]);
+  }, [activeSection, user, isDemoMode, packages]);
 
   // Check if packages need scroll indicator
   useEffect(() => {
@@ -558,10 +599,9 @@ export default function BookingsScreen() {
   }, []);
 
   const busyDates = useMemo(() => {
-    return bookings.map(b => {
-      const d = new Date(b.date);
-      return d.getDate();
-    });
+    return bookings
+      .filter(b => ['booked', 'confirmed', 'pending'].includes(b.status))
+      .map(b => b.date);
   }, [bookings]);
 
   // Handle M-Pesa payment for booking deposit
@@ -676,10 +716,13 @@ export default function BookingsScreen() {
           // Reload bookings
           const { data: bookingsData } = await supabase
             .from('bookings')
-            .select('*, packages(name)')
+            .select('*')
             .eq('user_id', user?.id)
             .order('date', { ascending: false });
-          if (bookingsData) setBookings(bookingsData);
+          if (bookingsData) {
+            const pkgMap = new Map(packages.map((p: any) => [p.id, p.name]));
+            setBookings(bookingsData.map((b: any) => ({ ...b, package_name: pkgMap.get(b.package_id) || null })));
+          }
           
           setTimeout(() => {
             setShowPaymentModal(false);
@@ -812,7 +855,7 @@ export default function BookingsScreen() {
                       {index < bookings.length - 1 && <View style={styles.timelineConnector} />}
                     </View>
                     <View style={styles.timelineContent}>
-                      <BookingCard booking={booking} />
+                      <BookingCard booking={booking} packages={packages} />
                     </View>
                   </View>
                 ))}
@@ -1190,10 +1233,13 @@ export default function BookingsScreen() {
                       if (user) {
                         const { data: bookingsData } = await supabase
                           .from('bookings')
-                          .select('*, packages(name)')
+                          .select('*')
                           .eq('user_id', user.id)
                           .order('date', { ascending: false });
-                        if (bookingsData) setBookings(bookingsData);
+                        if (bookingsData) {
+                          const pkgMap = new Map(packages.map((p: any) => [p.id, p.name]));
+                          setBookings(bookingsData.map((b: any) => ({ ...b, package_name: pkgMap.get(b.package_id) || null })));
+                        }
                       }
 
                       Alert.alert('Booking Saved', 'Your booking has been saved. The photographer will confirm it shortly.', [

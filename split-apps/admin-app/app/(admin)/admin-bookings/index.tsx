@@ -464,7 +464,7 @@ export default function AdminBookingsScreen() {
         clientName: booking.user_profiles?.name || 'Unknown Client',
         clientAvatar: booking.user_profiles?.avatar_url || 'https://via.placeholder.com/40x40/333333/FFFFFF?text=?',
         clientPhone: booking.user_profiles?.phone || 'No phone',
-        type: booking.packages?.shoot_type || 'Session',
+        type: booking.shoot_type || 'Session',
         packageName: booking.packages?.name || 'No Package',
         date: booking.date,
         time: booking.time,

@@ -646,7 +646,7 @@ export default function HomeScreen() {
       .from('notifications')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', authUser.id)
-      .or('read.eq.false,is_read.eq.false');
+      .eq('is_read', false);
 
     let clientCount = 0;
     const { data: clientRow } = await supabase
@@ -660,7 +660,7 @@ export default function HomeScreen() {
         .select('id', { count: 'exact', head: true })
         .eq('client_id', clientRow.id)
         .is('user_id', null)
-        .or('read.eq.false,is_read.eq.false');
+        .eq('is_read', false);
       clientCount = count ?? 0;
     }
 

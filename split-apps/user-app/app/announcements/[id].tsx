@@ -134,7 +134,7 @@ export default function AnnouncementViewerScreen() {
     if (!id) return;
     if (isDemoMode) { setComments((demoAnnouncementComments[id] ?? []) as AnnouncementComment[]); return; }
     try {
-      const { data, error } = await supabase.from('announcement_comments').select('*, user_profiles:client_id (name, avatar_url)').eq('announcement_id', id).order('created_at', { ascending: true });
+      const { data, error } = await supabase.from('announcement_comments').select('*, user_profiles:client_id (name, avatar_url, email)').eq('announcement_id', id).order('created_at', { ascending: true });
       if (error || !data) return;
       const rawComments = data as any[];
       const topLevel: AnnouncementComment[] = [];
@@ -249,12 +249,20 @@ export default function AnnouncementViewerScreen() {
       <View style={[styles.commentCard, comment.is_admin_reply && styles.adminCommentCard]}>
         <View style={styles.commentCardHeader}>
           <View style={styles.commentAvatarWrap}>
-            <Image source={{ uri: comment.user_profiles?.avatar_url || 'https://via.placeholder.com/40' }} style={styles.commentAvatar} contentFit="cover" />
+            {comment.user_profiles?.avatar_url ? (
+              <Image source={{ uri: comment.user_profiles.avatar_url }} style={styles.commentAvatar} contentFit="cover" />
+            ) : (
+              <View style={[styles.commentAvatar, { backgroundColor: Colors.gold, alignItems: 'center', justifyContent: 'center' }]}>
+                <Text style={{ color: Colors.background, fontWeight: '700', fontSize: 14 }}>
+                  {(comment.user_profiles?.name || comment.user_profiles?.email?.[0] || 'U').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+            )}
             {comment.is_admin_reply && <View style={styles.adminBadgeSmall}><ShieldCheck size={8} color="#000" /></View>}
           </View>
           <View style={styles.commentMeta}>
             <View style={styles.commentAuthorRow}>
-              <Text style={[styles.commentAuthorName, comment.is_admin_reply && styles.adminAuthorName]}>{comment.user_profiles?.name || 'User'}</Text>
+              <Text style={[styles.commentAuthorName, comment.is_admin_reply && styles.adminAuthorName]}>{comment.user_profiles?.name || comment.user_profiles?.email?.split('@')[0] || 'User'}</Text>
               {comment.is_admin_reply && <View style={styles.adminTag}><Text style={styles.adminTagText}>STUDIO</Text></View>}
             </View>
             <Text style={styles.commentTimeText}>{relativeTime(comment.created_at)}</Text>

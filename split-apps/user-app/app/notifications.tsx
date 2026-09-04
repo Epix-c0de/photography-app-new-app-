@@ -246,7 +246,7 @@ export default function NotificationsScreen() {
       // Permanently mark as read in database
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true })
+        .update({ is_read: true })
         .eq('id', id);
       if (error) {
         console.error('Failed to mark as read:', error);
@@ -324,7 +324,7 @@ export default function NotificationsScreen() {
       // Mark all unread notifications as read
       const { error } = await supabase
         .from('notifications')
-        .update({ read: true })
+        .update({ is_read: true })
         .eq('user_id', user.id)
         .eq('read', false);
       if (error) {

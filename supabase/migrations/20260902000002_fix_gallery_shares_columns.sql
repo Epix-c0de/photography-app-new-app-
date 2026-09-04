@@ -26,6 +26,14 @@ BEGIN
   END IF;
 END $$;
 
+-- Make created_by nullable (ShareGalleryModal sets it, but allow null)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'gallery_shares' AND column_name = 'created_by') THEN
+    ALTER TABLE public.gallery_shares ALTER COLUMN created_by DROP NOT NULL;
+  END IF;
+END $$;
+
 -- Fix RLS: allow authenticated users to insert their own shares
 DROP POLICY IF EXISTS "Clients can manage their shares" ON public.gallery_shares;
 DROP POLICY IF EXISTS "Authenticated users can manage gallery shares" ON public.gallery_shares;

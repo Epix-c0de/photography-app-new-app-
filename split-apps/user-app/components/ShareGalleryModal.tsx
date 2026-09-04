@@ -252,9 +252,12 @@ export default function ShareGalleryModal({
 
       const expiresAt = getExpirationDate();
 
+      const { data: { user } } = await supabase.auth.getUser();
+
       const { error } = await supabase.from('gallery_shares').insert({
         gallery_id: galleryId,
         share_token: shareToken,
+        created_by: user?.id || null,
         password_hash: passwordHash,
         require_password: settings.requirePassword,
         allow_downloads: settings.allowDownloads,

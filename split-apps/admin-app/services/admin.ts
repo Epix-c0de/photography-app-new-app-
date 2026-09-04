@@ -2027,12 +2027,12 @@ export const AdminService = {
       const { data, error } = await supabase
         .from('bookings')
         .select(`
-          id, date, time, location, notes, status, shoot_type, service_type,
-          package_id,
-          packages!left(name, price, shoot_type, admin_id),
+          id, date, time, location, notes, status, shoot_type,
+          package_id, owner_admin_id,
+          packages!left(name, price),
           user_profiles!bookings_user_id_fkey(name, phone, avatar_url)
         `)
-        .eq('packages.admin_id', user.id)
+        .eq('owner_admin_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) throw error;

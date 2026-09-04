@@ -28,11 +28,17 @@ export default function UnassignedEmptyState({
   }, []);
 
   const loadInviteLink = async () => {
+    const { getPlatformDomain } = await import('@/lib/platform-config');
+    const fallbackUrl = async () => {
+      const d = await getPlatformDomain();
+      return `${d}/onboarding`;
+    };
+
     try {
       const { data: settings } = await supabase
         .from('platform_settings')
         .select('key, value')
-        .in('key', ['platform_admin_web_onboarding_url', 'platform_invite_url', 'platform_admin_app_android_link', 'platform_admin_app_ios_link'])
+        .in('key', ['platform_admin_web_onboarding_url', 'platform_invite_url'])
         .order('key');
 
       if (settings && settings.length > 0) {
@@ -42,16 +48,9 @@ export default function UnassignedEmptyState({
         if (link) { setInviteLink(link); return; }
       }
 
-      // Default: use the platform domain with /onboarding path
-      const { getPlatformDomain } = await import('@/lib/platform-config');
-      const domain = await getPlatformDomain();
-      setInviteLink(`${domain}/onboarding`);
-
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        const { getPlatformDomain } = await import('@/lib/platform-config');
-        const domain = await getPlatformDomain();
-        setInviteLink(`${domain}/onboarding`);
+        setInviteLink(await fallbackUrl());
         return;
       }
 
@@ -69,20 +68,15 @@ export default function UnassignedEmptyState({
           .maybeSingle();
 
         if (adminProfile?.photographer_code) {
-          const { getPlatformDomain } = await import('@/lib/platform-config');
           const domain = await getPlatformDomain();
           setInviteLink(`${domain}/join/${adminProfile.photographer_code}`);
           return;
         }
       }
 
-      const { getPlatformDomain } = await import('@/lib/platform-config');
-      const fallbackDomain = await getPlatformDomain();
-      setInviteLink(`${fallbackDomain}/onboarding`);
+      setInviteLink(await fallbackUrl());
     } catch {
-      const { getPlatformDomain } = await import('@/lib/platform-config');
-      const fallbackDomain = await getPlatformDomain();
-      setInviteLink(`${fallbackDomain}/onboarding`);
+      setInviteLink(await fallbackUrl());
     }
   };
 
