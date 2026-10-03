@@ -19,22 +19,20 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import {
-  Heart,
-  MessageCircle,
-  Share2,
-  Calendar,
-  Bookmark,
-  BookmarkCheck,
-  X,
-  Send,
-  ChevronLeft,
-  Volume2,
-  VolumeX,
-  RefreshCw,
-  AlertTriangle,
-  Sparkles,
-} from 'lucide-react-native';
+import Heart from 'lucide-react-native/dist/esm/icons/heart';
+import MessageCircle from 'lucide-react-native/dist/esm/icons/message-circle';
+import Share2 from 'lucide-react-native/dist/esm/icons/share-2';
+import Calendar from 'lucide-react-native/dist/esm/icons/calendar';
+import Bookmark from 'lucide-react-native/dist/esm/icons/bookmark';
+import BookmarkCheck from 'lucide-react-native/dist/esm/icons/bookmark-check';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import Send from 'lucide-react-native/dist/esm/icons/send';
+import ChevronLeft from 'lucide-react-native/dist/esm/icons/chevron-left';
+import Volume2 from 'lucide-react-native/dist/esm/icons/volume-2';
+import VolumeX from 'lucide-react-native/dist/esm/icons/volume-x';
+import RefreshCw from 'lucide-react-native/dist/esm/icons/refresh-cw';
+import AlertTriangle from 'lucide-react-native/dist/esm/icons/triangle-alert';
+import Sparkles from 'lucide-react-native/dist/esm/icons/sparkles';
 import { Image } from 'expo-image';
 import { Video, ResizeMode, Audio, AVPlaybackStatus } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';

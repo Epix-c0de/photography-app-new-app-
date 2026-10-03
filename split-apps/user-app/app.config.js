@@ -58,9 +58,12 @@ module.exports = {
       ],
       package: 'app.rork.epix_visuals_studios_co',
       enableProguardInReleaseBuilds: false,
+      // NOTE: use short names — Expo prepends 'android.intent.action.' /
+      // 'android.intent.category.' itself. Full names get doubled and produce
+      // invalid intent filters in the manifest.
       intentFilters: [
         {
-          action: 'android.intent.action.VIEW',
+          action: 'VIEW',
           data: [
             {
               scheme: 'epix-visuals',
@@ -69,13 +72,27 @@ module.exports = {
             },
           ],
           category: [
-            'android.intent.category.BROWSABLE',
-            'android.intent.category.DEFAULT',
+            'BROWSABLE',
+            'DEFAULT',
+          ],
+        },
+        // Password reset deep link: epix-visuals://reset-password?code=...
+        {
+          action: 'VIEW',
+          data: [
+            {
+              scheme: 'epix-visuals',
+              host: 'reset-password',
+            },
+          ],
+          category: [
+            'BROWSABLE',
+            'DEFAULT',
           ],
         },
         // Universal Links — studio.epix.co
         {
-          action: 'android.intent.action.VIEW',
+          action: 'VIEW',
           data: [
             {
               scheme: 'https',
@@ -84,12 +101,12 @@ module.exports = {
             },
           ],
           category: [
-            'android.intent.category.BROWSABLE',
-            'android.intent.category.DEFAULT',
+            'BROWSABLE',
+            'DEFAULT',
           ],
         },
         {
-          action: 'android.intent.action.VIEW',
+          action: 'VIEW',
           data: [
             {
               scheme: 'https',
@@ -98,13 +115,13 @@ module.exports = {
             },
           ],
           category: [
-            'android.intent.category.BROWSABLE',
-            'android.intent.category.DEFAULT',
+            'BROWSABLE',
+            'DEFAULT',
           ],
         },
         // Universal Links — epix-visuals.vercel.app (fallback domain)
         {
-          action: 'android.intent.action.VIEW',
+          action: 'VIEW',
           data: [
             {
               scheme: 'https',
@@ -113,8 +130,8 @@ module.exports = {
             },
           ],
           category: [
-            'android.intent.category.BROWSABLE',
-            'android.intent.category.DEFAULT',
+            'BROWSABLE',
+            'DEFAULT',
           ],
         },
       ],

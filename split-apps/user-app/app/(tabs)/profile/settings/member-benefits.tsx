@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { Stack } from 'expo-router';
-import { Ticket, Copy, Star, Gift, TrendingUp, Award } from 'lucide-react-native';
+import Ticket from 'lucide-react-native/dist/esm/icons/ticket';
+import Copy from 'lucide-react-native/dist/esm/icons/copy';
+import Star from 'lucide-react-native/dist/esm/icons/star';
+import Gift from 'lucide-react-native/dist/esm/icons/gift';
+import TrendingUp from 'lucide-react-native/dist/esm/icons/trending-up';
+import Award from 'lucide-react-native/dist/esm/icons/award';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
 import Colors from '@/constants/colors';

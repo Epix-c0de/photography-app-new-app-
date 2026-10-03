@@ -4,7 +4,13 @@ import { useState, useEffect, useCallback, createContext, useContext, useRef } f
 import { View, Text, StyleSheet, Animated, Pressable, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import { X, Bell, Images, CreditCard, Calendar, Package, MessageCircle } from 'lucide-react-native';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import Bell from 'lucide-react-native/dist/esm/icons/bell';
+import Images from 'lucide-react-native/dist/esm/icons/images';
+import CreditCard from 'lucide-react-native/dist/esm/icons/credit-card';
+import Calendar from 'lucide-react-native/dist/esm/icons/calendar';
+import Package from 'lucide-react-native/dist/esm/icons/package';
+import MessageCircle from 'lucide-react-native/dist/esm/icons/message-circle';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 

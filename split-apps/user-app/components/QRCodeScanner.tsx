@@ -11,7 +11,8 @@ import {
   Dimensions,
 } from 'react-native';
 import { CameraView, Camera } from 'expo-camera';
-import { X, Scan } from 'lucide-react-native';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import Scan from 'lucide-react-native/dist/esm/icons/scan';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';

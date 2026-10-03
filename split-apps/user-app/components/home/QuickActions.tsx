@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Camera, Unlock } from 'lucide-react-native';
+import Camera from 'lucide-react-native/dist/esm/icons/camera';
+import Unlock from 'lucide-react-native/dist/esm/icons/lock-open';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';

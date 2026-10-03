@@ -5,10 +5,18 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-  ArrowLeft, Calendar, Clock, MapPin, CheckCircle, XCircle, AlertCircle,
-  MessageSquare, Phone, ChevronRight, Zap, RotateCcw,
-} from 'lucide-react-native';
+import ArrowLeft from 'lucide-react-native/dist/esm/icons/arrow-left';
+import Calendar from 'lucide-react-native/dist/esm/icons/calendar';
+import Clock from 'lucide-react-native/dist/esm/icons/clock';
+import MapPin from 'lucide-react-native/dist/esm/icons/map-pin';
+import CheckCircle from 'lucide-react-native/dist/esm/icons/circle-check-big';
+import XCircle from 'lucide-react-native/dist/esm/icons/circle-x';
+import AlertCircle from 'lucide-react-native/dist/esm/icons/circle-alert';
+import MessageSquare from 'lucide-react-native/dist/esm/icons/message-square';
+import Phone from 'lucide-react-native/dist/esm/icons/phone';
+import ChevronRight from 'lucide-react-native/dist/esm/icons/chevron-right';
+import Zap from 'lucide-react-native/dist/esm/icons/zap';
+import RotateCcw from 'lucide-react-native/dist/esm/icons/rotate-ccw';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';

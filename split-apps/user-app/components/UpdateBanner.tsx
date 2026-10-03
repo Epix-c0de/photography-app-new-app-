@@ -7,7 +7,11 @@ import {
   Animated,
   ActivityIndicator,
 } from 'react-native';
-import { Download, RefreshCw, WifiOff, X, Sparkles } from 'lucide-react-native';
+import Download from 'lucide-react-native/dist/esm/icons/download';
+import RefreshCw from 'lucide-react-native/dist/esm/icons/refresh-cw';
+import WifiOff from 'lucide-react-native/dist/esm/icons/wifi-off';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import Sparkles from 'lucide-react-native/dist/esm/icons/sparkles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '@/constants/colors';
 import { UpdateStatus } from '@/hooks/useAppUpdates';

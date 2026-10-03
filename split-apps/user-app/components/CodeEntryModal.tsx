@@ -14,7 +14,9 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { X, WifiOff, RefreshCw } from 'lucide-react-native';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import WifiOff from 'lucide-react-native/dist/esm/icons/wifi-off';
+import RefreshCw from 'lucide-react-native/dist/esm/icons/refresh-cw';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';

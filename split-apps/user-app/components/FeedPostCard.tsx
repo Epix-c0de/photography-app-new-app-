@@ -33,14 +33,12 @@ import {
   Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
-import {
-  Heart,
-  MessageCircle,
-  Share2,
-  Bookmark,
-  MoreHorizontal,
-  ShieldCheck,
-} from 'lucide-react-native';
+import Heart from 'lucide-react-native/dist/esm/icons/heart';
+import MessageCircle from 'lucide-react-native/dist/esm/icons/message-circle';
+import Share2 from 'lucide-react-native/dist/esm/icons/share-2';
+import Bookmark from 'lucide-react-native/dist/esm/icons/bookmark';
+import MoreHorizontal from 'lucide-react-native/dist/esm/icons/ellipsis';
+import ShieldCheck from 'lucide-react-native/dist/esm/icons/shield-check';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import FeedVideoPlayer from './FeedVideoPlayer';

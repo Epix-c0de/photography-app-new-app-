@@ -31,6 +31,7 @@ function RootLayoutNav() {
       />
       <Stack.Screen name="(admin)" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="auth" options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen name="forgot-password" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen
         name="subscription-expired"
         options={{

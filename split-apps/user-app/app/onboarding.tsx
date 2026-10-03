@@ -3,7 +3,11 @@ import { View, Text, StyleSheet, FlatList, Dimensions, Pressable, Animated, Stat
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
-import { Star, Lock, CreditCard, Share2, ArrowRight } from 'lucide-react-native';
+import Star from 'lucide-react-native/dist/esm/icons/star';
+import Lock from 'lucide-react-native/dist/esm/icons/lock';
+import CreditCard from 'lucide-react-native/dist/esm/icons/credit-card';
+import Share2 from 'lucide-react-native/dist/esm/icons/share-2';
+import ArrowRight from 'lucide-react-native/dist/esm/icons/arrow-right';
 import { useAuth } from '@/contexts/AuthContext';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';

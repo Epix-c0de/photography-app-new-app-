@@ -11,7 +11,8 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
-import { Fingerprint, Delete } from 'lucide-react-native';
+import Fingerprint from 'lucide-react-native/dist/esm/icons/fingerprint';
+import Delete from 'lucide-react-native/dist/esm/icons/delete';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/colors';
 

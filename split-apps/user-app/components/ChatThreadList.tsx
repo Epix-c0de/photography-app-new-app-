@@ -3,7 +3,9 @@ import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, Alert } from 
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Search, Settings, MessageCircle } from 'lucide-react-native';
+import Search from 'lucide-react-native/dist/esm/icons/search';
+import Settings from 'lucide-react-native/dist/esm/icons/settings';
+import MessageCircle from 'lucide-react-native/dist/esm/icons/message-circle';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';

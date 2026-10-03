@@ -21,7 +21,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Crypto from 'expo-crypto';
 import * as Haptics from 'expo-haptics';
-import { Mail, Lock, User, Phone, Fingerprint, ArrowRight, Eye, EyeOff, ShieldCheck } from 'lucide-react-native';
+import Mail from 'lucide-react-native/dist/esm/icons/mail';
+import Lock from 'lucide-react-native/dist/esm/icons/lock';
+import User from 'lucide-react-native/dist/esm/icons/user';
+import Phone from 'lucide-react-native/dist/esm/icons/phone';
+import Fingerprint from 'lucide-react-native/dist/esm/icons/fingerprint';
+import ArrowRight from 'lucide-react-native/dist/esm/icons/arrow-right';
+import Eye from 'lucide-react-native/dist/esm/icons/eye';
+import EyeOff from 'lucide-react-native/dist/esm/icons/eye-off';
+import ShieldCheck from 'lucide-react-native/dist/esm/icons/shield-check';
 import { supabase } from '@/lib/supabase';
 import { 
   getSignupFailureMessage, 

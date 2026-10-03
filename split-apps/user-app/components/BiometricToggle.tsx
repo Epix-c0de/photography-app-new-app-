@@ -10,7 +10,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { Fingerprint } from 'lucide-react-native';
+import Fingerprint from 'lucide-react-native/dist/esm/icons/fingerprint';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '@/lib/supabase';

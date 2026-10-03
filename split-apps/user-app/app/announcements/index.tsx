@@ -16,7 +16,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ChevronLeft, X, Send, Bell, MessageCircle } from 'lucide-react-native';
+import ChevronLeft from 'lucide-react-native/dist/esm/icons/chevron-left';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import Send from 'lucide-react-native/dist/esm/icons/send';
+import Bell from 'lucide-react-native/dist/esm/icons/bell';
+import MessageCircle from 'lucide-react-native/dist/esm/icons/message-circle';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';

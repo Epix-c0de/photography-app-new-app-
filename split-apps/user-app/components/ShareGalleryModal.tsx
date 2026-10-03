@@ -14,23 +14,21 @@ import {
   Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  X,
-  Lock,
-  Download,
-  Share2,
-  Clock,
-  Eye,
-  EyeOff,
-  Palette,
-  Droplets,
-  Shield,
-  Link as LinkIcon,
-  Check,
-  Copy,
-  Calendar,
-  LayoutGrid,
-} from 'lucide-react-native';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import Lock from 'lucide-react-native/dist/esm/icons/lock';
+import Download from 'lucide-react-native/dist/esm/icons/download';
+import Share2 from 'lucide-react-native/dist/esm/icons/share-2';
+import Clock from 'lucide-react-native/dist/esm/icons/clock';
+import Eye from 'lucide-react-native/dist/esm/icons/eye';
+import EyeOff from 'lucide-react-native/dist/esm/icons/eye-off';
+import Palette from 'lucide-react-native/dist/esm/icons/palette';
+import Droplets from 'lucide-react-native/dist/esm/icons/droplets';
+import Shield from 'lucide-react-native/dist/esm/icons/shield';
+import LinkIcon from 'lucide-react-native/dist/esm/icons/link';
+import Check from 'lucide-react-native/dist/esm/icons/check';
+import Copy from 'lucide-react-native/dist/esm/icons/copy';
+import Calendar from 'lucide-react-native/dist/esm/icons/calendar';
+import LayoutGrid from 'lucide-react-native/dist/esm/icons/layout-grid';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
 import * as Clipboard from 'expo-clipboard';

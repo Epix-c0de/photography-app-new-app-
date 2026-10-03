@@ -3,7 +3,12 @@ import { View, Text, StyleSheet, Pressable, ScrollView, Switch } from 'react-nat
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Bell, Calendar, Tag, ChevronRight, MessageCircle, Star } from 'lucide-react-native';
+import Bell from 'lucide-react-native/dist/esm/icons/bell';
+import Calendar from 'lucide-react-native/dist/esm/icons/calendar';
+import Tag from 'lucide-react-native/dist/esm/icons/tag';
+import ChevronRight from 'lucide-react-native/dist/esm/icons/chevron-right';
+import MessageCircle from 'lucide-react-native/dist/esm/icons/message-circle';
+import Star from 'lucide-react-native/dist/esm/icons/star';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';

@@ -3,7 +3,10 @@ import { View, Text, StyleSheet, Pressable, Animated, Dimensions } from 'react-n
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, Download, Share2, ArrowRight } from 'lucide-react-native';
+import Check from 'lucide-react-native/dist/esm/icons/check';
+import Download from 'lucide-react-native/dist/esm/icons/download';
+import Share2 from 'lucide-react-native/dist/esm/icons/share-2';
+import ArrowRight from 'lucide-react-native/dist/esm/icons/arrow-right';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 

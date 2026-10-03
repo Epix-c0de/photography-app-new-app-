@@ -338,13 +338,16 @@ export default function AdminLoginScreen() {
               <View style={styles.footer}>
                 {mode === 'password' ? (
                   <Pressable onPress={() => switchMode('otp-request')}>
-                    <Text style={styles.linkText}>Login via OTP / Forgot Password?</Text>
+                    <Text style={styles.linkText}>Login via OTP</Text>
                   </Pressable>
                 ) : (
                   <Pressable onPress={() => switchMode('password')}>
                     <Text style={styles.linkText}>Back to Password Login</Text>
                   </Pressable>
                 )}
+                <Pressable onPress={() => router.push('/forgot-password')}>
+                  <Text style={styles.linkText}>Forgot password?</Text>
+                </Pressable>
                 <Pressable onPress={() => router.push('/admin/signup')}>
                   <Text style={styles.linkText}>Need an admin account? Sign Up</Text>
                 </Pressable>

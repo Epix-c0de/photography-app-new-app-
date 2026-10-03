@@ -5,7 +5,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { Shield, Link2, Check, X, ChevronRight } from 'lucide-react-native';
+import Shield from 'lucide-react-native/dist/esm/icons/shield';
+import Link2 from 'lucide-react-native/dist/esm/icons/link-2';
+import Check from 'lucide-react-native/dist/esm/icons/check';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import ChevronRight from 'lucide-react-native/dist/esm/icons/chevron-right';
 import Colors from '@/constants/colors';
 import { getGalleryShareUrl, getShareMessage, getAppShareUrl } from '@/lib/platform-config';
 

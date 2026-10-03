@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator, Share } from 'react-native';
 import { Stack } from 'expo-router';
-import { FileText, Download, CheckCircle, Clock, XCircle } from 'lucide-react-native';
+import FileText from 'lucide-react-native/dist/esm/icons/file-text';
+import Download from 'lucide-react-native/dist/esm/icons/download';
+import CheckCircle from 'lucide-react-native/dist/esm/icons/circle-check-big';
+import Clock from 'lucide-react-native/dist/esm/icons/clock';
+import XCircle from 'lucide-react-native/dist/esm/icons/circle-x';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';

@@ -1,6 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, Animated, Dimensions, Platform } from 'react-native';
-import { Camera, Image as ImageIcon, Trash2, X } from 'lucide-react-native';
+import Camera from 'lucide-react-native/dist/esm/icons/camera';
+import ImageIcon from 'lucide-react-native/dist/esm/icons/image';
+import Trash2 from 'lucide-react-native/dist/esm/icons/trash-2';
+import X from 'lucide-react-native/dist/esm/icons/x';
 import { BlurView } from 'expo-blur';
 import Colors from '@/constants/colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

@@ -4,7 +4,12 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Haptics from 'expo-haptics';
-import { Fingerprint, Lock, Shield, ArrowRight, X, CheckCircle } from 'lucide-react-native';
+import Fingerprint from 'lucide-react-native/dist/esm/icons/fingerprint';
+import Lock from 'lucide-react-native/dist/esm/icons/lock';
+import Shield from 'lucide-react-native/dist/esm/icons/shield';
+import ArrowRight from 'lucide-react-native/dist/esm/icons/arrow-right';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import CheckCircle from 'lucide-react-native/dist/esm/icons/circle-check-big';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/colors';
 

@@ -11,7 +11,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { View, StyleSheet, Pressable, Text } from 'react-native';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
-import { Play, Volume2, VolumeX } from 'lucide-react-native';
+import Play from 'lucide-react-native/dist/esm/icons/play';
+import Volume2 from 'lucide-react-native/dist/esm/icons/volume-2';
+import VolumeX from 'lucide-react-native/dist/esm/icons/volume-x';
 import Colors from '@/constants/colors';
 
 interface FeedVideoPlayerProps {

@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
-import { MessageCircle, ChevronDown, ChevronUp, Send, HelpCircle, BookOpen, Phone } from 'lucide-react-native';
+import MessageCircle from 'lucide-react-native/dist/esm/icons/message-circle';
+import ChevronDown from 'lucide-react-native/dist/esm/icons/chevron-down';
+import ChevronUp from 'lucide-react-native/dist/esm/icons/chevron-up';
+import Send from 'lucide-react-native/dist/esm/icons/send';
+import HelpCircle from 'lucide-react-native/dist/esm/icons/circle-help';
+import BookOpen from 'lucide-react-native/dist/esm/icons/book-open';
+import Phone from 'lucide-react-native/dist/esm/icons/phone';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';

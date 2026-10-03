@@ -4,7 +4,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Share, Linking } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Camera, Share2, ArrowRight, UserPlus, Sparkles } from 'lucide-react-native';
+import Camera from 'lucide-react-native/dist/esm/icons/camera';
+import Share2 from 'lucide-react-native/dist/esm/icons/share-2';
+import ArrowRight from 'lucide-react-native/dist/esm/icons/arrow-right';
+import UserPlus from 'lucide-react-native/dist/esm/icons/user-plus';
+import Sparkles from 'lucide-react-native/dist/esm/icons/sparkles';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';

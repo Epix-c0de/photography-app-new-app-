@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, Modal, TextInput, ActivityIndicator, Pressable, Alert, Animated, Image, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { X, Smartphone, CheckCircle, AlertCircle, CreditCard } from 'lucide-react-native';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import Smartphone from 'lucide-react-native/dist/esm/icons/smartphone';
+import CheckCircle from 'lucide-react-native/dist/esm/icons/circle-check-big';
+import AlertCircle from 'lucide-react-native/dist/esm/icons/circle-alert';
+import CreditCard from 'lucide-react-native/dist/esm/icons/credit-card';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { supabase } from '@/lib/supabase';

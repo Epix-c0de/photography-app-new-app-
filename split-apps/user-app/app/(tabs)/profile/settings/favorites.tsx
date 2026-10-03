@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, Image, Alert, ActivityIndicator } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
-import { Heart, Download, Trash2, ExternalLink } from 'lucide-react-native';
+import Heart from 'lucide-react-native/dist/esm/icons/heart';
+import Download from 'lucide-react-native/dist/esm/icons/download';
+import Trash2 from 'lucide-react-native/dist/esm/icons/trash-2';
+import ExternalLink from 'lucide-react-native/dist/esm/icons/external-link';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import SettingsHeader from '@/components/SettingsHeader';

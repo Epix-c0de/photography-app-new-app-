@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ChevronRight, Star } from 'lucide-react-native';
+import ChevronRight from 'lucide-react-native/dist/esm/icons/chevron-right';
+import Star from 'lucide-react-native/dist/esm/icons/star';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';

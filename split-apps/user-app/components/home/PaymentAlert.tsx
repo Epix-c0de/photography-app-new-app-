@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { CreditCard, Zap } from 'lucide-react-native';
+import CreditCard from 'lucide-react-native/dist/esm/icons/credit-card';
+import Zap from 'lucide-react-native/dist/esm/icons/zap';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';

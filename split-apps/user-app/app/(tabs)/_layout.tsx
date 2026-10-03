@@ -1,5 +1,9 @@
 import { Tabs } from 'expo-router';
-import { Home, Images, Calendar, MessageCircle, User } from 'lucide-react-native';
+import Home from 'lucide-react-native/dist/esm/icons/house';
+import Images from 'lucide-react-native/dist/esm/icons/images';
+import Calendar from 'lucide-react-native/dist/esm/icons/calendar';
+import MessageCircle from 'lucide-react-native/dist/esm/icons/message-circle';
+import User from 'lucide-react-native/dist/esm/icons/user';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';

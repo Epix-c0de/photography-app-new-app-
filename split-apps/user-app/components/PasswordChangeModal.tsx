@@ -15,7 +15,11 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { X, Eye, EyeOff, Lock, Check } from 'lucide-react-native';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import Eye from 'lucide-react-native/dist/esm/icons/eye';
+import EyeOff from 'lucide-react-native/dist/esm/icons/eye-off';
+import Lock from 'lucide-react-native/dist/esm/icons/lock';
+import Check from 'lucide-react-native/dist/esm/icons/check';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '@/lib/supabase';

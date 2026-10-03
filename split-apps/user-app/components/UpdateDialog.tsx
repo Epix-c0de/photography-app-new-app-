@@ -24,17 +24,15 @@ import Animated, {
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import {
-  Download,
-  ExternalLink,
-  Shield,
-  Sparkles,
-  ChevronRight,
-  Clock,
-  FileDown,
-  X,
-  AlertTriangle,
-} from 'lucide-react-native';
+import Download from 'lucide-react-native/dist/esm/icons/download';
+import ExternalLink from 'lucide-react-native/dist/esm/icons/external-link';
+import Shield from 'lucide-react-native/dist/esm/icons/shield';
+import Sparkles from 'lucide-react-native/dist/esm/icons/sparkles';
+import ChevronRight from 'lucide-react-native/dist/esm/icons/chevron-right';
+import Clock from 'lucide-react-native/dist/esm/icons/clock';
+import FileDown from 'lucide-react-native/dist/esm/icons/file-down';
+import X from 'lucide-react-native/dist/esm/icons/x';
+import AlertTriangle from 'lucide-react-native/dist/esm/icons/triangle-alert';
 import { useUpdate } from '../contexts/UpdateContext';
 import Colors from '../constants/colors';
 
