@@ -18,7 +18,7 @@ import Mail from 'lucide-react-native/dist/esm/icons/mail';
 import Lock from 'lucide-react-native/dist/esm/icons/lock';
 import Eye from 'lucide-react-native/dist/esm/icons/eye';
 import EyeOff from 'lucide-react-native/dist/esm/icons/eye-off';
-import CheckCircle from 'lucide-react-native/dist/esm/icons/check-circle';
+import CheckCircle from 'lucide-react-native/dist/esm/icons/circle-check-big';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/colors';
 
