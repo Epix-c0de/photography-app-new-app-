@@ -103,11 +103,11 @@ export default function BookingDetailScreen() {
     try {
       const { error } = await supabase
         .from('bookings')
-        .update({ date: newDate, status: 'pending' })
+        .update({ date: newDate, status: 'booked' })
         .eq('id', booking.id);
       if (error) throw error;
 
-      setBooking((prev: any) => ({ ...prev, date: newDate, status: 'pending' }));
+      setBooking((prev: any) => ({ ...prev, date: newDate, status: 'booked' }));
       setRescheduleModal(false);
       setRescheduleDate(null);
       Alert.alert('Rescheduled', `Your booking has been rescheduled to ${newDate}.`);

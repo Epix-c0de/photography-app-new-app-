@@ -529,6 +529,10 @@ export default function BookingsScreen() {
           console.error('[Bookings] Package fetch error:', pkgResult.error);
         }
 
+        if (bookingsResult.error) {
+          console.error('[Bookings] Bookings fetch error:', bookingsResult.error);
+        }
+
         if (pkgResult.data) {
           const normalized = pkgResult.data.map((p: any) => ({
             ...p,
@@ -586,7 +590,11 @@ export default function BookingsScreen() {
         .select('*')
         .eq('user_id', user.id)
         .order('date', { ascending: false })
-        .then(({ data }) => {
+        .then(({ data, error }) => {
+          if (error) {
+            console.error('[Bookings] Re-fetch error:', error);
+            return;
+          }
           if (data) {
             const pkgMap = new Map(packages.map((p: any) => [p.id, p.name]));
             setBookings(data.map((b: any) => ({ ...b, package_name: pkgMap.get(b.package_id) || null })));
@@ -700,6 +708,17 @@ export default function BookingsScreen() {
       if (bookingError) throw bookingError;
       setPendingBookingId(bookingData.id);
 
+      // Add the new booking to state so it appears immediately
+      if (bookingData) {
+        const pkg = packages.find((p: any) => p.id === selectedPackage);
+        const newBooking = {
+          ...bookingData,
+          package_name: pkg?.name || null,
+          photographer_name: pkg?.admin_profile?.name || null,
+        };
+        setBookings(prev => [newBooking as any, ...prev]);
+      }
+
       // Poll for payment status
       pollPaymentStatus(bookingData.id);
 
@@ -753,6 +772,18 @@ export default function BookingsScreen() {
           setTimeout(checkStatus, 3000);
         } else {
           setPaymentState('error');
+          // Reload bookings regardless — the booking was created before polling started
+          try {
+            const { data: bookingsData } = await supabase
+              .from('bookings')
+              .select('*')
+              .eq('user_id', user?.id)
+              .order('date', { ascending: false });
+            if (bookingsData) {
+              const pkgMap = new Map(packages.map((p: any) => [p.id, p.name]));
+              setBookings(bookingsData.map((b: any) => ({ ...b, package_name: pkgMap.get(b.package_id) || null })));
+            }
+          } catch {}
         }
       } catch (e) {
         console.error('Error checking payment status:', e);
@@ -761,7 +792,7 @@ export default function BookingsScreen() {
     };
 
     checkStatus();
-  }, [isDemoMode, user]);
+  }, [isDemoMode, user, packages]);
 
   const handleConfirmBooking = useCallback(async () => {
     if (!selectedPackage) {
@@ -1235,7 +1266,7 @@ export default function BookingsScreen() {
                         .insert({
                           user_id: user?.id,
                           package_id: selectedPackage,
-                          status: 'pending',
+                          status: 'booked',
                           date: bookingDate,
                           time: bookingTime || 'TBD',
                           location: bookingLocation || 'TBD',
